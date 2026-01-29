@@ -1,0 +1,211 @@
+services:
+  # ===========================================================================
+  # Core Services
+  # ===========================================================================
+
+  # TimescaleDB (PostgreSQL with time-series extension)
+  timescaledb:
+    image: timescale/timescaledb:latest-pg15
+    container_name: trader-timescaledb
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: trader
+      POSTGRES_PASSWORD: trader_secret
+      POSTGRES_DB: trader
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trader -d trader"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for caching and session management
+  redis:
+    image: redis:7-alpine
+    container_name: trader-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Trader API Server
+  trader-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # BuildKit 캐시 활성화 (의존성 캐싱으로 빌드 속도 향상)
+      args:
+        BUILDKIT_INLINE_CACHE: 1
+    container_name: trader-api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - RUST_LOG=info,trader_api=debug
+      - API_HOST=0.0.0.0
+      - API_PORT=3000
+      - DATABASE_URL=postgresql://trader:trader_secret@timescaledb:5432/trader
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
+      # Credential Encryption (Base64 encoded 32-byte key)
+      - ENCRYPTION_MASTER_KEY=${ENCRYPTION_MASTER_KEY:-MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=}
+      # Telegram settings
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      - TELEGRAM_ENABLED=${TELEGRAM_ENABLED:-false}
+      # KIS API settings (optional)
+      - KIS_PAPER_APP_KEY=${KIS_PAPER_APP_KEY:-}
+      - KIS_PAPER_APP_SECRET=${KIS_PAPER_APP_SECRET:-}
+      - KIS_PAPER_ACCOUNT_NUMBER=${KIS_PAPER_ACCOUNT_NUMBER:-}
+      - KIS_PAPER_ACCOUNT_CODE=${KIS_PAPER_ACCOUNT_CODE:-01}
+      # Rate limit (개발/테스트 환경에서는 비활성화)
+      - RATE_LIMIT_DISABLED=true
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+
+  # ===========================================================================
+  # Monitoring Services (use with --profile monitoring)
+  # ===========================================================================
+
+  # Prometheus - Metrics Collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: trader-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alerts:/etc/prometheus/alerts:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    profiles:
+      - monitoring
+
+  # Grafana - Visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: trader-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://localhost:3001
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    profiles:
+      - monitoring
+
+  # ===========================================================================
+  # Development Tools (use with --profile dev)
+  # ===========================================================================
+
+  # Redis Commander (Web UI for Redis)
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: trader-redis-commander
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    depends_on:
+      - redis
+    profiles:
+      - dev
+
+  # pgAdmin (Web UI for PostgreSQL)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: trader-pgadmin
+    restart: unless-stopped
+    ports:
+      - "5050:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@trader.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - timescaledb
+    profiles:
+      - dev
+
+  # Frontend Development Server (Hot Reload 지원)
+  frontend-dev:
+    image: node:20-alpine
+    container_name: trader-frontend-dev
+    working_dir: /app
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app                # 소스 코드 마운트 → 실시간 반영
+      - frontend_node_modules:/app/node_modules  # node_modules는 볼륨으로 유지
+    environment:
+      - VITE_API_URL=http://trader-api:3000
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    depends_on:
+      - trader-api
+    profiles:
+      - dev
+
+volumes:
+  timescaledb_data:
+    driver: local
+  redis_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+  frontend_node_modules:
+    driver: local
+
+networks:
+  default:
+    name: trader-network

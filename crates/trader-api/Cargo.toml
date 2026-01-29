@@ -1,0 +1,86 @@
+[package]
+name = "trader-api"
+description = "REST API and WebSocket server"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "trader-api"
+path = "src/main.rs"
+
+[dependencies]
+trader-core = { path = "../trader-core" }
+trader-exchange = { path = "../trader-exchange" }
+trader-strategy = { path = "../trader-strategy" }
+trader-risk = { path = "../trader-risk" }
+trader-execution = { path = "../trader-execution" }
+trader-data = { path = "../trader-data" }
+trader-analytics = { path = "../trader-analytics", features = ["ml"] }
+trader-notification = { path = "../trader-notification" }
+
+# Async runtime
+tokio = { workspace = true }
+futures = { workspace = true }
+
+# Web framework
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Database
+sqlx = { workspace = true }
+redis = { workspace = true }
+
+# Numeric types
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
+
+# Date/Time
+chrono = { workspace = true }
+
+# UUID
+uuid = { workspace = true }
+
+# Authentication
+jsonwebtoken = { workspace = true }
+argon2 = { workspace = true }
+
+# Configuration
+config = { workspace = true }
+dotenvy = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# HTTP client (for data download)
+reqwest = { workspace = true }
+
+# Async traits
+async-trait = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Metrics
+metrics = "0.24"
+metrics-exporter-prometheus = "0.16"
+
+# Random (for simulator)
+rand = "0.8"
+
+# Lazy initialization
+lazy_static = "1.4"
+
+[features]
+test-utils = []
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

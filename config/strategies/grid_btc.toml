@@ -1,0 +1,52 @@
+# Grid Trading Strategy Configuration - BTC/USDT
+
+[strategy]
+id = "grid_btc_usdt"
+name = "BTC Grid Trading"
+description = "Grid trading strategy for BTC/USDT on Binance"
+enabled = true
+
+# Plugin path (relative to plugin_dir)
+plugin = "grid_trading"
+
+[parameters]
+# Trading symbol
+symbol = "BTC/USDT"
+exchange = "binance"
+
+# Grid settings
+# If null, uses current market price as center
+center_price = null
+
+# Grid spacing as percentage
+grid_spacing_pct = 1.0
+
+# Number of grid levels above and below center
+grid_levels = 10
+
+# Investment amount per level (in quote currency)
+amount_per_level = 50000
+
+# Optional price limits
+upper_limit = null
+lower_limit = null
+
+# Dynamic grid settings (ATR-based)
+use_dynamic_spacing = false
+atr_period = 14
+atr_multiplier = 1.5
+
+# Trend filter
+use_trend_filter = false
+ema_period = 200
+
+[risk_limits]
+# Override global risk settings for this strategy
+max_position_size = 1000000
+max_daily_loss = 50000
+stop_loss_pct = 5.0
+take_profit_pct = null  # Let grid handle exits
+
+[schedule]
+# 24/7 for crypto
+always_on = true

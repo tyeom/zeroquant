@@ -1,0 +1,494 @@
+//! 텔레그램 알림 서비스.
+//!
+//! Telegram Bot API를 통해 트레이딩 알림 및 업데이트를 전송합니다.
+
+use crate::types::{
+    Notification, NotificationError, NotificationEvent, NotificationPriority, NotificationResult,
+    NotificationSender,
+};
+use async_trait::async_trait;
+use rust_decimal::Decimal;
+use tracing::{debug, error, info, warn};
+
+/// 텔레그램 알림 전송 설정.
+#[derive(Debug, Clone)]
+pub struct TelegramConfig {
+    /// @BotFather에서 받은 봇 토큰
+    pub bot_token: String,
+    /// 메시지를 보낼 채팅 ID
+    pub chat_id: String,
+    /// 전송 활성화 여부
+    pub enabled: bool,
+    /// 파싱 모드 (HTML 또는 MarkdownV2)
+    pub parse_mode: String,
+}
+
+impl TelegramConfig {
+    /// 새 텔레그램 설정을 생성합니다.
+    pub fn new(bot_token: String, chat_id: String) -> Self {
+        Self {
+            bot_token,
+            chat_id,
+            enabled: true,
+            parse_mode: "HTML".to_string(),
+        }
+    }
+
+    /// 환경 변수에서 설정을 생성합니다.
+    pub fn from_env() -> Option<Self> {
+        let bot_token = std::env::var("TELEGRAM_BOT_TOKEN").ok()?;
+        let chat_id = std::env::var("TELEGRAM_CHAT_ID").ok()?;
+        let enabled = std::env::var("TELEGRAM_ENABLED")
+            .map(|v| v.to_lowercase() == "true")
+            .unwrap_or(true);
+
+        Some(Self {
+            bot_token,
+            chat_id,
+            enabled,
+            parse_mode: "HTML".to_string(),
+        })
+    }
+}
+
+/// 텔레그램 알림 전송기.
+pub struct TelegramSender {
+    config: TelegramConfig,
+    client: reqwest::Client,
+}
+
+impl TelegramSender {
+    /// 새 텔레그램 전송기를 생성합니다.
+    pub fn new(config: TelegramConfig) -> Self {
+        Self {
+            config,
+            client: reqwest::Client::new(),
+        }
+    }
+
+    /// 환경 변수에서 전송기를 생성합니다.
+    pub fn from_env() -> Option<Self> {
+        TelegramConfig::from_env().map(Self::new)
+    }
+
+    /// 알림을 텔레그램 메시지로 포맷합니다.
+    fn format_message(&self, notification: &Notification) -> String {
+        let priority_emoji = match notification.priority {
+            NotificationPriority::Low => "ℹ️",
+            NotificationPriority::Normal => "📊",
+            NotificationPriority::High => "⚠️",
+            NotificationPriority::Critical => "🚨",
+        };
+
+        let content = match &notification.event {
+            NotificationEvent::OrderFilled {
+                symbol,
+                side,
+                quantity,
+                price,
+                order_id,
+            } => {
+                let side_emoji = if side.to_lowercase() == "buy" {
+                    "🟢"
+                } else {
+                    "🔴"
+                };
+                format!(
+                    "{side_emoji} <b>주문 체결</b>\n\n\
+                     심볼: <code>{symbol}</code>\n\
+                     방향: {side}\n\
+                     수량: {quantity}\n\
+                     가격: {price}\n\
+                     주문ID: <code>{order_id}</code>"
+                )
+            }
+
+            NotificationEvent::PositionOpened {
+                symbol,
+                side,
+                quantity,
+                entry_price,
+            } => {
+                let side_emoji = if side.to_lowercase() == "buy" {
+                    "🟢"
+                } else {
+                    "🔴"
+                };
+                format!(
+                    "{side_emoji} <b>포지션 진입</b>\n\n\
+                     심볼: <code>{symbol}</code>\n\
+                     방향: {side}\n\
+                     수량: {quantity}\n\
+                     진입가: {entry_price}"
+                )
+            }
+
+            NotificationEvent::PositionClosed {
+                symbol,
+                side,
+                quantity,
+                entry_price,
+                exit_price,
+                pnl,
+                pnl_percent,
+            } => {
+                let pnl_emoji = if *pnl >= Decimal::ZERO { "💰" } else { "📉" };
+                let pnl_sign = if *pnl >= Decimal::ZERO { "+" } else { "" };
+                format!(
+                    "{pnl_emoji} <b>포지션 청산</b>\n\n\
+                     심볼: <code>{symbol}</code>\n\
+                     방향: {side}\n\
+                     수량: {quantity}\n\
+                     진입가: {entry_price}\n\
+                     청산가: {exit_price}\n\
+                     손익: <b>{pnl_sign}{pnl}</b> ({pnl_sign}{pnl_percent}%)"
+                )
+            }
+
+            NotificationEvent::StopLossTriggered {
+                symbol,
+                quantity,
+                trigger_price,
+                loss,
+            } => {
+                format!(
+                    "🛑 <b>손절 발동</b>\n\n\
+                     심볼: <code>{symbol}</code>\n\
+                     수량: {quantity}\n\
+                     발동가: {trigger_price}\n\
+                     손실: <b>-{loss}</b>"
+                )
+            }
+
+            NotificationEvent::TakeProfitTriggered {
+                symbol,
+                quantity,
+                trigger_price,
+                profit,
+            } => {
+                format!(
+                    "🎯 <b>익절 발동</b>\n\n\
+                     심볼: <code>{symbol}</code>\n\
+                     수량: {quantity}\n\
+                     발동가: {trigger_price}\n\
+                     수익: <b>+{profit}</b>"
+                )
+            }
+
+            NotificationEvent::DailySummary {
+                date,
+                total_trades,
+                winning_trades,
+                total_pnl,
+                win_rate,
+            } => {
+                let pnl_emoji = if *total_pnl >= Decimal::ZERO {
+                    "💰"
+                } else {
+                    "📉"
+                };
+                let pnl_sign = if *total_pnl >= Decimal::ZERO { "+" } else { "" };
+                format!(
+                    "📅 <b>일일 요약</b> ({date})\n\n\
+                     총 거래: {total_trades}건\n\
+                     승리: {winning_trades}건\n\
+                     승률: {win_rate}%\n\
+                     총 손익: {pnl_emoji} <b>{pnl_sign}{total_pnl}</b>"
+                )
+            }
+
+            NotificationEvent::RiskAlert {
+                alert_type,
+                message,
+                current_value,
+                threshold,
+            } => {
+                format!(
+                    "⚠️ <b>리스크 경고</b>\n\n\
+                     유형: {alert_type}\n\
+                     메시지: {message}\n\
+                     현재값: {current_value}\n\
+                     임계값: {threshold}"
+                )
+            }
+
+            NotificationEvent::StrategyStarted {
+                strategy_id,
+                strategy_name,
+            } => {
+                format!(
+                    "▶️ <b>전략 시작</b>\n\n\
+                     전략: {strategy_name}\n\
+                     ID: <code>{strategy_id}</code>"
+                )
+            }
+
+            NotificationEvent::StrategyStopped {
+                strategy_id,
+                strategy_name,
+                reason,
+            } => {
+                format!(
+                    "⏹️ <b>전략 중지</b>\n\n\
+                     전략: {strategy_name}\n\
+                     ID: <code>{strategy_id}</code>\n\
+                     사유: {reason}"
+                )
+            }
+
+            NotificationEvent::SystemError { error_code, message } => {
+                format!(
+                    "🚨 <b>시스템 오류</b>\n\n\
+                     코드: <code>{error_code}</code>\n\
+                     메시지: {message}"
+                )
+            }
+
+            NotificationEvent::Custom { title, message } => {
+                format!("{priority_emoji} <b>{title}</b>\n\n{message}")
+            }
+        };
+
+        let timestamp = notification.timestamp.format("%Y-%m-%d %H:%M:%S UTC");
+        format!("{content}\n\n<i>🕐 {timestamp}</i>")
+    }
+
+    /// 텔레그램에 원시 메시지를 전송합니다.
+    async fn send_message(&self, text: &str) -> NotificationResult<()> {
+        let url = format!(
+            "https://api.telegram.org/bot{}/sendMessage",
+            self.config.bot_token
+        );
+
+        let params = serde_json::json!({
+            "chat_id": self.config.chat_id,
+            "text": text,
+            "parse_mode": self.config.parse_mode,
+            "disable_web_page_preview": true,
+        });
+
+        debug!("Sending Telegram message to chat_id: {}", self.config.chat_id);
+
+        let response = self
+            .client
+            .post(&url)
+            .json(&params)
+            .send()
+            .await
+            .map_err(NotificationError::NetworkError)?;
+
+        if response.status().is_success() {
+            info!("Telegram notification sent successfully");
+            Ok(())
+        } else {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+
+            // 요청 한도 제한 확인
+            if status.as_u16() == 429 {
+                warn!("Telegram rate limited");
+                return Err(NotificationError::RateLimited(60));
+            }
+
+            error!("Failed to send Telegram message: {} - {}", status, body);
+            Err(NotificationError::SendFailed(format!(
+                "HTTP {}: {}",
+                status, body
+            )))
+        }
+    }
+}
+
+#[async_trait]
+impl NotificationSender for TelegramSender {
+    async fn send(&self, notification: &Notification) -> NotificationResult<()> {
+        if !self.is_enabled() {
+            debug!("Telegram notifications are disabled, skipping");
+            return Ok(());
+        }
+
+        let message = self.format_message(notification);
+        self.send_message(&message).await
+    }
+
+    fn is_enabled(&self) -> bool {
+        self.config.enabled && !self.config.bot_token.is_empty() && !self.config.chat_id.is_empty()
+    }
+
+    fn name(&self) -> &str {
+        "telegram"
+    }
+}
+
+/// 여러 전송기를 관리하는 알림 관리자.
+pub struct NotificationManager {
+    senders: Vec<Box<dyn NotificationSender>>,
+}
+
+impl NotificationManager {
+    /// 새 알림 관리자를 생성합니다.
+    pub fn new() -> Self {
+        Self {
+            senders: Vec::new(),
+        }
+    }
+
+    /// 알림 전송기를 추가합니다.
+    pub fn add_sender<S: NotificationSender + 'static>(&mut self, sender: S) {
+        self.senders.push(Box::new(sender));
+    }
+
+    /// 활성화된 모든 전송기를 통해 알림을 전송합니다.
+    pub async fn notify(&self, notification: &Notification) -> NotificationResult<()> {
+        let mut last_error = None;
+
+        for sender in &self.senders {
+            if sender.is_enabled() {
+                if let Err(e) = sender.send(notification).await {
+                    error!("Failed to send notification via {}: {}", sender.name(), e);
+                    last_error = Some(e);
+                }
+            }
+        }
+
+        if let Some(e) = last_error {
+            // 모든 전송기가 실패한 경우에만 에러 반환
+            if self.senders.iter().filter(|s| s.is_enabled()).count() == 1 {
+                return Err(e);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// 주문 체결 알림을 전송합니다.
+    pub async fn notify_order_filled(
+        &self,
+        symbol: &str,
+        side: &str,
+        quantity: Decimal,
+        price: Decimal,
+        order_id: &str,
+    ) -> NotificationResult<()> {
+        let notification = Notification::new(NotificationEvent::OrderFilled {
+            symbol: symbol.to_string(),
+            side: side.to_string(),
+            quantity,
+            price,
+            order_id: order_id.to_string(),
+        });
+        self.notify(&notification).await
+    }
+
+    /// 포지션 청산 알림을 전송합니다.
+    pub async fn notify_position_closed(
+        &self,
+        symbol: &str,
+        side: &str,
+        quantity: Decimal,
+        entry_price: Decimal,
+        exit_price: Decimal,
+        pnl: Decimal,
+        pnl_percent: Decimal,
+    ) -> NotificationResult<()> {
+        let priority = if pnl >= Decimal::ZERO {
+            NotificationPriority::Normal
+        } else {
+            NotificationPriority::High
+        };
+
+        let notification = Notification::new(NotificationEvent::PositionClosed {
+            symbol: symbol.to_string(),
+            side: side.to_string(),
+            quantity,
+            entry_price,
+            exit_price,
+            pnl,
+            pnl_percent,
+        })
+        .with_priority(priority);
+
+        self.notify(&notification).await
+    }
+
+    /// 리스크 경고 알림을 전송합니다.
+    pub async fn notify_risk_alert(
+        &self,
+        alert_type: &str,
+        message: &str,
+        current_value: Decimal,
+        threshold: Decimal,
+    ) -> NotificationResult<()> {
+        let notification = Notification::new(NotificationEvent::RiskAlert {
+            alert_type: alert_type.to_string(),
+            message: message.to_string(),
+            current_value,
+            threshold,
+        })
+        .with_priority(NotificationPriority::Critical);
+
+        self.notify(&notification).await
+    }
+
+    /// 시스템 오류 알림을 전송합니다.
+    pub async fn notify_system_error(&self, error_code: &str, message: &str) -> NotificationResult<()> {
+        let notification = Notification::new(NotificationEvent::SystemError {
+            error_code: error_code.to_string(),
+            message: message.to_string(),
+        })
+        .with_priority(NotificationPriority::Critical);
+
+        self.notify(&notification).await
+    }
+}
+
+impl Default for NotificationManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_order_filled() {
+        let config = TelegramConfig::new("test_token".to_string(), "123456".to_string());
+        let sender = TelegramSender::new(config);
+
+        let notification = Notification::new(NotificationEvent::OrderFilled {
+            symbol: "BTC/USDT".to_string(),
+            side: "buy".to_string(),
+            quantity: Decimal::new(1, 2), // 0.01
+            price: Decimal::new(50000, 0),
+            order_id: "12345".to_string(),
+        });
+
+        let message = sender.format_message(&notification);
+        assert!(message.contains("주문 체결"));
+        assert!(message.contains("BTC/USDT"));
+        assert!(message.contains("buy"));
+    }
+
+    #[test]
+    fn test_format_position_closed_profit() {
+        let config = TelegramConfig::new("test_token".to_string(), "123456".to_string());
+        let sender = TelegramSender::new(config);
+
+        let notification = Notification::new(NotificationEvent::PositionClosed {
+            symbol: "ETH/USDT".to_string(),
+            side: "buy".to_string(),
+            quantity: Decimal::new(1, 0),
+            entry_price: Decimal::new(3000, 0),
+            exit_price: Decimal::new(3100, 0),
+            pnl: Decimal::new(100, 0),
+            pnl_percent: Decimal::new(333, 2), // 3.33%
+        });
+
+        let message = sender.format_message(&notification);
+        assert!(message.contains("포지션 청산"));
+        assert!(message.contains("💰")); // Profit emoji
+        assert!(message.contains("+100"));
+    }
+}
