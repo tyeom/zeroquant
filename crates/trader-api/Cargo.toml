@@ -17,7 +17,7 @@ trader-strategy = { path = "../trader-strategy" }
 trader-risk = { path = "../trader-risk" }
 trader-execution = { path = "../trader-execution" }
 trader-data = { path = "../trader-data" }
-trader-analytics = { path = "../trader-analytics", features = ["ml"] }
+trader-analytics = { path = "../trader-analytics" }  # ml feature는 선택적
 trader-notification = { path = "../trader-notification" }
 
 # Async runtime
@@ -80,7 +80,9 @@ rand = "0.8"
 lazy_static = "1.4"
 
 [features]
+default = []
 test-utils = []
+ml = ["trader-analytics/ml"]  # ONNX Runtime 기반 ML 추론 (로컬 빌드에서만)
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

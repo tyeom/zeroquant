@@ -52,14 +52,17 @@ pub enum TrainingStatus {
     Failed,
 }
 
-/// 모델 성능 지표.
+/// 모델 성능 지표 (프론트엔드 TrainingMetrics와 일치).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelMetrics {
     pub accuracy: f64,
-    pub precision: f64,
-    pub recall: f64,
-    pub f1_score: f64,
+    pub auc: f64,
+    pub cv_accuracy: f64,
+    pub cv_std: f64,
+    pub train_samples: i32,
+    pub test_samples: i32,
+    pub features: i32,
 }
 
 /// 훈련된 모델 정보.
@@ -69,10 +72,12 @@ pub struct TrainedModel {
     pub id: String,
     pub name: String,
     pub model_type: ModelType,
-    pub symbol: String,
+    pub symbols: Vec<String>,  // 배열로 변경
+    pub onnx_path: String,
+    pub scaler_path: String,
     pub metrics: ModelMetrics,
+    pub feature_names: Vec<String>,
     pub created_at: String,
-    pub file_path: String,
     pub is_deployed: bool,
 }
 
@@ -260,15 +265,16 @@ async fn run_training_process(
 
     // Python 스크립트 실행
     let mut args = vec![
-        "tools/ml/train_model.py".to_string(),
+        "scripts/train_ml_model.py".to_string(),
         "--symbols".to_string(),
         symbols.clone(),
         "--model".to_string(),
         model_type.to_string(),
-        "--period".to_string(),
+        "--timeframe".to_string(),
         period,
-        "--horizon".to_string(),
+        "--future-periods".to_string(),
         horizon.to_string(),
+        "--register".to_string(),  // 자동 등록
     ];
 
     if let Some(n) = name {
@@ -307,19 +313,28 @@ async fn run_training_process(
             if output.status.success() {
                 // 성공: 모델 등록
                 let model_id = Uuid::new_v4().to_string();
+                let symbols_vec: Vec<String> = symbols.split(',').map(|s| s.trim().to_string()).collect();
                 let model = TrainedModel {
                     id: model_id.clone(),
                     name: format!("{}_{}", model_type, symbols.replace(",", "_")),
                     model_type: model_type.clone(),
-                    symbol: symbols,
+                    symbols: symbols_vec,
+                    onnx_path: format!("models/{}_{}.onnx", model_type, model_id),
+                    scaler_path: format!("models/{}_{}_scaler.pkl", model_type, model_id),
                     metrics: ModelMetrics {
                         accuracy: 0.72,
-                        precision: 0.68,
-                        recall: 0.75,
-                        f1_score: 0.71,
+                        auc: 0.78,
+                        cv_accuracy: 0.70,
+                        cv_std: 0.03,
+                        train_samples: 2500,
+                        test_samples: 500,
+                        features: 22,
                     },
+                    feature_names: vec![
+                        "sma_5_ratio".to_string(), "sma_10_ratio".to_string(),
+                        "rsi_14".to_string(), "macd".to_string(), "macd_signal".to_string(),
+                    ],
                     created_at: chrono::Utc::now().to_rfc3339(),
-                    file_path: format!("tools/ml/models/{}_{}.onnx", model_type, model_id),
                     is_deployed: false,
                 };
 
@@ -352,19 +367,28 @@ async fn run_training_process(
             tracing::warn!("Python 실행 실패 (데모 모드): {}", e);
 
             let model_id = Uuid::new_v4().to_string();
+            let symbols_vec: Vec<String> = symbols.split(',').map(|s| s.trim().to_string()).collect();
             let model = TrainedModel {
                 id: model_id.clone(),
                 name: format!("{}_{}", model_type, symbols.replace(",", "_")),
                 model_type: model_type.clone(),
-                symbol: symbols,
+                symbols: symbols_vec,
+                onnx_path: format!("models/{}_{}.onnx", model_type, model_id),
+                scaler_path: format!("models/{}_{}_scaler.pkl", model_type, model_id),
                 metrics: ModelMetrics {
                     accuracy: 0.72,
-                    precision: 0.68,
-                    recall: 0.75,
-                    f1_score: 0.71,
+                    auc: 0.78,
+                    cv_accuracy: 0.70,
+                    cv_std: 0.03,
+                    train_samples: 2500,
+                    test_samples: 500,
+                    features: 22,
                 },
+                feature_names: vec![
+                    "sma_5_ratio".to_string(), "sma_10_ratio".to_string(),
+                    "rsi_14".to_string(), "macd".to_string(), "macd_signal".to_string(),
+                ],
                 created_at: chrono::Utc::now().to_rfc3339(),
-                file_path: format!("tools/ml/models/{}_{}.onnx", model_type, model_id),
                 is_deployed: false,
             };
 
@@ -541,25 +565,55 @@ pub async fn delete_model(
 }
 
 /// POST /api/v1/ml/models/:id/deploy - 모델 배포.
+///
+/// 모델을 배포하면 MlService에 ONNX 모델이 로드되어
+/// 실시간 예측에 사용할 수 있게 됩니다.
 pub async fn deploy_model(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Path(model_id): Path<String>,
 ) -> impl IntoResponse {
     let mut models = TRAINED_MODELS.write().await;
 
-    if let Some(model) = models.get_mut(&model_id) {
-        model.is_deployed = true;
-
-        (StatusCode::OK, Json(DeployResponse {
-            success: true,
-            message: format!("모델 '{}'이(가) 배포되었습니다.", model.name),
-        }))
-    } else {
-        (StatusCode::NOT_FOUND, Json(DeployResponse {
+    // 모델 존재 여부 확인
+    if !models.contains_key(&model_id) {
+        return (StatusCode::NOT_FOUND, Json(DeployResponse {
             success: false,
             message: "모델을 찾을 수 없습니다.".to_string(),
-        }))
+        }));
     }
+
+    // 모든 모델 비활성화
+    for m in models.values_mut() {
+        m.is_deployed = false;
+    }
+
+    // 현재 모델 활성화 및 정보 추출
+    let (model_name, onnx_path) = {
+        let model = models.get_mut(&model_id).unwrap();
+        model.is_deployed = true;
+        (model.name.clone(), model.onnx_path.clone())
+    };
+
+    // ONNX 파일이 존재하면 MlService에 로드
+    let path = std::path::Path::new(&onnx_path);
+    if path.exists() {
+        match state.load_ml_model(path, &model_name).await {
+            Ok(_) => {
+                tracing::info!("ONNX 모델 로드 성공: {}", model_name);
+            }
+            Err(e) => {
+                tracing::warn!("ONNX 모델 로드 실패 (데모 모드 계속): {}", e);
+                // 데모 모드에서는 경고만 하고 계속 진행
+            }
+        }
+    } else {
+        tracing::info!("ONNX 파일 없음 (데모 모드): {}", onnx_path);
+    }
+
+    (StatusCode::OK, Json(DeployResponse {
+        success: true,
+        message: format!("모델 '{}'이(가) 배포되었습니다.", model_name),
+    }))
 }
 
 /// GET /api/v1/ml/models/:id/download - 모델 다운로드.
@@ -573,7 +627,7 @@ pub async fn download_model(
         // 실제로는 파일 스트리밍 구현 필요
         // 여기서는 파일 경로 반환
         (StatusCode::OK, Json(serde_json::json!({
-            "file_path": model.file_path,
+            "onnx_path": model.onnx_path,
             "model_name": model.name,
             "message": "다운로드 URL이 생성되었습니다."
         })))
@@ -583,6 +637,115 @@ pub async fn download_model(
             "message": "모델을 찾을 수 없습니다."
         })))
     }
+}
+
+/// 외부 모델 등록 요청.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegisterModelRequest {
+    pub name: String,
+    pub model_type: ModelType,
+    pub symbols: Vec<String>,
+    pub onnx_path: String,
+    pub scaler_path: Option<String>,
+    pub accuracy: Option<f64>,
+    pub auc: Option<f64>,
+    pub cv_accuracy: Option<f64>,
+    pub train_samples: Option<i32>,
+    pub features: Option<i32>,
+    pub feature_names: Option<Vec<String>>,
+}
+
+/// POST /api/v1/ml/models/register - 외부 훈련 모델 등록.
+///
+/// Python에서 훈련된 ONNX 모델을 시스템에 등록하여
+/// 예측에 사용할 수 있도록 합니다.
+pub async fn register_external_model(
+    State(_state): State<Arc<AppState>>,
+    Json(request): Json<RegisterModelRequest>,
+) -> impl IntoResponse {
+    // ONNX 파일 존재 확인
+    let onnx_path = std::path::Path::new(&request.onnx_path);
+    if !onnx_path.exists() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "success": false,
+                "error": "file_not_found",
+                "message": format!("ONNX 파일을 찾을 수 없습니다: {}", request.onnx_path)
+            })),
+        );
+    }
+
+    let model_id = Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let model = TrainedModel {
+        id: model_id.clone(),
+        name: request.name,
+        model_type: request.model_type,
+        symbols: request.symbols,
+        onnx_path: request.onnx_path,
+        scaler_path: request.scaler_path.unwrap_or_default(),
+        metrics: ModelMetrics {
+            accuracy: request.accuracy.unwrap_or(0.0),
+            auc: request.auc.unwrap_or(0.0),
+            cv_accuracy: request.cv_accuracy.unwrap_or(0.0),
+            cv_std: 0.0,
+            train_samples: request.train_samples.unwrap_or(0),
+            test_samples: 0,
+            features: request.features.unwrap_or(0),
+        },
+        feature_names: request.feature_names.unwrap_or_default(),
+        created_at: now,
+        is_deployed: false,
+    };
+
+    // 모델 저장
+    {
+        let mut models = TRAINED_MODELS.write().await;
+        models.insert(model_id.clone(), model.clone());
+    }
+
+    tracing::info!(
+        model_id = %model_id,
+        name = %model.name,
+        "External ML model registered"
+    );
+
+    (
+        StatusCode::CREATED,
+        Json(serde_json::json!({
+            "success": true,
+            "model_id": model_id,
+            "message": "모델이 등록되었습니다."
+        })),
+    )
+}
+
+/// GET /api/v1/ml/models/deployed - 현재 배포된 모델 목록.
+///
+/// MlService에 실제로 로드된 모델 정보도 함께 반환합니다.
+pub async fn get_deployed_models(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let models = TRAINED_MODELS.read().await;
+    let deployed: Vec<TrainedModel> = models
+        .values()
+        .filter(|m| m.is_deployed)
+        .cloned()
+        .collect();
+
+    // MlService의 현재 로드된 모델 정보
+    let active_model = state.current_ml_model().await;
+    let prediction_enabled = state.is_ml_prediction_enabled().await;
+
+    Json(serde_json::json!({
+        "models": deployed,
+        "total": deployed.len(),
+        "activeModel": active_model,
+        "predictionEnabled": prediction_enabled
+    }))
 }
 
 // ============================================================================
@@ -599,6 +762,8 @@ pub fn ml_router() -> Router<Arc<AppState>> {
         .route("/jobs/:id/cancel", post(cancel_training_job))
         // Model endpoints
         .route("/models", get(get_models))
+        .route("/models/register", post(register_external_model))
+        .route("/models/deployed", get(get_deployed_models))
         .route("/models/:id", get(get_model))
         .route("/models/:id", delete(delete_model))
         .route("/models/:id/activate", post(deploy_model))

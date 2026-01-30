@@ -17,7 +17,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use trader_analytics::ml::{
-    CandlestickPatternInfo, ChartPatternInfo, MlService, PatternDetectionResult,
+    CandlestickPatternInfo, ChartPatternInfo, PatternDetectionResult,
 };
 
 use crate::state::AppState;
@@ -114,11 +114,11 @@ pub struct PatternTypesResponse {
 ///
 /// GET /api/v1/patterns/candlestick?symbol=BTC/USDT&timeframe=1h&limit=100
 async fn get_candlestick_patterns(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Query(query): Query<PatternQuery>,
 ) -> Json<CandlestickPatternsResponse> {
-    // ML 서비스 생성
-    let ml_service = MlService::with_defaults().expect("Failed to create ML service");
+    // AppState의 ML 서비스 사용
+    let ml_service = state.ml_service.read().await;
 
     // TODO: 실제 Kline 데이터 가져오기 (현재는 빈 벡터)
     // let klines = state.data_manager.get_klines(&query.symbol, &query.timeframe, query.limit).await;
@@ -147,11 +147,11 @@ async fn get_candlestick_patterns(
 ///
 /// GET /api/v1/patterns/chart?symbol=BTC/USDT&timeframe=1h&limit=100
 async fn get_chart_patterns(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Query(query): Query<PatternQuery>,
 ) -> Json<ChartPatternsResponse> {
-    // ML 서비스 생성
-    let ml_service = MlService::with_defaults().expect("Failed to create ML service");
+    // AppState의 ML 서비스 사용
+    let ml_service = state.ml_service.read().await;
 
     // TODO: 실제 Kline 데이터 가져오기
     let klines: Vec<trader_core::Kline> = Vec::new();
@@ -179,11 +179,11 @@ async fn get_chart_patterns(
 ///
 /// GET /api/v1/patterns/detect?symbol=BTC/USDT&timeframe=1h&limit=100
 async fn detect_all_patterns(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Query(query): Query<PatternQuery>,
 ) -> Json<PatternDetectionResult> {
-    // ML 서비스 생성
-    let ml_service = MlService::with_defaults().expect("Failed to create ML service");
+    // AppState의 ML 서비스 사용
+    let ml_service = state.ml_service.read().await;
 
     // TODO: 실제 Kline 데이터 가져오기
     let klines: Vec<trader_core::Kline> = Vec::new();

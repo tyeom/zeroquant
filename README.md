@@ -236,7 +236,7 @@ zeroquant/
 │       ├── Backtest.tsx     # 백테스트 실행
 │       └── Simulation.tsx   # 시뮬레이션
 ├── migrations/              # DB 마이그레이션 (13개)
-└── monitoring/              # Prometheus/Grafana
+└── scripts/ml/              # ML 훈련 파이프라인
 ```
 
 ## 기술 스택
@@ -246,8 +246,8 @@ zeroquant/
 | Backend | Rust, Tokio, Axum |
 | Database | PostgreSQL (TimescaleDB), Redis |
 | Frontend | SolidJS, TypeScript, Vite |
-| ML | ONNX Runtime, XGBoost, LightGBM |
-| Infrastructure | Docker, Prometheus, Grafana |
+| ML | ONNX Runtime, XGBoost, LightGBM, scikit-learn |
+| Infrastructure | Docker, TimescaleDB, Redis |
 
 ## 빠른 시작
 
@@ -266,23 +266,33 @@ cd zeroquant
 
 # 환경 설정
 cp .env.example .env
-# .env 파일에서 DB 연결 정보 설정
-
-# Docker로 실행 (권장)
-docker-compose up -d
 ```
 
-### 개발 모드
+### 실행 (인프라 + 로컬 개발)
 
 ```bash
-# 백엔드
-cargo build --release
-cargo run --bin trader-cli
+# 1. 인프라 시작 (DB, Redis)
+docker-compose up -d
 
-# 프론트엔드
-cd frontend
-npm install
-npm run dev
+# 2. 백엔드 실행 (로컬)
+export DATABASE_URL=postgresql://trader:trader_secret@localhost:5432/trader
+export REDIS_URL=redis://localhost:6379
+cargo run --bin trader-api
+
+# 3. 프론트엔드 실행 (로컬)
+cd frontend && npm install && npm run dev
+```
+
+### ML 모델 훈련
+
+```bash
+# Docker로 ML 훈련 실행
+docker-compose --profile ml run --rm trader-ml \
+  python scripts/train_ml_model.py --symbol SPY --model xgboost
+
+# 사용 가능한 심볼 목록
+docker-compose --profile ml run --rm trader-ml \
+  python scripts/train_ml_model.py --list-symbols
 ```
 
 ## 설정

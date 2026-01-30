@@ -626,6 +626,7 @@ const columnText: Record<SortColumnType, string> = {
 
 interface SymbolPanelProps {
   symbol?: string
+  symbolDisplayName?: string  // 티커 (이름) 형식의 표시 이름
   timeframe: string
   datasets: DatasetSummary[]
   cachedSymbols: string[]
@@ -1080,73 +1081,18 @@ function SymbolPanel(props: SymbolPanelProps) {
     }
   }
 
-  // 심볼 자동완성 UI
-  const SymbolSearchUI = () => (
-    <div class="h-full flex flex-col items-center justify-center p-4">
-      {/* 심볼 자동완성 입력 */}
-      <div class="w-full max-w-md">
-        <div class="relative">
-          <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[var(--color-text-muted)]" />
-          <input
-            type="text"
-            value={panelSearch()}
-            onInput={(e) => {
-              setPanelSearch(e.currentTarget.value)
-              setShowAutocomplete(true)
-              setSelectedIndex(-1)
-            }}
-            onFocus={() => setShowAutocomplete(true)}
-            onBlur={() => setTimeout(() => setShowAutocomplete(false), 200)}
-            onKeyDown={handleKeyDown}
-            placeholder="심볼 검색 (예: AAPL, 005930)..."
-            class="w-full pl-10 pr-4 py-3 text-base bg-[var(--color-bg)] text-[var(--color-text)]
-                   rounded-xl border-2 border-[var(--color-surface-light)]
-                   focus:outline-none focus:border-[var(--color-primary)]
-                   placeholder:text-[var(--color-text-muted)]"
-          />
-
-          {/* 자동완성 드롭다운 */}
-          <Show when={showAutocomplete() && panelSearch().trim() && autocompleteSymbols().length > 0}>
-            <div class="absolute top-full left-0 right-0 mt-1 bg-[var(--color-surface)]
-                        border border-[var(--color-surface-light)] rounded-lg shadow-xl z-50
-                        max-h-64 overflow-auto">
-              <For each={autocompleteSymbols()}>
-                {(symbol, index) => (
-                  <button
-                    onMouseDown={(e) => {
-                      e.preventDefault()
-                      handleSelectSymbol(symbol)
-                    }}
-                    class={`w-full px-4 py-2.5 text-left text-sm font-mono flex items-center gap-2
-                            transition hover:bg-[var(--color-surface-light)]
-                            ${index() === selectedIndex()
-                              ? 'bg-[var(--color-primary)]/20 text-[var(--color-primary)]'
-                              : 'text-[var(--color-text)]'}`}
-                  >
-                    <TrendingUp class="w-4 h-4 text-[var(--color-primary)]" />
-                    <span>{symbol}</span>
-                    <Show when={props.cachedSymbols.includes(symbol)}>
-                      <span class="ml-auto text-xs text-[var(--color-text-muted)] bg-[var(--color-bg)] px-1.5 py-0.5 rounded">
-                        캐시됨
-                      </span>
-                    </Show>
-                  </button>
-                )}
-              </For>
-            </div>
-          </Show>
-        </div>
-
-        {/* 힌트 텍스트 */}
-        <p class="text-center text-xs text-[var(--color-text-muted)] mt-3">
-          심볼을 입력하여 검색하거나 새 심볼을 입력 후 Enter
-        </p>
-      </div>
+  // 빈 패널 안내 UI (헤더에서 심볼 검색)
+  const EmptyPanelUI = () => (
+    <div class="h-full flex flex-col items-center justify-center p-4 text-center">
+      <Search class="w-10 h-10 text-[var(--color-text-muted)] mb-3 opacity-50" />
+      <p class="text-sm text-[var(--color-text-muted)]">
+        상단 헤더에서 심볼을 검색하세요
+      </p>
     </div>
   )
 
   return (
-    <Show when={props.symbol} fallback={<SymbolSearchUI />}>
+    <Show when={props.symbol} fallback={<EmptyPanelUI />}>
     <div class="h-full flex flex-col gap-2 overflow-hidden">
       {/* 심볼 + 타임프레임 + 액션 */}
       <div class="flex items-center justify-between flex-shrink-0">
@@ -1160,7 +1106,7 @@ function SymbolPanel(props: SymbolPanelProps) {
             title="심볼 변경"
           >
             <TrendingUp class="w-3 h-3" />
-            {props.symbol}
+            {props.symbolDisplayName || props.symbol}
             <X class="w-3 h-3 ml-1 opacity-60" />
           </button>
           {/* 타임프레임 */}
@@ -1581,6 +1527,29 @@ export function Dataset() {
   // 싱글 뷰용 상태
   const [activeSymbol, setActiveSymbol] = createSignal<string>('')
   const [activeTimeframe, setActiveTimeframe] = createSignal<string>('1d')
+  // 싱글 뷰 검색 상태
+  const [singleSearchQuery, setSingleSearchQuery] = createSignal('')
+  const [singleSearchResults, setSingleSearchResults] = createSignal<SymbolSearchResult[]>([])
+  const [singleSearchLoading, setSingleSearchLoading] = createSignal(false)
+  const [singleSelectedIndex, setSingleSelectedIndex] = createSignal(-1)
+
+  // 심볼 이름 캐시 (ticker -> name)
+  const [symbolNameCache, setSymbolNameCache] = createSignal<Map<string, string>>(new Map())
+
+  // 심볼 이름 캐시에 추가
+  const cacheSymbolName = (ticker: string, name: string) => {
+    setSymbolNameCache(prev => {
+      const newMap = new Map(prev)
+      newMap.set(ticker, name)
+      return newMap
+    })
+  }
+
+  // 심볼 표시 이름 반환 (티커 또는 티커(이름))
+  const getSymbolDisplayName = (ticker: string): string => {
+    const name = symbolNameCache().get(ticker)
+    return name ? `${ticker} (${name})` : ticker
+  }
 
   // UI 상태
   const [showDownloadForm, setShowDownloadForm] = createSignal(false)
@@ -1711,15 +1680,15 @@ export function Dataset() {
   // ==================== 핸들러 ====================
 
   // 패널 심볼 변경
-  const changePanelSymbol = (panelId: string, symbol: string) => {
+  const changePanelSymbol = (panelId: string, symbol: string, symbolName?: string) => {
     if (symbol) {
       setPanels(prev => prev.map(p =>
-        p.id === panelId ? { ...p, symbol, timeframe: '1d' } : p
+        p.id === panelId ? { ...p, symbol, symbolName, timeframe: '1d' } : p
       ))
     } else {
       // 심볼 해제 (검색 모드로 전환)
       setPanels(prev => prev.map(p =>
-        p.id === panelId ? { ...p, symbol: undefined } : p
+        p.id === panelId ? { ...p, symbol: undefined, symbolName: undefined } : p
       ))
     }
   }
@@ -1739,6 +1708,64 @@ export function Dataset() {
   // 빠른 다운로드
   const quickDownload = (symbol: string) => {
     downloadMutation.mutate({ symbol, timeframe: '1d', limit: 500 })
+  }
+
+  // 싱글 뷰 심볼 검색 (debounced)
+  let singleSearchTimeout: ReturnType<typeof setTimeout> | null = null
+  const handleSingleSearch = async (query: string) => {
+    setSingleSearchQuery(query)
+    setSingleSelectedIndex(-1)
+
+    if (singleSearchTimeout) clearTimeout(singleSearchTimeout)
+
+    if (!query.trim()) {
+      setSingleSearchResults([])
+      return
+    }
+
+    singleSearchTimeout = setTimeout(async () => {
+      setSingleSearchLoading(true)
+      try {
+        const results = await searchSymbols(query, 10)
+        setSingleSearchResults(results)
+      } catch {
+        setSingleSearchResults([])
+      } finally {
+        setSingleSearchLoading(false)
+      }
+    }, 300)
+  }
+
+  const handleSingleKeyDown = (e: KeyboardEvent) => {
+    const results = singleSearchResults()
+    const len = results.length
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setSingleSelectedIndex(prev => (prev + 1) % len)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setSingleSelectedIndex(prev => (prev - 1 + len) % len)
+    } else if (e.key === 'Enter' && singleSelectedIndex() >= 0 && singleSelectedIndex() < len) {
+      e.preventDefault()
+      const selected = results[singleSelectedIndex()]
+      selectSingleSymbol(selected.ticker, selected.name)
+    } else if (e.key === 'Escape') {
+      setSingleSearchResults([])
+      setSingleSelectedIndex(-1)
+    }
+  }
+
+  const selectSingleSymbol = (ticker: string, name?: string) => {
+    setActiveSymbol(ticker)
+    setActiveTimeframe('1d')
+    setSingleSearchQuery('')
+    setSingleSearchResults([])
+    setSingleSelectedIndex(-1)
+    // 심볼 이름 캐시
+    if (name) {
+      cacheSymbolName(ticker, name)
+    }
   }
 
   // 초기 패널 설정
@@ -2028,7 +2055,7 @@ export function Dataset() {
             onLayoutChange={setLayoutMode}
             onPanelClose={closePanel}
             availableSymbols={[...new Set([...cachedSymbols(), ...strategySymbols()])]}
-            onSymbolChange={(panelId, symbol) => changePanelSymbol(panelId, symbol)}
+            onSymbolChange={(panelId, symbol, symbolName) => changePanelSymbol(panelId, symbol, symbolName)}
             onSymbolSearch={async (query) => {
               const results = await searchSymbols(query, 10)
               return results.map(r => ({
@@ -2040,6 +2067,7 @@ export function Dataset() {
             renderPanel={(panel) => (
               <SymbolPanel
                 symbol={panel.symbol}
+                symbolDisplayName={panel.symbolName ? `${panel.symbol} (${panel.symbolName})` : undefined}
                 timeframe={panel.timeframe || '1d'}
                 datasets={datasetsQuery.data?.datasets || []}
                 cachedSymbols={cachedSymbols()}
@@ -2071,36 +2099,97 @@ export function Dataset() {
 
         <Show when={viewType() === 'single'}>
           {/* 싱글 뷰 */}
-          <div class="h-full bg-[var(--color-surface)] rounded-xl p-4">
-            <SymbolPanel
-              symbol={activeSymbol() || undefined}
-              timeframe={activeTimeframe()}
-              datasets={datasetsQuery.data?.datasets || []}
-              cachedSymbols={cachedSymbols()}
-              onSymbolChange={(symbol) => {
-                setActiveSymbol(symbol)
-                setActiveTimeframe('1d')
-              }}
-              onTimeframeChange={setActiveTimeframe}
-              onRefresh={() => {
-                if (activeSymbol()) {
-                  downloadMutation.mutate({
-                    symbol: activeSymbol(),
-                    timeframe: activeTimeframe(),
-                    limit: 500,
-                  })
-                }
-              }}
-              onDelete={() => {
-                if (activeSymbol()) {
-                  deleteMutation.mutate({
-                    symbol: activeSymbol(),
-                    timeframe: activeTimeframe(),
-                  })
-                }
-              }}
-              isRefreshing={downloadMutation.isPending}
-            />
+          <div class="h-full bg-[var(--color-surface)] rounded-xl p-4 flex flex-col gap-3">
+            {/* 싱글 뷰 심볼 검색 헤더 */}
+            <div class="flex-shrink-0 relative">
+              <div class="flex items-center gap-2">
+                <Search class="w-4 h-4 text-[var(--color-text-muted)]" />
+                <input
+                  type="text"
+                  placeholder="심볼/회사명 검색..."
+                  value={singleSearchQuery()}
+                  onInput={(e) => handleSingleSearch(e.currentTarget.value)}
+                  onKeyDown={handleSingleKeyDown}
+                  class="flex-1 bg-[var(--color-surface-light)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)] focus:border-transparent"
+                />
+                <Show when={activeSymbol()}>
+                  <button
+                    onClick={() => {
+                      setActiveSymbol('')
+                      setSingleSearchQuery('')
+                    }}
+                    class="p-2 hover:bg-[var(--color-surface-light)] rounded-lg transition-colors"
+                    title="심볼 해제"
+                  >
+                    <X class="w-4 h-4 text-[var(--color-text-muted)]" />
+                  </button>
+                </Show>
+              </div>
+              {/* 검색 결과 드롭다운 */}
+              <Show when={singleSearchResults().length > 0}>
+                <div class="absolute top-full left-0 right-0 mt-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg shadow-lg z-50 max-h-64 overflow-y-auto">
+                  <For each={singleSearchResults()}>
+                    {(result, idx) => (
+                      <button
+                        onClick={() => selectSingleSymbol(result.ticker, result.name)}
+                        class={`w-full px-3 py-2 text-left flex items-center gap-2 hover:bg-[var(--color-surface-light)] transition-colors ${
+                          idx() === singleSelectedIndex() ? 'bg-[var(--color-surface-light)]' : ''
+                        }`}
+                      >
+                        <TrendingUp class="w-4 h-4 text-[var(--color-primary)]" />
+                        <span class="font-medium text-[var(--color-text)]">{result.ticker}</span>
+                        <span class="text-sm text-[var(--color-text-muted)]">{result.name}</span>
+                        <Show when={result.market}>
+                          <span class="text-xs px-1.5 py-0.5 rounded bg-[var(--color-primary)]/10 text-[var(--color-primary)]">
+                            {result.market}
+                          </span>
+                        </Show>
+                      </button>
+                    )}
+                  </For>
+                </div>
+              </Show>
+              {/* 로딩 표시 */}
+              <Show when={singleSearchLoading()}>
+                <div class="absolute top-full left-0 right-0 mt-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg p-3 text-center">
+                  <Loader2 class="w-5 h-5 animate-spin mx-auto text-[var(--color-primary)]" />
+                </div>
+              </Show>
+            </div>
+
+            {/* SymbolPanel */}
+            <div class="flex-1 min-h-0">
+              <SymbolPanel
+                symbol={activeSymbol() || undefined}
+                symbolDisplayName={activeSymbol() ? getSymbolDisplayName(activeSymbol()) : undefined}
+                timeframe={activeTimeframe()}
+                datasets={datasetsQuery.data?.datasets || []}
+                cachedSymbols={cachedSymbols()}
+                onSymbolChange={(symbol) => {
+                  setActiveSymbol(symbol)
+                  setActiveTimeframe('1d')
+                }}
+                onTimeframeChange={setActiveTimeframe}
+                onRefresh={() => {
+                  if (activeSymbol()) {
+                    downloadMutation.mutate({
+                      symbol: activeSymbol(),
+                      timeframe: activeTimeframe(),
+                      limit: 500,
+                    })
+                  }
+                }}
+                onDelete={() => {
+                  if (activeSymbol()) {
+                    deleteMutation.mutate({
+                      symbol: activeSymbol(),
+                      timeframe: activeTimeframe(),
+                    })
+                  }
+                }}
+                isRefreshing={downloadMutation.isPending}
+              />
+            </div>
           </div>
         </Show>
       </div>

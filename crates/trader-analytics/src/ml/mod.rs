@@ -62,7 +62,9 @@ pub mod types;
 // 자주 사용되는 타입 재내보내기
 pub use error::{MlError, MlResult};
 pub use features::{FeatureConfig, FeatureExtractor};
-pub use predictor::{MockPredictor, OnnxPredictor, PredictionResult, PredictorConfig, PricePredictor};
+pub use predictor::{MockPredictor, PredictionResult, PredictorConfig, PricePredictor};
+#[cfg(feature = "ml")]
+pub use predictor::OnnxPredictor;
 pub use types::{
     ConfidenceLevel, FeatureVector, Prediction, PredictionDirection,
 };

@@ -5,6 +5,43 @@
 형식은 [Keep a Changelog](https://keepachangelog.com/ko/1.0.0/)를 따르며,
 [Semantic Versioning](https://semver.org/lang/ko/)을 준수합니다.
 
+## [0.4.0] - 2026-01-31
+
+### Added
+
+#### ML 훈련 파이프라인
+- **Python ML 훈련 스크립트** (`scripts/train_ml_model.py`)
+  - XGBoost, LightGBM, RandomForest 모델 지원
+  - DB에서 OHLCV 데이터 자동 로드
+  - 기술적 지표 기반 피처 엔지니어링 (30+ 피처)
+  - ONNX 포맷으로 모델 내보내기
+- **ML 모듈 구조** (`scripts/ml/`)
+  - `data_fetcher.py`: TimescaleDB에서 데이터 가져오기
+  - `feature_engineering.py`: RSI, MACD, Bollinger, ATR 등 피처 생성
+  - `model_trainer.py`: 하이퍼파라미터 튜닝, 교차 검증
+- **ML Docker 이미지** (`Dockerfile.ml`)
+  - Python 3.11 + 과학 계산 라이브러리
+  - `docker-compose --profile ml` 로 실행
+- **Python 프로젝트 설정** (`pyproject.toml`)
+  - uv 패키지 매니저 지원
+  - 의존성: pandas, scikit-learn, xgboost, lightgbm, onnx
+
+#### ML API 확장
+- **ML 서비스 레이어** (`ml/service.rs`): 예측 로직 분리
+- **ML API 엔드포인트** (`routes/ml.rs`): 모델 목록, 예측 API 확장
+- **예측기 개선** (`predictor.rs`): 다중 모델 지원
+
+#### Execution Cache
+- **실행 캐시 Repository** (`execution_cache.rs`): 전략 실행 상태 캐싱
+
+### Changed
+- `Dataset.tsx`: 데이터셋 페이지 UI/UX 개선
+- `MultiPanelGrid.tsx`: 차트 패널 레이아웃 개선
+- `patterns.rs`: 패턴 인식 API 개선
+- `state.rs`: AppState ML 서비스 통합
+
+---
+
 ## [0.3.0] - 2026-01-30
 
 ### Added

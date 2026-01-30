@@ -8,6 +8,7 @@ export type LayoutMode = '1x1' | '1x2' | '2x1' | '2x2' | '1x3' | '3x1' | '2x3' |
 export interface PanelConfig {
   id: string
   symbol?: string
+  symbolName?: string  // 심볼 이름 (티커와 함께 표시)
   timeframe?: string
   minimized?: boolean
 }
@@ -36,7 +37,7 @@ interface MultiPanelGridProps {
   onLayoutChange?: (mode: LayoutMode) => void
   // 심볼 자동완성 관련 props
   availableSymbols?: string[]
-  onSymbolChange?: (panelId: string, symbol: string) => void
+  onSymbolChange?: (panelId: string, symbol: string, symbolName?: string) => void
   // 심볼 검색 API 콜백 (회사명 검색 지원)
   onSymbolSearch?: (query: string) => Promise<SymbolSearchItem[]>
 }
@@ -126,8 +127,8 @@ export function MultiPanelGrid(props: MultiPanelGridProps) {
   const filteredSymbols = () => searchResults()
 
   // 심볼 선택 처리
-  const handleSymbolSelect = (panelId: string, symbol: string) => {
-    props.onSymbolChange?.(panelId, symbol)
+  const handleSymbolSelect = (panelId: string, symbol: string, symbolName?: string) => {
+    props.onSymbolChange?.(panelId, symbol, symbolName)
     setEditingPanelId(null)
     setSearchQuery('')
     setSelectedIndex(-1)
@@ -148,7 +149,7 @@ export function MultiPanelGrid(props: MultiPanelGridProps) {
       e.preventDefault()
       const idx = selectedIndex()
       if (idx >= 0 && idx < len) {
-        handleSymbolSelect(panelId, symbols[idx].ticker)
+        handleSymbolSelect(panelId, symbols[idx].ticker, symbols[idx].name)
       } else if (searchQuery().trim()) {
         // 검색어가 있으면 그대로 사용
         handleSymbolSelect(panelId, searchQuery().trim().toUpperCase())
@@ -296,7 +297,7 @@ export function MultiPanelGrid(props: MultiPanelGridProps) {
               <div class="h-full bg-[var(--color-surface)] rounded-xl overflow-hidden flex flex-col">
                 <div class="flex items-center justify-between px-3 py-2 bg-[var(--color-surface-light)] border-b border-[var(--color-bg)]">
                   <span class="text-sm font-medium text-[var(--color-text)]">
-                    {panel.symbol || '심볼 없음'}
+                    {panel.symbolName ? `${panel.symbol} (${panel.symbolName})` : panel.symbol || '심볼 없음'}
                   </span>
                   <div class="flex items-center gap-1">
                     <button
@@ -357,7 +358,7 @@ export function MultiPanelGrid(props: MultiPanelGridProps) {
                                  hover:bg-[var(--color-surface)]"
                         >
                           <Search class="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
-                          <span>{panel.symbol || '심볼 검색...'}</span>
+                          <span>{panel.symbolName ? `${panel.symbol} (${panel.symbolName})` : panel.symbol || '심볼 검색...'}</span>
                         </button>
                       }
                     >
@@ -391,7 +392,7 @@ export function MultiPanelGrid(props: MultiPanelGridProps) {
                                 <button
                                   onMouseDown={(e) => {
                                     e.preventDefault()
-                                    handleSymbolSelect(panel.id, item.ticker)
+                                    handleSymbolSelect(panel.id, item.ticker, item.name)
                                   }}
                                   class={`w-full px-3 py-2 text-left text-sm flex items-center gap-2
                                           transition hover:bg-[var(--color-surface-light)]

@@ -191,6 +191,108 @@ impl MlService {
         Self::new(MlServiceConfig::default())
     }
 
+    /// ONNX 모델 경로로 서비스 생성.
+    ///
+    /// # Arguments
+    /// * `model_path` - ONNX 모델 파일 경로
+    /// * `model_name` - 모델 식별 이름
+    #[cfg(feature = "ml")]
+    pub fn with_onnx_model(
+        config: MlServiceConfig,
+        model_path: impl AsRef<std::path::Path>,
+        model_name: &str,
+    ) -> MlResult<Self> {
+        use crate::ml::predictor::OnnxPredictor;
+
+        let feature_extractor = FeatureExtractor::new(config.feature_config.clone());
+        let pattern_recognizer = PatternRecognizer::new(config.pattern_config.clone());
+
+        let input_size = config.feature_config.feature_count();
+        let predictor_config = PredictorConfig::new(model_path.as_ref())
+            .with_input_size(input_size)
+            .with_model_name(model_name);
+
+        let predictor: Box<dyn PricePredictor> = Box::new(OnnxPredictor::load(predictor_config)?);
+
+        let mut service_config = config;
+        service_config.enable_prediction = true;
+
+        Ok(Self {
+            config: service_config,
+            feature_extractor,
+            pattern_recognizer,
+            predictor: Arc::new(RwLock::new(predictor)),
+        })
+    }
+
+    /// 런타임에 ONNX 모델 로드.
+    ///
+    /// 현재 predictor를 새 ONNX 모델로 교체합니다.
+    ///
+    /// # Arguments
+    /// * `model_path` - ONNX 모델 파일 경로
+    /// * `model_name` - 모델 식별 이름
+    #[cfg(feature = "ml")]
+    pub async fn load_onnx_model(
+        &self,
+        model_path: impl AsRef<std::path::Path>,
+        model_name: &str,
+    ) -> MlResult<()> {
+        use crate::ml::predictor::OnnxPredictor;
+
+        let input_size = self.config.feature_config.feature_count();
+        let predictor_config = PredictorConfig::new(model_path.as_ref())
+            .with_input_size(input_size)
+            .with_model_name(model_name);
+
+        let new_predictor: Box<dyn PricePredictor> = Box::new(OnnxPredictor::load(predictor_config)?);
+
+        let mut predictor = self.predictor.write().await;
+        *predictor = new_predictor;
+
+        tracing::info!("ONNX 모델 로드 완료: {}", model_name);
+        Ok(())
+    }
+
+    /// ONNX 모델 로드 (ml feature 없이 빌드 시 사용 불가).
+    #[cfg(not(feature = "ml"))]
+    pub async fn load_onnx_model(
+        &self,
+        _model_path: impl AsRef<std::path::Path>,
+        _model_name: &str,
+    ) -> MlResult<()> {
+        Err(crate::ml::error::MlError::ModelLoad(
+            "ONNX Runtime not available (build with 'ml' feature)".to_string()
+        ))
+    }
+
+    /// Mock predictor로 초기화 (테스트용).
+    pub async fn reset_to_mock(&self) {
+        let input_size = self.config.feature_config.feature_count();
+        let mock: Box<dyn PricePredictor> = Box::new(MockPredictor::new(input_size));
+
+        let mut predictor = self.predictor.write().await;
+        *predictor = mock;
+
+        tracing::info!("Mock predictor로 초기화됨");
+    }
+
+    /// 현재 로드된 모델 이름 반환.
+    pub async fn current_model_name(&self) -> String {
+        let predictor = self.predictor.read().await;
+        predictor.model_name().to_string()
+    }
+
+    /// 예측 기능 활성화 여부 설정.
+    pub fn set_prediction_enabled(&mut self, enabled: bool) {
+        self.config.enable_prediction = enabled;
+    }
+
+    /// 예측 기능이 활성화되어 있는지 확인.
+    pub fn is_prediction_enabled(&self) -> bool {
+        self.config.enable_prediction
+    }
+
     /// 설정 반환.
     pub fn config(&self) -> &MlServiceConfig {
         &self.config

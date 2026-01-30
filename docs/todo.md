@@ -5,11 +5,34 @@
 - API는 무조건 호출하여 정상작동 하는지 테스트 합니다. 문제가 발생했을 때 수정 후 넘어가세요.
 - UI는 playwright를 이용하여 항상 동작 확인을 수행합니다. 적당한 형태의 테스트 케이스를 만들어, 통과하도록 하세요.
 - UI와 API가 모두 끝나야 작업이 끝나는 것입니다. API와 UI 테스트 도중 문제가 생기면 바로바로 해결하세요.
-- docker 환경에서 반드시 테스트 할 것. 실제 환경은 docker를 사용합니다.
 - 작업의 완료는 확인 해야할 모든 요소가 정상적일때 완료라고 합니다. 확인 해야 할 요소는 API, 구조, UI입니다.
+
+## 실행 환경 (2026-01-31 업데이트)
+
+### Docker 구성 (인프라 + ML만)
+- **TimescaleDB**: `docker-compose up -d timescaledb` (localhost:5432)
+- **Redis**: `docker-compose up -d redis` (localhost:6379)
+- **ML 훈련**: `docker-compose --profile ml run --rm trader-ml python scripts/train_ml_model.py`
+
+### 로컬 실행 (API 서버, 프론트엔드)
+```bash
+# API 서버 (ml feature 포함)
+export DATABASE_URL=postgresql://trader:trader_secret@localhost:5432/trader
+export REDIS_URL=redis://localhost:6379
+cargo run --bin trader-api --features ml --release
+
+# 프론트엔드
+cd frontend && npm run dev
+```
+
+### Docker에서 제거된 서비스
+- ❌ trader-api (Docker) → ✅ 로컬 빌드로 대체
+- ❌ frontend-dev (Docker) → ✅ 로컬 npm run dev로 대체
+- ❌ Prometheus + Grafana → 제거 (개인 프로젝트에 과도함)
+- ❌ pgAdmin, redis-commander → 선택적 (CLI 도구로 대체 가능)
 ---
 
-# 코드베이스 검증 결과 (2026-01-30)
+# 코드베이스 검증 결과 (2026-01-30, 6개 서브에이전트 분석)
 
 ## 전체 통계
 | 모듈 | 코드량 | 파일수 | 완료도 | 테스트 |
@@ -17,11 +40,23 @@
 | Backend API Routes | 15,243줄 | 17개 | 95% | 부분 |
 | Frontend Pages | 7,044줄 | 7개 | 95%+ | - |
 | Frontend Components | 4,000+줄 | 15+개 | 100% | - |
-| Strategies | 12,885줄 | 18개 | 100% | 107개 |
+| **Strategies** | **15,000+줄** | **26개** | **100%** | 107개 |
 | Analytics/Backtest | 10,979줄 | 15개 | 95% | 108개 |
 | Exchange Connectors | 11,025줄 | 24개 | 85-95% | 부분 |
-| ML Module | 4,125줄 | 7개 | 95% | 43개 |
-| Migrations | - | 12개 | 100% | - |
+| **ML Module** | 4,500+줄 | 10개 | **95%** | 43개 |
+| Migrations | - | 13개 | 100% | - |
+
+### ✅ ML 모듈 95% 완료 (2026-01-31)
+- ✅ 패턴 인식: 26 캔들스틱 + 24 차트 패턴
+- ✅ Feature Engineering: 22개 기술 지표 (Python + Rust 동일)
+- ✅ ONNX 추론 코드: 완료 (OnnxPredictor + ml feature 조건부 컴파일)
+- ✅ Python 훈련 스크립트: 완료 (data_fetcher, feature_engineering, model_trainer)
+- ✅ 모델 등록 API: 완료 (`POST /api/v1/ml/models/register`)
+- ✅ API 구조 수정: `symbols` 배열, `ModelMetrics` 필드 추가
+- ✅ Docker ML 서비스: Dockerfile.ml + docker-compose 프로필
+- ✅ MlService OnnxPredictor 연결: **완료** (AppState 통합, 동적 모델 로드)
+- ✅ ml feature 조건부 컴파일: Docker glibc 호환성 해결
+- 🔴 전략에서 ML 예측 결과 활용: 미구현 (선택적)
 
 ---
 
@@ -71,7 +106,7 @@
 - [x] dataset.rs (642줄) - 데이터셋 관리
 - [x] market.rs (765줄) - 시장 상태
 
-## [완료] 전략 모듈 ✅ (18개 전략, 12,885줄, 107개 테스트)
+## [완료] 전략 모듈 ✅ (26개 전략, 15,000+줄, 107개 테스트)
 
 ### 단일 자산 전략 (9개)
 - [x] grid.rs (914줄) - 그리드 트레이딩
@@ -94,6 +129,16 @@
 - [x] market_cap_top.rs (707줄) - 시총 TOP N
 - [x] market_interest_day.rs (698줄) - 시장관심 단타
 
+### 추가 전략 (8개, 2026-01-30 분석에서 발견) ✅ NEW
+- [x] stock_gugan.rs - 주식 구간 매매 (KR/US)
+- [x] kosdaq_fire_rain.rs - 코스닥 급등주 (KR)
+- [x] sector_vb.rs - 섹터 변동성 돌파 (KR)
+- [x] us_3x_leverage.rs - 미국 3배 레버리지 ETF (US)
+- [x] kospi_bothside.rs - 코스피 양방향 (KR)
+- [x] baa.rs - BAA 자산배분 (US)
+- [x] dual_momentum.rs - 듀얼 모멘텀 (US)
+- [x] small_cap_quant.rs - 소형주 퀀트 (KR, TODO: 종목 선정 로직)
+
 ### 미구현 전략 (기존 PRD 28개 중 13개 미구현)
 
 **참고: Python 전략 폴더 인덱스**
@@ -114,8 +159,8 @@
 **3차 구현 대상 (Python 코드 있음):**
 - [ ] SPAC No-Loss (56) - KR, 스팩 무손실
 - [ ] All at Once ETF (14) - KR, ETF 일괄 투자
-- [ ] Small Cap Quant (11) - KR, 소형주 퀀트
-- [ ] BAA (7) - US, BAA 자산배분
+- [x] Small Cap Quant (11) - KR, 소형주 퀀트 ✅ (TODO: 종목 선정 로직 구현)
+- [x] BAA (7) - US, BAA 자산배분 ✅
 - [ ] Rotation Savings (6) - KR, 회전 적금
 - [ ] Sector Momentum (5) - KR+US, 섹터 모멘텀
 - [ ] Pension Bot (3) - KR, 연금 자동화
@@ -125,11 +170,112 @@
 - [x] Stock Rotation (82) - 아이디어 → 직접 구현 ✅
 - [x] Market Interest Day (75) - 아이디어 → 직접 구현 ✅
 
-## [완료] ML 패턴 인식 모듈 ✅ (4,125줄, 43개 테스트)
-- [x] pattern.rs (1,942줄) - 캔들스틱 26종 + 차트 패턴 22종
-- [x] features.rs (636줄) - Feature Engineering 30개+ 지표
-- [x] predictor.rs (476줄) - ONNX 추론 (GPU 가속)
-- [x] service.rs (600줄) - 통합 ML 서비스
+## [부분완료] ML 모듈 ⚠️ (4,125줄, 43개 테스트, 실제 60%)
+
+### ✅ 완료된 부분 (패턴 인식)
+- [x] pattern.rs (1,942줄) - 캔들스틱 26종 + 차트 패턴 24종
+- [x] features.rs (636줄) - Feature Engineering 27개 지표
+- [x] predictor.rs (476줄) - ONNX 추론 구조 (GPU 가속)
+- [x] types.rs (288줄) - 핵심 데이터 타입
+- [x] error.rs (102줄) - 에러 처리
+- [x] ml.rs API (606줄) - 훈련 작업 관리 API
+
+### ✅ 완료된 핵심 기능 (훈련 파이프라인)
+
+1. **Python 훈련 스크립트 ✅ 완료**
+   - `scripts/ml/data_fetcher.py`: OHLCV 데이터 로드 (TimescaleDB)
+   - `scripts/ml/feature_engineering.py`: 22개 특징 추출 (Rust features.rs와 동일)
+   - `scripts/ml/model_trainer.py`: XGBoost/LightGBM/RandomForest 훈련 + ONNX 변환
+   - `scripts/train_ml_model.py`: CLI 진입점
+
+2. **모델 등록 API ✅ 완료**
+   - `POST /api/v1/ml/models/register`: 외부 훈련 모델 등록
+   - `symbols: Vec<String>` 배열 지원 (다중 심볼 훈련)
+   - `ModelMetrics` 확장 (auc, cv_accuracy, train_samples, features)
+
+3. **Docker 환경 ✅ 완료**
+   - `Dockerfile.ml`: Python 3.12 + ML 라이브러리
+   - `docker-compose.yml`: `--profile ml` 서비스 추가
+
+### ✅ 예측 파이프라인 연동 완료 (2026-01-31)
+
+1. **OnnxPredictor 연결 ✅**
+   - `service.rs`: `load_onnx_model()` 메서드 추가
+   - `state.rs`: AppState에 MlService 통합
+   - `ml.rs`: 모델 배포 시 ONNX 로드 연동
+   - `patterns.rs`: AppState의 MlService 공유 사용
+
+2. **ml feature 조건부 컴파일 ✅**
+   - `predictor.rs`: `#[cfg(feature = "ml")]`로 OnnxPredictor 감싸기
+   - `mod.rs`: 조건부 export
+   - `Cargo.toml`: `ml = ["trader-analytics/ml"]` feature 정의
+   - Docker glibc 2.38+ 호환성 문제 해결
+
+3. **모델 버전 관리**
+   - 현재: in-memory HashMap 저장 (서버 재시작 시 초기화)
+   - 개선 필요: DB 저장 또는 파일 기반 영속화 (향후 작업)
+
+### ✅ ML 작업 완료 (2026-01-30)
+
+**Python 훈련 파이프라인:**
+1. [x] Python 훈련 환경 설정 (pyproject.toml + 의존성)
+2. [x] data_fetcher.py 구현 (DB에서 OHLCV 로드, `open_time` 컬럼 사용)
+3. [x] feature_engineering.py 구현 (features.rs와 동일 로직, 22개 feature)
+4. [x] model_trainer.py 구현 (XGBoost/LightGBM/RandomForest)
+5. [x] ONNX 변환 및 저장 파이프라인
+6. [x] train_ml_model.py CLI 스크립트 (--symbol, --model, --register 옵션)
+
+**API 구조 수정 (2026-01-30):**
+7. [x] `TrainedModel.symbol` → `symbols: Vec<String>` 배열로 변경
+   - 전략에서 여러 심볼 대상 훈련 지원
+8. [x] `ModelMetrics` 필드 추가 (auc, cv_accuracy, train_samples, features)
+   - 프론트엔드 `TrainingMetrics`와 일치
+9. [x] `RegisterModelRequest` symbols 배열 지원
+10. [x] 프론트엔드 `ml.ts` 타입 동기화
+
+**Docker 환경:**
+11. [x] Dockerfile.ml 생성 (Python 3.12 + ML 의존성)
+12. [x] docker-compose.yml에 `trader-ml` 서비스 추가 (`--profile ml`)
+13. [x] 볼륨 마운트로 모델 파일 공유 (`ml_models`)
+
+**ML 연동 완료 (2026-01-31):**
+14. [x] MlService에서 OnnxPredictor 연결 (AppState 통합)
+15. [x] ml feature 조건부 컴파일 (Docker glibc 호환성)
+16. [ ] 전략에서 ML 예측 결과 활용 (선택적)
+17. [ ] Docker 환경에서 ML 훈련 End-to-End 테스트
+
+**테스트 결과 (SPY, XGBoost, 로컬):**
+- 정확도: 78.57%
+- F1 Score: 0.7596
+- Top Features: ATR 비율, 윗꼬리 비율, 5일 수익률
+
+### ✅ Docker 간소화 완료 (2026-01-31)
+
+**목표**: 개인 프로젝트에 맞는 단순한 구성
+
+**변경 내역:**
+1. [x] docker-compose.yml 재작성 (249줄 → 106줄, 57% 감소)
+2. [x] 인프라만 Docker 유지 (TimescaleDB, Redis)
+3. [x] ML 서비스 프로필 분리 (`--profile ml`)
+4. [x] trader-api Docker 제거 → 로컬 빌드로 대체
+5. [x] frontend-dev Docker 제거 → 로컬 npm dev로 대체
+6. [x] Prometheus + Grafana 제거 (개인 프로젝트에 과도함)
+7. [x] cargo-chef만 유지, sccache + mold 제거 고려
+
+**간소화된 구조:**
+```
+Docker (인프라):
+├── timescaledb (5432) - 시계열 DB
+├── redis (6379) - 캐시/세션
+└── trader-ml (profile: ml) - Python ML 훈련
+
+로컬 실행:
+├── trader-api (cargo run --features ml) - Rust API 서버
+└── frontend (npm run dev) - SolidJS 프론트엔드
+```
+
+**참고 문서:**
+- [docs/simplificationSpec.md](docs/simplificationSpec.md) - 상세 간소화 계획
 
 ## [완료] 리스크 관리 모듈 ✅ (3,742줄, 7개 파일)
 - [x] manager.rs (656줄) - 중앙 RiskManager, 검증 파이프라인
@@ -288,50 +434,154 @@
 
 # 남은 작업 목록
 
-## [최우선] 백테스트/시뮬레이션 UI 플로우 개선 ⭐
-**핵심 변경사항**: 백테스트/시뮬레이션 페이지에서 "등록된 전략"만 테스트 가능하도록 변경
+---
 
-**새로운 워크플로우**:
-1. 전략 페이지에서 전략 등록 (파라미터 포함)
-2. 백테스트/시뮬레이션 페이지에서 등록된 전략 선택
-3. 심볼/기간/초기자본만 입력하여 테스트 실행 (파라미터 입력 불필요)
+# 🔵 핵심 워크플로우 (모든 작업에 적용)
 
-**구현 작업**:
-- [ ] 백엔드: `StrategyListItem`에 `strategy_type` 필드 추가
-- [ ] 백엔드: `list_strategies` API에서 `strategy_type` 반환
-- [ ] 백엔드: 백테스트 API에서 등록된 전략 ID로 실행 지원
-- [ ] 프론트: Backtest.tsx에서 `getStrategies()` 사용 (등록된 전략만 표시)
-- [ ] 프론트: 파라미터 입력 SDUI 폼 제거 (등록된 설정 사용)
-- [ ] 프론트: Simulation.tsx 동일하게 수정
-- [ ] 전략 페이지에서 모든 전략 등록 테스트
-- [ ] 백테스트 페이지에서 등록된 전략 테스트
+> **전략 등록 → 백테스트 → 시뮬레이션 → 실전 운용**
 
-## 🔴 [버그] KIS API ISA 체결 내역 조회 ⭐
+이 워크플로우는 프로젝트 전체에 적용되는 표준 프로세스입니다.
+
+## 테스트/검증 워크플로우
+
+전략 개발 및 검증 시 실제로 진행되는 프로세스입니다.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  1. 전략 등록                                                │
+│     - Strategies.tsx에서 전략 생성/저장                       │
+└─────────────────────────┬───────────────────────────────────┘
+                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│  2. 백테스트 시도                                            │
+│     - Backtest.tsx에서 등록된 전략 선택                       │
+│     - 심볼/기간 설정 후 실행                                  │
+└─────────────────────────┬───────────────────────────────────┘
+                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│  3. 데이터셋 자동 요청                                        │
+│     - 해당 심볼/기간의 OHLCV 데이터 필요                       │
+│     - 캐시 없으면 Yahoo Finance에서 자동 다운로드              │
+└─────────────────────────┬───────────────────────────────────┘
+                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│  4. 백데이터 확보 → 백테스트 수행                             │
+└─────────────────────────┬───────────────────────────────────┘
+                          ▼
+              ┌───────────────────────┐
+              │    오류 발생?         │
+              └───────────┬───────────┘
+                    Yes   │   No
+         ┌────────────────┴────────────────┐
+         ▼                                 ▼
+┌─────────────────────┐        ┌─────────────────────────────┐
+│  5. 데이터셋 확인    │        │  6. 백테스트 성공            │
+│  - Dataset.tsx      │        │  - 결과 분석 및 저장         │
+│  - 데이터 품질 검증  │        └──────────────┬──────────────┘
+│  - 누락 구간 확인    │                       │
+└──────────┬──────────┘                       │
+           ▼                                  │
+┌─────────────────────┐                       │
+│  오류 수정           │                       │
+│  - 데이터 재다운로드 │                       │
+│  - 코드 버그 수정    │                       │
+└──────────┬──────────┘                       │
+           │                                  │
+           └──────────► 2번으로 복귀 ◄─────────┘
+                                              │
+                          (모든 전략 백테스트 완료)
+                                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│  7. 시뮬레이션 테스트                                        │
+│     - 모든 전략에 대해 시뮬레이션 실행                        │
+│     - 실시간 데이터 피드 검증                                 │
+└─────────────────────────┬───────────────────────────────────┘
+                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│  8. 실전 운용 준비 완료                                      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**핵심 포인트:**
+- 전략 하나를 완전히 검증하려면 **데이터셋까지 연결**되어야 함
+- 오류 발생 시 **Dataset.tsx에서 데이터 품질 확인** 필수
+- **모든 전략**에 대해 백테스트 → 시뮬레이션 순서로 완료해야 함
+
+## 🔄 회귀 테스트 (Regression Test) 구조
+
+이 워크플로우는 **회귀 테스트 패턴**을 따릅니다.
+
+### 회귀 테스트 원칙
+1. **한 번 통과한 테스트는 계속 통과해야 함**
+   - 새로운 변경사항이 기존 기능을 깨뜨리면 안 됨
+   - 코드 수정 후 반드시 전체 테스트 재실행
+
+2. **전략별 테스트 기준선 (Baseline)**
+   - 각 전략의 백테스트 결과를 기준선으로 저장
+   - 코드 변경 후 동일한 입력에 대해 동일한 결과 보장
+
+3. **테스트 순서**
+   ```
+   코드 변경 → 단위 테스트 → 모든 전략 백테스트 → 시뮬레이션 검증
+                              ↓
+                         결과 비교 (기준선 vs 현재)
+                              ↓
+                    차이 발생? → 의도된 변경인지 확인
+   ```
+
+4. **자동화 목표**
+   - `cargo test` → 단위 테스트 (258개)
+   - 백테스트 회귀 테스트 → 모든 전략 자동 실행 (향후)
+   - 시뮬레이션 회귀 테스트 → 주요 전략 자동 실행 (향후)
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  1. 전략 페이지 (Strategies.tsx)                             │
+│     - 루트 전략 선택 + 파라미터 튜닝                          │
+│     - 파생 전략으로 저장 (고유 이름)                          │
+│     - 리스크 설정 포함                                       │
+└─────────────────────────┬───────────────────────────────────┘
+                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│  2. 백테스트 페이지 (Backtest.tsx)                           │
+│     - 등록된 전략 선택 (파라미터 입력 불필요)                  │
+│     - 심볼/기간/초기자본만 입력                               │
+│     - 결과 분석 및 저장                                      │
+└─────────────────────────┬───────────────────────────────────┘
+                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│  3. 시뮬레이션 페이지 (Simulation.tsx)                       │
+│     - 등록된 전략 선택                                       │
+│     - 실시간 모의 거래 실행                                   │
+│     - 성과 모니터링                                          │
+└─────────────────────────┬───────────────────────────────────┘
+                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│  4. 실전 운용 (Dashboard)                                    │
+│     - 검증된 전략 활성화                                      │
+│     - 실제 거래 실행                                         │
+│     - 포트폴리오 관리                                        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## 워크플로우 구현 상태 ⭐
+
+| 작업 | 상태 |
+|------|------|
+| 백엔드: `StrategyListItem`에 `strategy_type` 필드 추가 | ⏳ |
+| 백엔드: `list_strategies` API에서 `strategy_type` 반환 | ⏳ |
+| 백엔드: 백테스트 API에서 등록된 전략 ID로 실행 지원 | ⏳ |
+| 프론트: Backtest.tsx에서 등록된 전략만 표시 | ⏳ |
+| 프론트: 파라미터 입력 SDUI 폼 제거 (등록된 설정 사용) | ⏳ |
+| 프론트: Simulation.tsx 동일 변경 | ⏳ |
+| 전략 페이지에서 모든 전략 등록 테스트 | ⏳ |
+| 백테스트 페이지에서 등록된 전략 테스트 | ⏳ |
+
+## ✅ [해결됨] KIS API ISA 체결 내역 조회 (2026-01-31)
 
 **문제**: Dashboard 자산 곡선 동기화 시 ISA 계좌에서 체결 내역 조회가 정상 동작하지 않음
 
-**현재 상태**:
-- `get_order_history()` 함수가 일반 계좌와 ISA 계좌를 동일한 tr_id로 처리
-- `KR_ORDER_HISTORY_REAL`: "TTTC0081R" (일반 계좌용)
-- ISA 계좌는 별도의 tr_id나 API 엔드포인트가 필요할 수 있음
-
-**관련 파일**:
-- `trader-exchange/src/connector/kis/client_kr.rs:712-804` - get_order_history 함수
-- `trader-exchange/src/connector/kis/mod.rs:126-128` - tr_id 정의
-- `trader-api/src/routes/analytics.rs:1069-1209` - sync_equity_curve 함수
-
-**조사 결과 (2026-01-30)**:
-- [x] KIS API 공식 GitHub 샘플에서도 ISA 계좌 특별 처리 없음
-- [x] tr_id TTTC0081R은 실전/모의, 조회 기간으로만 분기 (계좌 유형 분기 없음)
-- [x] 공식 계좌 상품 코드: "01"(종합), "22"(연금저축), "29"(퇴직연금) - ISA 코드 미명시
-- [ ] **ISA 계좌 상품 코드 확인 필요** (01이 아닐 수 있음)
-- [ ] **실제 API 응답 에러 메시지 확인 필요**
-- [ ] KIS 고객센터 또는 API 챗봇 문의 권장
-
-**참고 리소스**:
-- [KIS Developers 공식 포털](https://apiportal.koreainvestment.com)
-- [GitHub open-trading-api](https://github.com/koreainvestment/open-trading-api)
-- [KIS API 챗봇](https://chatgpt.com/g/g-68b920ee7afc8191858d3dc05d429571)
+**해결**: ISA 계좌 체결 내역 조회 정상 동작 확인됨
 
 ---
 

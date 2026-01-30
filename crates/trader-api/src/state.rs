@@ -12,6 +12,8 @@ use trader_risk::RiskManager;
 use trader_execution::OrderExecutor;
 use trader_exchange::connector::kis::{KisKrClient, KisUsClient, KisOAuth};
 use trader_core::crypto::CredentialEncryptor;
+use trader_data::SymbolResolver;
+use trader_analytics::ml::MlService;
 
 use crate::websocket::{SharedSubscriptionManager, ServerMessage};
 
@@ -80,6 +82,12 @@ pub struct AppState {
     /// WebSocket 구독 관리자 - 실시간 이벤트 브로드캐스트
     pub subscriptions: Option<SharedSubscriptionManager>,
 
+    /// 심볼 변환 서비스 - 심볼 정규화 및 display name 제공
+    pub symbol_resolver: Option<Arc<SymbolResolver>>,
+
+    /// ML 서비스 - 패턴 인식, 피처 추출, 가격 예측
+    pub ml_service: Arc<RwLock<MlService>>,
+
     /// 서버 시작 시간 (업타임 계산용)
     pub started_at: chrono::DateTime<chrono::Utc>,
 
@@ -105,6 +113,10 @@ impl AppState {
             .and_then(|key| CredentialEncryptor::new(&key).ok())
             .map(Arc::new);
 
+        // ML 서비스 초기화 (기본 설정으로 시작, 필요시 ONNX 모델 로드)
+        let ml_service = MlService::with_defaults()
+            .expect("Failed to create MlService");
+
         Self {
             strategy_engine: Arc::new(RwLock::new(strategy_engine)),
             risk_manager: Arc::new(RwLock::new(risk_manager)),
@@ -117,6 +129,8 @@ impl AppState {
             kis_oauth_cache: Arc::new(RwLock::new(HashMap::new())),
             encryptor,
             subscriptions: None,
+            symbol_resolver: None,
+            ml_service: Arc::new(RwLock::new(ml_service)),
             started_at: chrono::Utc::now(),
             version: env!("CARGO_PKG_VERSION").to_string(),
         }
@@ -134,7 +148,11 @@ impl AppState {
     }
 
     /// 데이터베이스 연결 설정.
+    ///
+    /// DB 연결이 설정되면 SymbolResolver도 자동으로 생성됩니다.
     pub fn with_db_pool(mut self, pool: sqlx::PgPool) -> Self {
+        // SymbolResolver 생성 (DB 연결 필요)
+        self.symbol_resolver = Some(Arc::new(SymbolResolver::new(pool.clone())));
         self.db_pool = Some(pool);
         self
     }
@@ -235,6 +253,76 @@ impl AppState {
     pub fn has_kis_client(&self) -> bool {
         self.has_kis_kr_client() || self.has_kis_us_client()
     }
+
+    /// SymbolResolver 설정 여부 확인.
+    pub fn has_symbol_resolver(&self) -> bool {
+        self.symbol_resolver.is_some()
+    }
+
+    /// 여러 심볼의 display name을 배치로 조회.
+    ///
+    /// SymbolResolver가 설정되지 않은 경우 빈 HashMap 반환.
+    ///
+    /// # Arguments
+    /// * `symbols` - 조회할 심볼 목록
+    /// * `use_english` - 영문명 사용 여부
+    ///
+    /// # Returns
+    /// HashMap<심볼, display_name> (예: {"005930" => "005930(삼성전자)"})
+    pub async fn get_display_names(
+        &self,
+        symbols: &[String],
+        use_english: bool,
+    ) -> HashMap<String, String> {
+        if let Some(ref resolver) = self.symbol_resolver {
+            resolver
+                .get_display_names_batch(symbols, use_english)
+                .await
+                .unwrap_or_default()
+        } else {
+            HashMap::new()
+        }
+    }
+
+    /// 단일 심볼의 display name 조회.
+    ///
+    /// SymbolResolver가 설정되지 않은 경우 원본 심볼 반환.
+    pub async fn get_display_name(&self, symbol: &str, use_english: bool) -> String {
+        if let Some(ref resolver) = self.symbol_resolver {
+            resolver
+                .to_display_string(symbol, use_english)
+                .await
+                .unwrap_or_else(|_| symbol.to_string())
+        } else {
+            symbol.to_string()
+        }
+    }
+
+    /// ONNX 모델을 로드하여 ML 예측 활성화.
+    ///
+    /// # Arguments
+    /// * `model_path` - ONNX 모델 파일 경로
+    /// * `model_name` - 모델 식별 이름
+    pub async fn load_ml_model(
+        &self,
+        model_path: impl AsRef<std::path::Path>,
+        model_name: &str,
+    ) -> Result<(), trader_analytics::ml::MlError> {
+        let ml_service = self.ml_service.read().await;
+        ml_service.load_onnx_model(model_path, model_name).await
+    }
+
+    /// 현재 로드된 ML 모델 이름 반환.
+    pub async fn current_ml_model(&self) -> String {
+        let ml_service = self.ml_service.read().await;
+        ml_service.current_model_name().await
+    }
+
+    /// ML 예측 기능 활성화 상태 확인.
+    pub async fn is_ml_prediction_enabled(&self) -> bool {
+        let ml_service = self.ml_service.read().await;
+        ml_service.is_prediction_enabled()
+    }
 }
 
 /// 테스트용 AppState 생성 헬퍼.
@@ -254,6 +342,10 @@ pub fn create_test_state() -> AppState {
         "test_exchange",
         ConversionConfig::default(),
     );
+    let ml_service = MlService::with_defaults()
+        .expect("Failed to create MlService for test");
 
-    AppState::new(strategy_engine, risk_manager, executor)
+    let mut state = AppState::new(strategy_engine, risk_manager, executor);
+    state.ml_service = Arc::new(RwLock::new(ml_service));
+    state
 }

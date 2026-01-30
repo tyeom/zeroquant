@@ -5,9 +5,13 @@
 //! ONNX 형식으로 내보내야 합니다.
 
 use crate::ml::{FeatureVector, MlError, MlResult, Prediction, PredictionDirection};
+#[cfg(feature = "ml")]
 use ort::session::Session;
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+#[cfg(feature = "ml")]
+use std::path::Path;
+#[cfg(feature = "ml")]
 use tracing::{debug, info};
 
 /// ONNX predictor 설정.
@@ -98,11 +102,13 @@ impl PredictionResult {
 /// - 출력: [batch_size, 3] 형태의 float32 텐서 (softmax 확률)
 ///
 /// 출력 클래스: [Up, Down, Sideways]
+#[cfg(feature = "ml")]
 pub struct OnnxPredictor {
     session: Session,
     config: PredictorConfig,
 }
 
+#[cfg(feature = "ml")]
 impl OnnxPredictor {
     /// 지정된 경로에서 ONNX 모델 로드.
     pub fn load(config: PredictorConfig) -> MlResult<Self> {
@@ -333,6 +339,7 @@ pub trait PricePredictor: Send + Sync {
     fn model_name(&self) -> &str;
 }
 
+#[cfg(feature = "ml")]
 impl PricePredictor for OnnxPredictor {
     fn predict(&mut self, features: &FeatureVector) -> MlResult<PredictionResult> {
         OnnxPredictor::predict(self, features)
@@ -376,6 +383,7 @@ mod tests {
         assert_eq!(config.model_name, "test_model");
     }
 
+    #[cfg(feature = "ml")]
     #[test]
     fn test_model_not_found() {
         let config = PredictorConfig::new("nonexistent/model.onnx");

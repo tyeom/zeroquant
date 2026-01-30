@@ -84,6 +84,7 @@ export interface TrainedModel {
   createdAt: string
   metrics: TrainingMetrics
   featureNames: string[]
+  isDeployed?: boolean
 }
 
 /** 모델 목록 응답 */
