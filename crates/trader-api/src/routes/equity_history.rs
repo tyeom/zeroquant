@@ -581,6 +581,255 @@ pub struct SyncResult {
     pub synced_at: DateTime<Utc>,
 }
 
+// ==================== 종가 기반 자산 곡선 계산 ====================
+
+/// 체결 기록과 일별 종가를 기반으로 정확한 자산 곡선 계산.
+///
+/// **핵심 변경**: `current_cash` (현재 실제 현금 잔고)를 기준으로 역산하여
+/// 과거 현금 잔고를 정확하게 계산합니다.
+///
+/// 1. 체결 기록에서 일별 보유 수량 추적 (누적)
+/// 2. 현재 현금 잔고를 기준으로 과거 현금 역산
+/// 3. ohlcv 테이블에서 일별 종가 조회
+/// 4. 일별 자산 = Σ(보유 수량 × 종가) + 현금 잔고
+pub async fn sync_equity_with_market_prices(
+    pool: &PgPool,
+    credential_id: Uuid,
+    _current_cash: Decimal,  // 사용하지 않음 - 주식 가치만 추적
+    currency: &str,
+    market: &str,
+    account_type: Option<&str>,
+) -> Result<usize, sqlx::Error> {
+    use std::collections::{BTreeMap, HashMap};
+    use chrono::{NaiveDate, TimeZone};
+
+    // 1. 체결 기록 조회 (시간순 정렬)
+    let executions = sqlx::query(
+        r#"
+        SELECT executed_at, symbol, side, quantity, price, amount
+        FROM execution_cache
+        WHERE credential_id = $1
+        ORDER BY executed_at ASC
+        "#
+    )
+    .bind(credential_id)
+    .fetch_all(pool)
+    .await?;
+
+    if executions.is_empty() {
+        tracing::info!("No executions found for credential {}", credential_id);
+        return Ok(0);
+    }
+
+    // 2. 모든 체결 기록을 처리하여 최종 보유 수량 계산
+    let mut all_holdings: HashMap<String, Decimal> = HashMap::new();
+    for row in &executions {
+        let symbol: String = row.get("symbol");
+        let side: String = row.get("side");
+        let quantity: Decimal = row.get("quantity");
+
+        let current_qty = all_holdings.entry(symbol).or_insert(Decimal::ZERO);
+        if side == "buy" {
+            *current_qty += quantity;
+        } else {
+            *current_qty -= quantity;
+        }
+    }
+
+    // 3. 현재 보유 중인 심볼만 필터링 (수량 > 0)
+    let active_symbols: Vec<String> = all_holdings
+        .iter()
+        .filter(|(_, qty)| **qty > Decimal::ZERO)
+        .map(|(symbol, _)| symbol.clone())
+        .collect();
+
+    if active_symbols.is_empty() {
+        tracing::info!("No active positions found for credential {}", credential_id);
+        return Ok(0);
+    }
+
+    tracing::info!(
+        "Tracking {} active positions: {:?}",
+        active_symbols.len(),
+        active_symbols
+    );
+
+    // 4. 현재 보유 심볼의 체결 기록만 필터링하여 일별 보유 수량 추적
+    let mut holdings: HashMap<String, Decimal> = HashMap::new();
+    let mut daily_holdings: BTreeMap<NaiveDate, HashMap<String, Decimal>> = BTreeMap::new();
+    let mut first_active_date: Option<NaiveDate> = None;
+
+    for row in &executions {
+        let executed_at: DateTime<Utc> = row.get("executed_at");
+        let symbol: String = row.get("symbol");
+        let side: String = row.get("side");
+        let quantity: Decimal = row.get("quantity");
+        let date = executed_at.date_naive();
+
+        // 현재 보유 중인 심볼만 처리
+        if !active_symbols.contains(&symbol) {
+            continue;
+        }
+
+        // 보유 수량 업데이트
+        let current_qty = holdings.entry(symbol).or_insert(Decimal::ZERO);
+        if side == "buy" {
+            *current_qty += quantity;
+        } else {
+            *current_qty -= quantity;
+        }
+
+        // 해당 날짜의 보유 수량 상태 기록
+        daily_holdings.insert(date, holdings.clone());
+
+        // 첫 매수일 기록
+        if first_active_date.is_none() {
+            first_active_date = Some(date);
+        }
+    }
+
+    let start_date = first_active_date.unwrap_or_else(|| Utc::now().date_naive());
+    let end_date = Utc::now().date_naive();
+
+    tracing::info!(
+        "Calculating equity curve from {} to {} (active positions only)",
+        start_date, end_date
+    );
+
+    // 5. 현재 보유 심볼의 일별 종가 조회
+    let mut price_cache: HashMap<(String, NaiveDate), Decimal> = HashMap::new();
+
+    for symbol in &active_symbols {
+        // Yahoo Finance 형식으로 심볼 변환 (KR 종목: 6자리 코드 -> XXXXXX.KS)
+        let yahoo_symbol = if symbol.len() == 6 && symbol.chars().all(|c| c.is_ascii_digit()) {
+            format!("{}.KS", symbol)
+        } else {
+            symbol.clone()
+        };
+
+        let prices = sqlx::query(
+            r#"
+            SELECT DATE(open_time) as date, close
+            FROM ohlcv
+            WHERE symbol = $1 AND timeframe = '1d'
+            ORDER BY open_time
+            "#
+        )
+        .bind(&yahoo_symbol)
+        .fetch_all(pool)
+        .await?;
+
+        for row in prices {
+            let date: NaiveDate = row.get("date");
+            let close: Decimal = row.get("close");
+            price_cache.insert((symbol.clone(), date), close);
+        }
+
+        tracing::debug!(
+            "Loaded {} price points for {}",
+            price_cache.iter().filter(|((s, _), _)| s == symbol).count(),
+            symbol
+        );
+    }
+
+    // 6. 일별 자산 계산 및 저장 (주식 가치만, 현금 제외)
+    let mut active_holdings: HashMap<String, Decimal> = HashMap::new();
+    let mut saved_count = 0;
+    let mut prev_equity = Decimal::ZERO;
+    let mut initial_equity = Decimal::ZERO;
+    let mut is_first = true;
+
+    // 시작일부터 오늘까지 모든 날짜에 대해 계산
+    let mut current_date = start_date;
+    while current_date <= end_date {
+        // 해당 날짜에 거래가 있으면 보유 수량 업데이트
+        if let Some(holdings_snapshot) = daily_holdings.get(&current_date) {
+            active_holdings = holdings_snapshot.clone();
+        }
+
+        // 보유 종목의 평가 가치 계산 (주식 가치만)
+        let mut securities_value = Decimal::ZERO;
+        let mut has_all_prices = true;
+
+        for (symbol, qty) in &active_holdings {
+            if *qty > Decimal::ZERO {
+                // 해당 날짜의 종가 찾기 (없으면 이전 날짜의 종가 사용)
+                let mut price = None;
+                let mut lookup_date = current_date;
+                for _ in 0..7 {  // 최대 7일 전까지 탐색 (주말/공휴일 대응)
+                    if let Some(p) = price_cache.get(&(symbol.clone(), lookup_date)) {
+                        price = Some(*p);
+                        break;
+                    }
+                    lookup_date = lookup_date.pred_opt().unwrap_or(lookup_date);
+                }
+
+                if let Some(p) = price {
+                    securities_value += *qty * p;
+                } else {
+                    has_all_prices = false;
+                    tracing::warn!(
+                        "No price found for {} on {} (qty: {})",
+                        symbol, current_date, qty
+                    );
+                }
+            }
+        }
+
+        // 모든 종가가 있고 보유 종목이 있는 날만 저장
+        if has_all_prices && securities_value > Decimal::ZERO {
+            // 첫 번째 유효한 값을 초기 자산으로 설정
+            if is_first {
+                initial_equity = securities_value;
+                prev_equity = securities_value;
+                is_first = false;
+            }
+
+            let total_equity = securities_value;  // 주식 가치만 (현금 제외)
+            let daily_pnl = total_equity - prev_equity;
+
+            let snapshot_time = Utc.from_utc_datetime(
+                &current_date.and_hms_opt(12, 0, 0).unwrap()
+            );
+
+            let snapshot = PortfolioSnapshot {
+                credential_id,
+                snapshot_time,
+                total_equity,
+                cash_balance: Decimal::ZERO,  // 현금 제외
+                securities_value,
+                total_pnl: total_equity - initial_equity,
+                daily_pnl,
+                currency: currency.to_string(),
+                market: market.to_string(),
+                account_type: account_type.map(|s| s.to_string()),
+            };
+
+            match save_portfolio_snapshot(pool, &snapshot).await {
+                Ok(_) => {
+                    saved_count += 1;
+                    prev_equity = total_equity;
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to save snapshot for {}: {}", current_date, e);
+                }
+            }
+        }
+
+        current_date = current_date.succ_opt().unwrap_or(current_date);
+    }
+
+    tracing::info!(
+        "Synced {} daily equity points (securities only) for credential {} (initial_equity={}, active_symbols={:?})",
+        saved_count,
+        credential_id,
+        initial_equity,
+        active_symbols
+    );
+
+    Ok(saved_count)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

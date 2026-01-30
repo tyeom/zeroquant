@@ -10,6 +10,7 @@
 pub mod cache;
 pub mod error;
 pub mod manager;
+pub mod provider;
 pub mod storage;
 
 pub use error::{DataError, Result};
@@ -29,3 +30,9 @@ pub use cache::historical::{CachedHistoricalDataProvider, CacheStats as Historic
 
 // KRX 데이터 소스 재내보내기
 pub use storage::krx::KrxDataSource;
+
+// 심볼 정보 Provider 재내보내기
+pub use provider::{
+    BinanceSymbolProvider, CompositeSymbolProvider, KrxSymbolProvider, SymbolInfoProvider,
+    SymbolMetadata, SymbolResolver,
+};

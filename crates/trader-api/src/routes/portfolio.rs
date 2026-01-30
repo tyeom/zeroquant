@@ -115,7 +115,10 @@ pub struct HoldingsResponse {
 pub struct HoldingInfo {
     /// 종목 코드/심볼
     pub symbol: String,
-    /// 종목명
+    /// 표시 이름 (예: "005930(삼성전자)")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    /// 종목명 (KIS API에서 받아온 원본)
     pub name: String,
     /// 보유 수량
     pub quantity: Decimal,
@@ -431,27 +434,41 @@ pub async fn get_portfolio_summary(
     // 포트폴리오 스냅샷 저장 (자산 곡선 데이터 축적)
     if let (Some(db_pool), Some(credential_id)) = (&state.db_pool, params.credential_id) {
         let securities_value = total_value - cash_balance;
-        let snapshot = PortfolioSnapshot {
-            credential_id,
-            snapshot_time: Utc::now(),
-            total_equity: total_value,
-            cash_balance,
-            securities_value,
-            total_pnl,
-            daily_pnl: Decimal::ZERO, // TODO: 전일 대비 계산
-            currency: "KRW".to_string(),
-            market: "KR".to_string(),
-            account_type: None, // 계좌 타입은 credential에서 가져올 수 있음
-        };
 
-        // 비동기로 저장 (실패해도 API 응답에 영향 없음)
-        let pool = db_pool.clone();
-        tokio::spawn(async move {
-            match equity_history::save_portfolio_snapshot(&pool, &snapshot).await {
-                Ok(_) => debug!("포트폴리오 스냅샷 저장 성공: credential_id={}", credential_id),
-                Err(e) => warn!("포트폴리오 스냅샷 저장 실패: {}", e),
-            }
-        });
+        // 검증: 모든 값이 0 이상이고, 합계가 맞는지 확인
+        let is_valid = total_value >= Decimal::ZERO
+            && cash_balance >= Decimal::ZERO
+            && securities_value >= Decimal::ZERO
+            && (cash_balance + securities_value - total_value).abs() < Decimal::ONE; // 허용 오차 1원
+
+        if !is_valid {
+            warn!(
+                "포트폴리오 스냅샷 검증 실패: total={}, cash={}, securities={}, credential_id={}",
+                total_value, cash_balance, securities_value, credential_id
+            );
+        } else {
+            let snapshot = PortfolioSnapshot {
+                credential_id,
+                snapshot_time: Utc::now(),
+                total_equity: total_value,
+                cash_balance,
+                securities_value,
+                total_pnl,
+                daily_pnl: Decimal::ZERO, // TODO: 전일 대비 계산
+                currency: "KRW".to_string(),
+                market: "KR".to_string(),
+                account_type: None, // 계좌 타입은 credential에서 가져올 수 있음
+            };
+
+            // 비동기로 저장 (실패해도 API 응답에 영향 없음)
+            let pool = db_pool.clone();
+            tokio::spawn(async move {
+                match equity_history::save_portfolio_snapshot(&pool, &snapshot).await {
+                    Ok(_) => debug!("포트폴리오 스냅샷 저장 성공: credential_id={}", credential_id),
+                    Err(e) => warn!("포트폴리오 스냅샷 저장 실패: {}", e),
+                }
+            });
+        }
     }
 
     Ok(Json(PortfolioSummaryResponse {
@@ -568,8 +585,10 @@ pub async fn get_holdings(
                 match kr_client.get_balance().await {
                     Ok(balance) => {
                         for holding in balance.holdings {
+                            let display_name = format!("{}({})", holding.stock_code, holding.stock_name);
                             kr_holdings.push(HoldingInfo {
                                 symbol: holding.stock_code,
+                                display_name: Some(display_name),
                                 name: holding.stock_name,
                                 quantity: holding.quantity,
                                 avg_price: holding.avg_price,
@@ -599,8 +618,10 @@ pub async fn get_holdings(
         if let Some(kr_client) = &state.kis_kr_client {
             if let Ok(balance) = kr_client.get_balance().await {
                 for holding in balance.holdings {
+                    let display_name = format!("{}({})", holding.stock_code, holding.stock_name);
                     kr_holdings.push(HoldingInfo {
                         symbol: holding.stock_code,
+                        display_name: Some(display_name),
                         name: holding.stock_name,
                         quantity: holding.quantity,
                         avg_price: holding.avg_price,
@@ -617,8 +638,10 @@ pub async fn get_holdings(
         if let Some(us_client) = &state.kis_us_client {
             if let Ok(balance) = us_client.get_balance("USD").await {
                 for holding in balance.holdings {
+                    let display_name = format!("{}({})", holding.symbol, holding.name);
                     us_holdings.push(HoldingInfo {
                         symbol: holding.symbol,
+                        display_name: Some(display_name),
                         name: holding.name,
                         quantity: holding.quantity,
                         avg_price: holding.avg_price,

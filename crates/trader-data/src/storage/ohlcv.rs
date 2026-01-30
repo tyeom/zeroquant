@@ -44,15 +44,63 @@ pub struct OhlcvRecord {
 
 impl OhlcvRecord {
     /// Kline 도메인 객체로 변환.
+    ///
+    /// DB에 저장된 심볼(데이터 소스 형식)을 그대로 사용합니다.
+    /// 중립 심볼(canonical)로 변환이 필요한 경우 `to_kline_with_canonical`을 사용하세요.
     pub fn to_kline(&self) -> Kline {
         let timeframe = self.timeframe.parse().unwrap_or(Timeframe::D1);
         let close_time = self.close_time.unwrap_or_else(|| {
             self.open_time + timeframe_to_duration(timeframe)
         });
 
-        // 심볼에서 통화 추정
-        let currency = guess_currency(&self.symbol);
-        let symbol = Symbol::stock(&self.symbol, currency);
+        // DB에 저장된 심볼을 그대로 사용 (exchange_symbol에 원본 저장)
+        let symbol = Symbol {
+            base: self.symbol.clone(),
+            quote: String::new(),
+            market_type: trader_core::MarketType::Stock,
+            exchange_symbol: Some(self.symbol.clone()),
+        };
+
+        Kline {
+            symbol,
+            timeframe,
+            open_time: self.open_time,
+            open: self.open,
+            high: self.high,
+            low: self.low,
+            close: self.close,
+            volume: self.volume,
+            close_time,
+            quote_volume: None,
+            num_trades: None,
+        }
+    }
+
+    /// 중립 심볼(canonical)을 지정하여 Kline으로 변환.
+    ///
+    /// SymbolResolver를 통해 미리 조회한 canonical 심볼을 전달합니다.
+    ///
+    /// # Arguments
+    /// * `canonical` - 중립 심볼 (예: "005930", "AAPL", "BTC/USDT")
+    /// * `quote` - 호가 통화 (예: "KRW", "USD", "USDT")
+    /// * `market_type` - 시장 유형
+    pub fn to_kline_with_canonical(
+        &self,
+        canonical: &str,
+        quote: &str,
+        market_type: trader_core::MarketType,
+    ) -> Kline {
+        let timeframe = self.timeframe.parse().unwrap_or(Timeframe::D1);
+        let close_time = self.close_time.unwrap_or_else(|| {
+            self.open_time + timeframe_to_duration(timeframe)
+        });
+
+        let symbol = Symbol {
+            base: canonical.to_string(),
+            quote: quote.to_string(),
+            market_type,
+            exchange_symbol: Some(self.symbol.clone()),
+        };
 
         Kline {
             symbol,
@@ -447,18 +495,6 @@ fn is_intraday(timeframe: Timeframe) -> bool {
     )
 }
 
-/// 심볼에서 통화 코드 추정.
-fn guess_currency(symbol: &str) -> &'static str {
-    if symbol.ends_with(".KS") || symbol.ends_with(".KQ") {
-        "KRW"
-    } else if symbol.ends_with(".T") {
-        "JPY"
-    } else if symbol.ends_with(".L") {
-        "GBP"
-    } else {
-        "USD"
-    }
-}
 
 // =============================================================================
 // 테스트

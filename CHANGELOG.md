@@ -5,6 +5,66 @@
 형식은 [Keep a Changelog](https://keepachangelog.com/ko/1.0.0/)를 따르며,
 [Semantic Versioning](https://semver.org/lang/ko/)을 준수합니다.
 
+## [0.3.0] - 2026-01-30
+
+### Added
+
+#### 10개 신규 전략 추가 (총 27개)
+- **BAA** (Bold Asset Allocation): 카나리아 자산 기반 공격/수비 모드 전환
+- **Dual Momentum**: 절대/상대 모멘텀 기반 자산 배분 (Gary Antonacci)
+- **Kosdaq Fire Rain** (코스닥 불비): 코스닥 단타 변동성 돌파
+- **KOSPI Bothside** (코스피 양방향): 롱숏 양방향 매매
+- **Pension Bot** (연금봇): 연금 계좌 자동 운용 (MDD 최소화)
+- **Sector Momentum**: 섹터 ETF 로테이션 전략
+- **Sector VB**: 섹터별 변동성 돌파
+- **Small Cap Quant**: 소형주 퀀트 팩터 전략
+- **Stock Gugan** (주식 구간): 구간별 분할 매매
+- **US 3X Leverage**: 미국 3배 레버리지 ETF 전략 (TQQQ/SOXL)
+
+#### Symbol Info Provider
+- **종목 정보 캐싱** (`symbol_info.rs`): KIS API 종목 정보 조회/캐싱
+- 종목명, 시장 구분, 가격 정보, 거래 단위 등 메타데이터 관리
+- DB 마이그레이션: `012_symbol_info.sql`
+
+#### Docker 빌드 최적화
+- **sccache**: Rust 증분 빌드 캐시 (재빌드 시 50-80% 시간 단축)
+- **mold 링커**: lld보다 2-3배 빠른 링킹
+- Crate 수정 빈도별 빌드 순서 최적화
+- 개발 스크립트 추가: `scripts/dev-build.ps1`, `scripts/docker-build.ps1`
+
+#### 아키텍처 문서
+- **architecture.md**: 시스템 아키텍처 상세 문서화
+- Crate 간 의존성, 데이터 흐름, 배포 구조 설명
+
+#### 테스트 자동화
+- **전략 테스트 스크립트** (`scripts/test_all_strategies.py`)
+- 모든 전략 백테스트 자동 검증
+
+### Changed
+
+#### API 개선
+- `analytics.rs`: 성과 분석 API 확장 (기간별 통계, 상세 메트릭)
+- `backtest.rs`: 결과 저장/조회 API 개선
+- `dataset.rs`: 다중 심볼 지원, 배치 다운로드
+- `equity_history.rs`: 자산 이력 조회 API 추가
+
+#### 프론트엔드
+- `Dataset.tsx`: 다중 심볼 관리, 배치 작업 UI
+- `MultiPanelGrid.tsx`: 차트 패널 레이아웃 개선
+- `PortfolioEquityChart.tsx`: 성과 차트 시각화 개선
+- `Strategies.tsx`: 신규 전략 지원
+
+#### 데이터 레이어
+- `historical.rs`: 캐시 효율성 개선
+- `ohlcv.rs`: 저장소 최적화
+
+### Database Migrations
+- `011_execution_cache.sql`: 실행 캐시 테이블
+- `012_symbol_info.sql`: 종목 정보 테이블
+- `013_strategy_timeframe.sql`: 전략 타임프레임 설정
+
+---
+
 ## [0.2.0] - 2026-01-30
 
 ### Added
@@ -132,12 +192,12 @@
 
 ## 로드맵
 
-### [0.3.0] - 예정
-- 매매일지 (Trading Journal) 기능
+### [0.4.0] - 예정
+- 매매일지 (Trading Journal) 기능 완성
 - 다중 자산 백테스트 지원 (다중 심볼 전략)
 - WebSocket 이벤트 브로드캐스트 완성
 
-### [0.4.0] - 예정
+### [0.5.0] - 예정
 - 추가 거래소 통합 (Coinbase, 키움증권)
 - 성능 최적화 및 부하 테스트
 - Grafana 대시보드 사전 설정

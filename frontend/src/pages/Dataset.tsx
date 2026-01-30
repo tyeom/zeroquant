@@ -163,6 +163,7 @@ const INDICATOR_META: Record<IndicatorType, IndicatorMeta> = {
 
 interface DatasetSummary {
   symbol: string
+  displayName?: string  // "005930(삼성전자)" 형식
   timeframe: string
   firstTime: string | null
   lastTime: string | null
@@ -195,6 +196,8 @@ interface FetchDatasetRequest {
   symbol: string
   timeframe: string
   limit: number
+  startDate?: string  // YYYY-MM-DD 형식
+  endDate?: string    // YYYY-MM-DD 형식
 }
 
 interface Strategy {
@@ -259,6 +262,29 @@ async function fetchStrategies(): Promise<Strategy[]> {
   if (!res.ok) throw new Error('전략 목록 조회 실패')
   const data = await res.json()
   return data.strategies || []
+}
+
+// 심볼 검색 결과 타입
+interface SymbolSearchResult {
+  ticker: string
+  name: string
+  market: string
+  yahooSymbol: string | null
+}
+
+interface SymbolSearchResponse {
+  results: SymbolSearchResult[]
+  total: number
+}
+
+// 심볼 검색 API
+async function searchSymbols(query: string, limit: number = 10): Promise<SymbolSearchResult[]> {
+  if (!query.trim()) return []
+  const params = new URLSearchParams({ q: query, limit: limit.toString() })
+  const res = await fetch(`${API_BASE}/dataset/search?${params}`)
+  if (!res.ok) return []
+  const data: SymbolSearchResponse = await res.json()
+  return data.results || []
 }
 
 // ==================== 지표 계산 유틸 ====================
@@ -626,9 +652,10 @@ function SymbolPanel(props: SymbolPanelProps) {
   const [newIndicatorType, setNewIndicatorType] = createSignal<IndicatorType>('rsi')
   const [newIndicatorParams, setNewIndicatorParams] = createSignal<Record<string, unknown>>({})
 
-  // 패널 내 심볼 검색
+  // 패널 내 심볼 검색 (자동완성)
   const [panelSearch, setPanelSearch] = createSignal('')
-  const [showPanelSearch, setShowPanelSearch] = createSignal(false)
+  const [showAutocomplete, setShowAutocomplete] = createSignal(false)
+  const [selectedIndex, setSelectedIndex] = createSignal(-1)
 
   // 테이블 무한 스크롤 상태
   const [visibleRows, setVisibleRows] = createSignal(50)
@@ -698,11 +725,14 @@ function SymbolPanel(props: SymbolPanelProps) {
     ))
   }
 
-  // 패널 내 필터된 심볼 목록
-  const filteredPanelSymbols = createMemo(() => {
-    const term = panelSearch().toLowerCase().trim()
-    if (!term) return props.cachedSymbols.slice(0, 8)
-    return props.cachedSymbols.filter(s => s.toLowerCase().includes(term)).slice(0, 8)
+  // 자동완성 심볼 목록 (캐시된 심볼만 필터링)
+  const autocompleteSymbols = createMemo(() => {
+    const term = panelSearch().toUpperCase().trim()
+    if (!term) return []
+    // 캐시된 심볼 중 검색어와 매칭되는 것만 표시 (최대 8개)
+    return props.cachedSymbols
+      .filter(s => s.toUpperCase().includes(term))
+      .slice(0, 8)
   })
 
   // 캔들 데이터 쿼리
@@ -1016,48 +1046,101 @@ function SymbolPanel(props: SymbolPanelProps) {
   }
   const subChartHeight = () => props.compact ? 80 : 100
 
-  // 심볼 선택 검색 UI
-  const SymbolSearchUI = () => (
-    <div class="h-full flex flex-col gap-3 p-2">
-      {/* 패널 내 심볼 검색 */}
-      <div class="relative">
-        <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)]" />
-        <input
-          type="text"
-          value={panelSearch()}
-          onInput={(e) => setPanelSearch(e.currentTarget.value)}
-          onFocus={() => setShowPanelSearch(true)}
-          placeholder="심볼 검색..."
-          class="w-full pl-8 pr-3 py-2 text-sm bg-[var(--color-bg)] text-[var(--color-text)]
-                 rounded-lg border border-[var(--color-surface-light)]
-                 focus:outline-none focus:border-[var(--color-primary)]"
-        />
-      </div>
+  // 심볼 선택 핸들러
+  const handleSelectSymbol = (symbol: string) => {
+    props.onSymbolChange(symbol)
+    setPanelSearch('')
+    setShowAutocomplete(false)
+    setSelectedIndex(-1)
+  }
 
-      {/* 심볼 목록 */}
-      <div class="flex-1 overflow-auto">
-        <Show when={filteredPanelSymbols().length > 0} fallback={
-          <div class="flex flex-col items-center justify-center h-full text-[var(--color-text-muted)]">
-            <Database class="w-8 h-8 mb-2 opacity-50" />
-            <p class="text-xs">캐시된 데이터 없음</p>
-          </div>
-        }>
-          <div class="grid grid-cols-2 gap-1.5">
-            <For each={filteredPanelSymbols()}>
-              {(symbol) => (
-                <button
-                  onClick={() => props.onSymbolChange(symbol)}
-                  class="px-3 py-2 text-sm font-mono text-left bg-[var(--color-bg)]
-                         hover:bg-[var(--color-surface-light)] rounded-lg
-                         text-[var(--color-text)] transition flex items-center gap-2"
-                >
-                  <TrendingUp class="w-3.5 h-3.5 text-[var(--color-primary)]" />
-                  {symbol}
-                </button>
-              )}
-            </For>
-          </div>
-        </Show>
+  // 키보드 네비게이션 핸들러
+  const handleKeyDown = (e: KeyboardEvent) => {
+    const symbols = autocompleteSymbols()
+    const len = symbols.length
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setSelectedIndex(prev => (prev + 1) % len)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setSelectedIndex(prev => (prev - 1 + len) % len)
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      const idx = selectedIndex()
+      if (idx >= 0 && idx < len) {
+        handleSelectSymbol(symbols[idx])
+      } else if (panelSearch().trim()) {
+        // 검색어가 있으면 그대로 사용 (새 심볼 다운로드용)
+        handleSelectSymbol(panelSearch().trim().toUpperCase())
+      }
+    } else if (e.key === 'Escape') {
+      setShowAutocomplete(false)
+      setSelectedIndex(-1)
+    }
+  }
+
+  // 심볼 자동완성 UI
+  const SymbolSearchUI = () => (
+    <div class="h-full flex flex-col items-center justify-center p-4">
+      {/* 심볼 자동완성 입력 */}
+      <div class="w-full max-w-md">
+        <div class="relative">
+          <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[var(--color-text-muted)]" />
+          <input
+            type="text"
+            value={panelSearch()}
+            onInput={(e) => {
+              setPanelSearch(e.currentTarget.value)
+              setShowAutocomplete(true)
+              setSelectedIndex(-1)
+            }}
+            onFocus={() => setShowAutocomplete(true)}
+            onBlur={() => setTimeout(() => setShowAutocomplete(false), 200)}
+            onKeyDown={handleKeyDown}
+            placeholder="심볼 검색 (예: AAPL, 005930)..."
+            class="w-full pl-10 pr-4 py-3 text-base bg-[var(--color-bg)] text-[var(--color-text)]
+                   rounded-xl border-2 border-[var(--color-surface-light)]
+                   focus:outline-none focus:border-[var(--color-primary)]
+                   placeholder:text-[var(--color-text-muted)]"
+          />
+
+          {/* 자동완성 드롭다운 */}
+          <Show when={showAutocomplete() && panelSearch().trim() && autocompleteSymbols().length > 0}>
+            <div class="absolute top-full left-0 right-0 mt-1 bg-[var(--color-surface)]
+                        border border-[var(--color-surface-light)] rounded-lg shadow-xl z-50
+                        max-h-64 overflow-auto">
+              <For each={autocompleteSymbols()}>
+                {(symbol, index) => (
+                  <button
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      handleSelectSymbol(symbol)
+                    }}
+                    class={`w-full px-4 py-2.5 text-left text-sm font-mono flex items-center gap-2
+                            transition hover:bg-[var(--color-surface-light)]
+                            ${index() === selectedIndex()
+                              ? 'bg-[var(--color-primary)]/20 text-[var(--color-primary)]'
+                              : 'text-[var(--color-text)]'}`}
+                  >
+                    <TrendingUp class="w-4 h-4 text-[var(--color-primary)]" />
+                    <span>{symbol}</span>
+                    <Show when={props.cachedSymbols.includes(symbol)}>
+                      <span class="ml-auto text-xs text-[var(--color-text-muted)] bg-[var(--color-bg)] px-1.5 py-0.5 rounded">
+                        캐시됨
+                      </span>
+                    </Show>
+                  </button>
+                )}
+              </For>
+            </div>
+          </Show>
+        </div>
+
+        {/* 힌트 텍스트 */}
+        <p class="text-center text-xs text-[var(--color-text-muted)] mt-3">
+          심볼을 입력하여 검색하거나 새 심볼을 입력 후 Enter
+        </p>
       </div>
     </div>
   )
@@ -1504,6 +1587,13 @@ export function Dataset() {
   const [downloadSymbol, setDownloadSymbol] = createSignal('')
   const [downloadTimeframe, setDownloadTimeframe] = createSignal('1d')
   const [downloadLimit, setDownloadLimit] = createSignal(500)
+  // 날짜 범위 다운로드
+  const [downloadStartDate, setDownloadStartDate] = createSignal('')
+  const [downloadEndDate, setDownloadEndDate] = createSignal('')
+  const [useDateRange, setUseDateRange] = createSignal(false)
+  // 다운로드 폼 자동완성 상태
+  const [showDownloadAutocomplete, setShowDownloadAutocomplete] = createSignal(false)
+  const [downloadSelectedIndex, setDownloadSelectedIndex] = createSignal(-1)
 
   // ==================== 쿼리 ====================
   const datasetsQuery = createQuery(() => ({
@@ -1526,6 +1616,9 @@ export function Dataset() {
       queryClient.invalidateQueries({ queryKey: ['candles', variables.symbol] })
       setShowDownloadForm(false)
       setDownloadSymbol('')
+      setDownloadStartDate('')
+      setDownloadEndDate('')
+      setUseDateRange(false)
     },
     onError: (error: Error) => {
       toast.error('다운로드 실패', error.message)
@@ -1576,6 +1669,44 @@ export function Dataset() {
   })
 
   const totalCandles = () => (datasetsQuery.data?.datasets || []).reduce((sum, d) => sum + d.candleCount, 0)
+
+  // 다운로드 폼 자동완성 심볼 목록
+  const downloadAutocompleteSymbols = createMemo(() => {
+    const term = downloadSymbol().toUpperCase().trim()
+    if (!term) return []
+    // 캐시된 심볼 + 전략 심볼 합쳐서 검색
+    const allSymbols = [...new Set([...cachedSymbols(), ...strategySymbols()])]
+    return allSymbols
+      .filter(s => s.toUpperCase().includes(term))
+      .slice(0, 8)
+  })
+
+  // 다운로드 폼 심볼 선택 핸들러
+  const handleDownloadSymbolSelect = (symbol: string) => {
+    setDownloadSymbol(symbol)
+    setShowDownloadAutocomplete(false)
+    setDownloadSelectedIndex(-1)
+  }
+
+  // 다운로드 폼 키보드 핸들러
+  const handleDownloadKeyDown = (e: KeyboardEvent) => {
+    const symbols = downloadAutocompleteSymbols()
+    const len = symbols.length
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setDownloadSelectedIndex(prev => (prev + 1) % len)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setDownloadSelectedIndex(prev => (prev - 1 + len) % len)
+    } else if (e.key === 'Enter' && downloadSelectedIndex() >= 0 && downloadSelectedIndex() < len) {
+      e.preventDefault()
+      handleDownloadSymbolSelect(symbols[downloadSelectedIndex()])
+    } else if (e.key === 'Escape') {
+      setShowDownloadAutocomplete(false)
+      setDownloadSelectedIndex(-1)
+    }
+  }
 
   // ==================== 핸들러 ====================
 
@@ -1752,16 +1883,56 @@ export function Dataset() {
             </div>
           </Show>
           <div class="grid grid-cols-4 gap-4">
-            <div>
+            <div class="relative">
               <label class="block text-sm text-[var(--color-text-muted)] mb-2">심볼</label>
-              <input
-                type="text"
-                value={downloadSymbol()}
-                onInput={(e) => setDownloadSymbol(e.currentTarget.value)}
-                placeholder="예: 005930, AAPL"
-                class="w-full px-4 py-2 bg-[var(--color-bg)] text-[var(--color-text)]
-                       rounded-lg border border-[var(--color-surface-light)]"
-              />
+              <div class="relative">
+                <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)]" />
+                <input
+                  type="text"
+                  value={downloadSymbol()}
+                  onInput={(e) => {
+                    setDownloadSymbol(e.currentTarget.value)
+                    setShowDownloadAutocomplete(true)
+                    setDownloadSelectedIndex(-1)
+                  }}
+                  onFocus={() => setShowDownloadAutocomplete(true)}
+                  onBlur={() => setTimeout(() => setShowDownloadAutocomplete(false), 200)}
+                  onKeyDown={handleDownloadKeyDown}
+                  placeholder="심볼 검색..."
+                  class="w-full pl-9 pr-4 py-2 bg-[var(--color-bg)] text-[var(--color-text)]
+                         rounded-lg border border-[var(--color-surface-light)]
+                         focus:outline-none focus:border-[var(--color-primary)]"
+                />
+
+                {/* 자동완성 드롭다운 */}
+                <Show when={showDownloadAutocomplete() && downloadSymbol().trim() && downloadAutocompleteSymbols().length > 0}>
+                  <div class="absolute top-full left-0 right-0 mt-1 bg-[var(--color-surface)]
+                              border border-[var(--color-surface-light)] rounded-lg shadow-xl z-50
+                              max-h-48 overflow-auto">
+                    <For each={downloadAutocompleteSymbols()}>
+                      {(symbol, index) => (
+                        <button
+                          onMouseDown={(e) => {
+                            e.preventDefault()
+                            handleDownloadSymbolSelect(symbol)
+                          }}
+                          class={`w-full px-3 py-2 text-left text-sm font-mono flex items-center gap-2
+                                  transition hover:bg-[var(--color-surface-light)]
+                                  ${index() === downloadSelectedIndex()
+                                    ? 'bg-[var(--color-primary)]/20 text-[var(--color-primary)]'
+                                    : 'text-[var(--color-text)]'}`}
+                        >
+                          <TrendingUp class="w-3.5 h-3.5 text-[var(--color-primary)]" />
+                          <span>{symbol}</span>
+                          <Show when={cachedSymbols().includes(symbol)}>
+                            <span class="ml-auto text-xs text-green-400">✓</span>
+                          </Show>
+                        </button>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+              </div>
             </div>
             <div>
               <label class="block text-sm text-[var(--color-text-muted)] mb-2">타임프레임</label>
@@ -1779,16 +1950,49 @@ export function Dataset() {
               </select>
             </div>
             <div>
-              <label class="block text-sm text-[var(--color-text-muted)] mb-2">캔들 수</label>
-              <input
-                type="number"
-                value={downloadLimit()}
-                onInput={(e) => setDownloadLimit(parseInt(e.currentTarget.value) || 100)}
-                min="10"
-                max="5000"
-                class="w-full px-4 py-2 bg-[var(--color-bg)] text-[var(--color-text)]
-                       rounded-lg border border-[var(--color-surface-light)]"
-              />
+              <label class="block text-sm text-[var(--color-text-muted)] mb-2">
+                <span class="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={useDateRange()}
+                    onChange={(e) => setUseDateRange(e.currentTarget.checked)}
+                    class="rounded border-[var(--color-surface-light)]"
+                  />
+                  날짜 범위 지정
+                </span>
+              </label>
+              <Show when={useDateRange()} fallback={
+                <input
+                  type="number"
+                  value={downloadLimit()}
+                  onInput={(e) => setDownloadLimit(parseInt(e.currentTarget.value) || 100)}
+                  min="10"
+                  max="5000"
+                  class="w-full px-4 py-2 bg-[var(--color-bg)] text-[var(--color-text)]
+                         rounded-lg border border-[var(--color-surface-light)]"
+                  placeholder="캔들 수"
+                />
+              }>
+                <div class="flex gap-2">
+                  <input
+                    type="date"
+                    value={downloadStartDate()}
+                    onInput={(e) => setDownloadStartDate(e.currentTarget.value)}
+                    class="flex-1 px-3 py-2 bg-[var(--color-bg)] text-[var(--color-text)]
+                           rounded-lg border border-[var(--color-surface-light)] text-sm"
+                    placeholder="시작일"
+                  />
+                  <span class="text-[var(--color-text-muted)] self-center">~</span>
+                  <input
+                    type="date"
+                    value={downloadEndDate()}
+                    onInput={(e) => setDownloadEndDate(e.currentTarget.value)}
+                    class="flex-1 px-3 py-2 bg-[var(--color-bg)] text-[var(--color-text)]
+                           rounded-lg border border-[var(--color-surface-light)] text-sm"
+                    placeholder="종료일"
+                  />
+                </div>
+              </Show>
             </div>
             <div class="flex items-end">
               <button
@@ -1796,8 +2000,10 @@ export function Dataset() {
                   symbol: downloadSymbol(),
                   timeframe: downloadTimeframe(),
                   limit: downloadLimit(),
+                  ...(useDateRange() && downloadStartDate() ? { startDate: downloadStartDate() } : {}),
+                  ...(useDateRange() && downloadEndDate() ? { endDate: downloadEndDate() } : {}),
                 })}
-                disabled={downloadMutation.isPending || !downloadSymbol()}
+                disabled={downloadMutation.isPending || !downloadSymbol() || (useDateRange() && !downloadStartDate())}
                 class="w-full px-4 py-2 bg-[var(--color-primary)] text-white rounded-lg
                        hover:bg-[var(--color-primary-dark)] transition disabled:opacity-50
                        flex items-center justify-center gap-2"
@@ -1821,6 +2027,16 @@ export function Dataset() {
             layoutMode={layoutMode()}
             onLayoutChange={setLayoutMode}
             onPanelClose={closePanel}
+            availableSymbols={[...new Set([...cachedSymbols(), ...strategySymbols()])]}
+            onSymbolChange={(panelId, symbol) => changePanelSymbol(panelId, symbol)}
+            onSymbolSearch={async (query) => {
+              const results = await searchSymbols(query, 10)
+              return results.map(r => ({
+                ticker: r.ticker,
+                name: r.name,
+                market: r.market
+              }))
+            }}
             renderPanel={(panel) => (
               <SymbolPanel
                 symbol={panel.symbol}

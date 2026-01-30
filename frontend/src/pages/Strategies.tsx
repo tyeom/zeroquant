@@ -15,6 +15,49 @@ function formatCurrency(value: number): string {
   }).format(value)
 }
 
+// 전략 타입별 기본 타임프레임
+function getDefaultTimeframe(strategyType: string): string {
+  switch (strategyType) {
+    // 실시간 전략: 1m
+    case 'grid':
+    case 'grid_trading':
+    case 'magic_split':
+    case 'split':
+    case 'infinity_bot':
+    case 'trailing_stop':
+      return '1m'
+    // 분봉 전략: 15m
+    case 'rsi':
+    case 'rsi_mean_reversion':
+    case 'bollinger':
+    case 'bollinger_bands':
+    case 'sma':
+    case 'sma_crossover':
+    case 'ma_crossover':
+    case 'candle_pattern':
+      return '15m'
+    // 일봉 전략: 1d
+    case 'volatility_breakout':
+    case 'volatility':
+    case 'snow':
+    case 'snow_us':
+    case 'snow_kr':
+    case 'stock_rotation':
+    case 'rotation':
+    case 'market_interest_day':
+    case 'simple_power':
+    case 'haa':
+    case 'xaa':
+    case 'all_weather':
+    case 'all_weather_us':
+    case 'all_weather_kr':
+    case 'market_cap_top':
+      return '1d'
+    default:
+      return '1d'
+  }
+}
+
 export function Strategies() {
   const toast = useToast()
   const navigate = useNavigate()
@@ -545,8 +588,13 @@ export function Strategies() {
                   </div>
                 </div>
 
-                {/* Symbols */}
-                <div class="flex flex-wrap gap-1 mb-4">
+                {/* Symbols & Timeframe */}
+                <div class="flex flex-wrap items-center gap-1 mb-4">
+                  {/* 타임프레임 배지 */}
+                  <span class="px-2 py-0.5 text-xs bg-[var(--color-primary)]/20 text-[var(--color-primary)] rounded font-medium">
+                    {strategy.timeframe || getDefaultTimeframe(strategy.strategyType)}
+                  </span>
+                  {/* 심볼 목록 */}
                   <For each={strategy.symbols}>
                     {(symbol) => (
                       <span class="px-2 py-0.5 text-xs bg-[var(--color-surface-light)] text-[var(--color-text-muted)] rounded">
@@ -1000,6 +1048,35 @@ export function Strategies() {
                     />
                     <p class="mt-1 text-xs text-[var(--color-text-muted)]">
                       동일한 전략을 다른 종목이나 설정으로 여러 개 등록할 수 있습니다.
+                    </p>
+                  </div>
+
+                  {/* 타임프레임 선택 */}
+                  <div>
+                    <label class="block text-sm font-medium text-[var(--color-text)] mb-2">
+                      타임프레임
+                    </label>
+                    <select
+                      value={(strategyParams() as Record<string, unknown>).timeframe as string || getDefaultTimeframe(selectedStrategy()?.id || '')}
+                      onChange={(e) => handleParamChange('timeframe', e.currentTarget.value)}
+                      class="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-surface-light)] rounded-lg text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+                    >
+                      <optgroup label="실시간/분봉">
+                        <option value="1m">1분 (실시간)</option>
+                        <option value="5m">5분</option>
+                        <option value="15m">15분</option>
+                        <option value="30m">30분</option>
+                        <option value="1h">1시간</option>
+                        <option value="4h">4시간</option>
+                      </optgroup>
+                      <optgroup label="일봉/주봉">
+                        <option value="1d">일봉</option>
+                        <option value="1w">주봉</option>
+                        <option value="1M">월봉</option>
+                      </optgroup>
+                    </select>
+                    <p class="mt-1 text-xs text-[var(--color-text-muted)]">
+                      전략 실행에 사용할 캔들 주기를 선택하세요.
                     </p>
                   </div>
 

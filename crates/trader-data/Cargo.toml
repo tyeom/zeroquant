@@ -46,6 +46,7 @@ reqwest = { workspace = true }
 
 # Yahoo Finance API
 yahoo_finance_api = "4.1"
+time = "0.3"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

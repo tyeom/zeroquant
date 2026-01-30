@@ -16,6 +16,7 @@ pub struct StrategyRecord {
     pub strategy_type: Option<String>,
     pub symbols: Option<Value>,
     pub market: Option<String>,
+    pub timeframe: Option<String>,
     pub version: Option<String>,
     pub is_active: bool,
     pub config: Value,
@@ -35,6 +36,7 @@ pub struct CreateStrategyInput {
     pub strategy_type: String,
     pub symbols: Vec<String>,
     pub market: String,
+    pub timeframe: String,
     pub config: Value,
 }
 
@@ -48,8 +50,8 @@ impl StrategyRepository {
 
         let record = sqlx::query_as::<_, StrategyRecord>(
             r#"
-            INSERT INTO strategies (id, name, description, strategy_type, symbols, market, config, is_active)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, false)
+            INSERT INTO strategies (id, name, description, strategy_type, symbols, market, timeframe, config, is_active)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false)
             RETURNING *
             "#
         )
@@ -59,6 +61,7 @@ impl StrategyRepository {
         .bind(&input.strategy_type)
         .bind(&symbols_json)
         .bind(&input.market)
+        .bind(&input.timeframe)
         .bind(&input.config)
         .fetch_one(pool)
         .await?;

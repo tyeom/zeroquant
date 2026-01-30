@@ -45,6 +45,9 @@ pub struct PositionResponse {
     pub exchange: String,
     /// 심볼
     pub symbol: String,
+    /// 표시 이름 (예: "005930(삼성전자)")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
     /// 포지션 방향 (Long/Short)
     pub side: Side,
     /// 현재 수량
@@ -76,6 +79,7 @@ impl From<&Position> for PositionResponse {
             id: position.id.to_string(),
             exchange: position.exchange.clone(),
             symbol: position.symbol.to_string(),
+            display_name: None, // 핸들러에서 설정
             side: position.side,
             quantity: position.quantity,
             entry_price: position.entry_price,
@@ -88,6 +92,14 @@ impl From<&Position> for PositionResponse {
             opened_at: position.opened_at.to_rfc3339(),
             updated_at: position.updated_at.to_rfc3339(),
         }
+    }
+}
+
+impl PositionResponse {
+    /// display_name 설정
+    pub fn with_display_name(mut self, name: String) -> Self {
+        self.display_name = Some(name);
+        self
     }
 }
 
@@ -135,7 +147,24 @@ pub async fn list_positions(
     let executor = state.executor.read().await;
     let positions = executor.get_open_positions().await;
 
-    let position_responses: Vec<PositionResponse> = positions.iter().map(PositionResponse::from).collect();
+    // 심볼 목록 추출
+    let symbols: Vec<String> = positions.iter().map(|p| p.symbol.to_string()).collect();
+
+    // display name 배치 조회
+    let display_names = state.get_display_names(&symbols, false).await;
+
+    // 응답 생성 및 display_name 설정
+    let position_responses: Vec<PositionResponse> = positions
+        .iter()
+        .map(|p| {
+            let mut resp = PositionResponse::from(p);
+            if let Some(name) = display_names.get(&p.symbol.to_string()) {
+                resp.display_name = Some(name.clone());
+            }
+            resp
+        })
+        .collect();
+
     let summary = PositionSummaryResponse::from_positions(&positions);
     let total = position_responses.len();
 
@@ -168,7 +197,12 @@ pub async fn get_position(
     let executor = state.executor.read().await;
 
     match executor.get_position(&symbol).await {
-        Some(position) => Ok(Json(PositionResponse::from(&position))),
+        Some(position) => {
+            let mut resp = PositionResponse::from(&position);
+            // display_name 조회
+            resp.display_name = Some(state.get_display_name(&symbol, false).await);
+            Ok(Json(resp))
+        }
         None => Err((
             StatusCode::NOT_FOUND,
             Json(ApiError::new("POSITION_NOT_FOUND", format!("No open position for symbol: {}", symbol))),

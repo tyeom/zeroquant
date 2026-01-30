@@ -45,17 +45,19 @@
 //! ```
 
 use crate::error::{DataError, Result};
+use crate::provider::SymbolResolver;
 use crate::storage::krx::KrxDataSource;
 use crate::storage::ohlcv::{timeframe_to_string, OhlcvCache};
-use chrono::{DateTime, Datelike, Duration, TimeZone, Timelike, Utc, Weekday};
+use chrono::{DateTime, Datelike, Duration, NaiveDate, TimeZone, Timelike, Utc, Weekday};
 use chrono_tz::Tz;
 use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::Decimal;
 use sqlx::postgres::PgPool;
 use std::collections::HashMap;
 use std::sync::Arc;
+use time::OffsetDateTime;
 use tokio::sync::RwLock;
-use trader_core::{Kline, Symbol, Timeframe};
+use trader_core::{Kline, MarketType, Symbol, Timeframe};
 use tracing::{debug, info, instrument, warn};
 
 /// 심볼+타임프레임별 페칭 상태를 추적하는 Lock 맵.
@@ -64,9 +66,13 @@ type FetchLockMap = Arc<RwLock<HashMap<String, Arc<RwLock<()>>>>>;
 /// 캐시 기반 과거 데이터 제공자.
 ///
 /// 요청 기반 자동 캐싱과 증분 업데이트를 제공합니다.
+/// 모든 심볼은 canonical 형식으로 처리되며, SymbolResolver를 통해
+/// 각 데이터 소스에 맞는 형식으로 변환됩니다.
 pub struct CachedHistoricalDataProvider {
     cache: OhlcvCache,
     pool: PgPool,
+    /// 심볼 변환 서비스
+    symbol_resolver: SymbolResolver,
     /// 캐시 유효 기간 (이 시간 이내면 신선하다고 간주)
     cache_freshness: Duration,
     /// 동시성 제어를 위한 Lock 맵
@@ -78,6 +84,7 @@ impl CachedHistoricalDataProvider {
     pub fn new(pool: PgPool) -> Self {
         Self {
             cache: OhlcvCache::new(pool.clone()),
+            symbol_resolver: SymbolResolver::new(pool.clone()),
             pool,
             cache_freshness: Duration::minutes(5),
             fetch_locks: Arc::new(RwLock::new(HashMap::new())),
@@ -91,6 +98,11 @@ impl CachedHistoricalDataProvider {
     }
 
     /// 캔들 데이터 조회 (캐시 우선, 증분 업데이트).
+    ///
+    /// # 인자
+    /// - `symbol`: canonical 심볼 (예: "005930", "AAPL", "BTC/USDT")
+    ///
+    /// 내부적으로 SymbolResolver를 통해 데이터 소스에 맞는 심볼로 변환합니다.
     #[instrument(skip(self))]
     pub async fn get_klines(
         &self,
@@ -98,65 +110,245 @@ impl CachedHistoricalDataProvider {
         timeframe: Timeframe,
         limit: usize,
     ) -> Result<Vec<Kline>> {
-        let yahoo_symbol = to_yahoo_symbol(symbol);
-        let lock_key = format!("{}:{}", yahoo_symbol, timeframe_to_string(timeframe));
+        // SymbolResolver를 통해 데이터 소스 심볼 조회
+        let (source_symbol, quote_currency, market_type) = self.resolve_symbol(symbol).await;
+        let lock_key = format!("{}:{}", source_symbol, timeframe_to_string(timeframe));
 
         // 1. 동시성 제어: Lock 획득
         let lock = self.get_or_create_lock(&lock_key).await;
         let _guard = lock.write().await;
 
         // 2. 캐시 상태 확인
-        let cached_count = self.cache.get_cached_count(&yahoo_symbol, timeframe).await?;
-        let last_cached_time = self.cache.get_last_cached_time(&yahoo_symbol, timeframe).await?;
+        let cached_count = self.cache.get_cached_count(&source_symbol, timeframe).await?;
+        let last_cached_time = self.cache.get_last_cached_time(&source_symbol, timeframe).await?;
 
         // 3. 업데이트 필요 여부 판단 (시장 시간 고려)
         let needs_update = self.should_update(
-            &yahoo_symbol,
+            &source_symbol,
             timeframe,
             cached_count as usize,
             limit,
             last_cached_time,
         );
 
-        // 4. 필요시 Yahoo Finance에서 새 데이터 가져오기
+        // 4. 필요시 데이터 소스에서 새 데이터 가져오기
         if needs_update {
             debug!(
-                symbol = %yahoo_symbol,
+                canonical = %symbol,
+                source_symbol = %source_symbol,
                 timeframe = %timeframe_to_string(timeframe),
                 cached = cached_count,
                 requested = limit,
                 "캐시 업데이트 시작"
             );
 
-            // 원본 심볼로 데이터 소스 선택, yahoo_symbol로 캐시 저장
-            match self.fetch_and_cache(symbol, &yahoo_symbol, timeframe, limit, last_cached_time).await {
+            // 원본 심볼로 데이터 소스 선택, source_symbol로 캐시 저장
+            match self.fetch_and_cache(symbol, &source_symbol, timeframe, limit, last_cached_time).await {
                 Ok(fetched) => {
                     info!(
-                        symbol = %yahoo_symbol,
+                        canonical = %symbol,
+                        source_symbol = %source_symbol,
                         fetched = fetched,
-                        "Yahoo Finance 데이터 캐시 완료"
+                        "데이터 캐시 완료"
                     );
                 }
                 Err(e) => {
                     warn!(
-                        symbol = %yahoo_symbol,
+                        canonical = %symbol,
+                        source_symbol = %source_symbol,
                         error = %e,
-                        "Yahoo Finance 데이터 가져오기 실패, 캐시 데이터 사용"
+                        "데이터 가져오기 실패, 캐시 데이터 사용"
                     );
                 }
             }
         }
 
         // 5. 갭 감지
-        self.detect_and_warn_gaps(&yahoo_symbol, timeframe, limit).await;
+        self.detect_and_warn_gaps(&source_symbol, timeframe, limit).await;
 
-        // 6. 캐시에서 데이터 반환
-        let klines: Vec<Kline> = self.cache.get_cached_klines(&yahoo_symbol, timeframe, limit).await?;
+        // 6. 캐시에서 데이터 조회
+        let records = self.cache.get_cached_klines(&source_symbol, timeframe, limit).await?;
+
+        // 7. canonical 심볼로 Kline 변환
+        let klines: Vec<Kline> = records.into_iter().map(|kline| {
+            Kline {
+                symbol: Symbol {
+                    base: symbol.to_string(),  // canonical 심볼 사용
+                    quote: quote_currency.clone(),
+                    market_type,
+                    exchange_symbol: Some(source_symbol.clone()),
+                },
+                ..kline
+            }
+        }).collect();
 
         debug!(
-            symbol = %yahoo_symbol,
+            canonical = %symbol,
+            source_symbol = %source_symbol,
             returned = klines.len(),
             "캔들 데이터 반환"
+        );
+
+        Ok(klines)
+    }
+
+    /// 심볼을 데이터 소스 형식으로 변환.
+    ///
+    /// SymbolResolver를 통해 DB에서 조회하고, 없으면 기본 변환 규칙 적용.
+    async fn resolve_symbol(&self, canonical: &str) -> (String, String, MarketType) {
+        // 1. DB에서 심볼 정보 조회 시도
+        if let Ok(Some(info)) = self.symbol_resolver.get_symbol_info(canonical).await {
+            let source_symbol = info.yahoo_symbol.unwrap_or_else(|| canonical.to_string());
+            let quote = match info.market.as_str() {
+                "KR" => "KRW".to_string(),
+                "CRYPTO" => "USDT".to_string(),
+                _ => "USD".to_string(),
+            };
+            let market_type = match info.market.as_str() {
+                "KR" => MarketType::KrStock,
+                "US" => MarketType::UsStock,
+                "CRYPTO" => MarketType::Crypto,
+                _ => MarketType::Stock,
+            };
+            return (source_symbol, quote, market_type);
+        }
+
+        // 2. 기본 변환 규칙 (DB에 정보가 없는 경우)
+        // 6자리 숫자 → 한국 주식
+        if canonical.len() == 6 && canonical.chars().all(|c| c.is_ascii_digit()) {
+            return (format!("{}.KS", canonical), "KRW".to_string(), MarketType::KrStock);
+        }
+
+        // "/" 포함 → 암호화폐
+        if canonical.contains('/') {
+            let parts: Vec<&str> = canonical.split('/').collect();
+            let quote = parts.get(1).map(|s| s.to_string()).unwrap_or_else(|| "USDT".to_string());
+            return (canonical.replace("/", "-"), quote, MarketType::Crypto);
+        }
+
+        // 기본: 미국 주식
+        (canonical.to_string(), "USD".to_string(), MarketType::UsStock)
+    }
+
+    /// 날짜 범위로 캔들 데이터 조회.
+    ///
+    /// # 인자
+    /// - `symbol`: 심볼 (예: 005930, AAPL)
+    /// - `timeframe`: 타임프레임
+    /// - `start_date`: 시작 날짜
+    /// - `end_date`: 종료 날짜
+    ///
+    /// # 반환
+    /// 지정된 기간의 캔들 데이터 (캐시에 저장됨)
+    ///
+    /// # 인자
+    /// - `symbol`: canonical 심볼 (예: "005930", "AAPL", "BTC/USDT")
+    #[instrument(skip(self))]
+    pub async fn get_klines_range(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+        start_date: NaiveDate,
+        end_date: NaiveDate,
+    ) -> Result<Vec<Kline>> {
+        // SymbolResolver를 통해 데이터 소스 심볼 조회
+        let (source_symbol, quote_currency, market_type) = self.resolve_symbol(symbol).await;
+        let lock_key = format!("{}:{}:range", source_symbol, timeframe_to_string(timeframe));
+
+        info!(
+            canonical = %symbol,
+            source_symbol = %source_symbol,
+            timeframe = %timeframe_to_string(timeframe),
+            start = %start_date,
+            end = %end_date,
+            "날짜 범위 데이터 조회 요청"
+        );
+
+        // 1. 동시성 제어: Lock 획득
+        let lock = self.get_or_create_lock(&lock_key).await;
+        let _guard = lock.write().await;
+
+        // 2. 외부 데이터 소스에서 데이터 가져와 캐시
+        let raw_klines = if is_pure_korean_stock_code(symbol) {
+            debug!(canonical = symbol, "KRX 데이터 소스 시도 (날짜 범위)");
+            match self.fetch_from_krx_range(symbol, timeframe, start_date, end_date).await {
+                Ok(data) if !data.is_empty() => {
+                    debug!(canonical = symbol, count = data.len(), "KRX 날짜 범위 데이터 성공");
+                    data
+                }
+                Ok(_) | Err(_) => {
+                    warn!(canonical = symbol, "KRX 실패, Yahoo Finance Fallback");
+                    let provider = YahooProviderWrapper::new()?;
+                    provider.get_klines_range(&source_symbol, timeframe, start_date, end_date).await?
+                }
+            }
+        } else {
+            debug!(source_symbol = %source_symbol, "Yahoo Finance 날짜 범위 조회");
+            let provider = YahooProviderWrapper::new()?;
+            provider.get_klines_range(&source_symbol, timeframe, start_date, end_date).await?
+        };
+
+        if raw_klines.is_empty() {
+            info!(canonical = %symbol, source_symbol = %source_symbol, "날짜 범위에 데이터 없음");
+            return Ok(Vec::new());
+        }
+
+        // 3. 캐시에 저장
+        let saved = self.batch_insert_klines(&source_symbol, timeframe, &raw_klines).await?;
+        info!(
+            canonical = %symbol,
+            source_symbol = %source_symbol,
+            fetched = raw_klines.len(),
+            saved = saved,
+            "날짜 범위 데이터 캐시 완료"
+        );
+
+        // 4. canonical 심볼로 Kline 변환
+        let klines: Vec<Kline> = raw_klines.into_iter().map(|kline| {
+            Kline {
+                symbol: Symbol {
+                    base: symbol.to_string(),  // canonical 심볼 사용
+                    quote: quote_currency.clone(),
+                    market_type,
+                    exchange_symbol: Some(source_symbol.clone()),
+                },
+                ..kline
+            }
+        }).collect();
+
+        Ok(klines)
+    }
+
+    /// KRX에서 날짜 범위로 데이터 가져오기.
+    async fn fetch_from_krx_range(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+        start_date: NaiveDate,
+        end_date: NaiveDate,
+    ) -> Result<Vec<Kline>> {
+        // KRX는 일봉만 지원
+        if timeframe != Timeframe::D1 {
+            warn!(
+                symbol = symbol,
+                timeframe = %timeframe_to_string(timeframe),
+                "KRX는 일봉(1d)만 지원합니다."
+            );
+        }
+
+        let krx = KrxDataSource::new();
+
+        let start_str = start_date.format("%Y%m%d").to_string();
+        let end_str = end_date.format("%Y%m%d").to_string();
+
+        let klines = krx.get_ohlcv(symbol, &start_str, &end_str).await?;
+
+        debug!(
+            symbol = symbol,
+            start = %start_str,
+            end = %end_str,
+            count = klines.len(),
+            "KRX 날짜 범위 데이터 가져오기 완료"
         );
 
         Ok(klines)
@@ -504,9 +696,12 @@ impl CachedHistoricalDataProvider {
     }
 
     /// 특정 심볼 캐시 삭제.
+    ///
+    /// # 인자
+    /// - `symbol`: canonical 심볼 (예: "005930", "AAPL")
     pub async fn clear_cache(&self, symbol: &str) -> Result<u64> {
-        let yahoo_symbol = to_yahoo_symbol(symbol);
-        self.cache.clear_symbol_cache(&yahoo_symbol).await
+        let (source_symbol, _, _) = self.resolve_symbol(symbol).await;
+        self.cache.clear_symbol_cache(&source_symbol).await
     }
 
     /// 캐시 Warmup (주요 심볼 미리 캐시).
@@ -609,14 +804,6 @@ fn is_japanese_market_active(now: DateTime<Utc>) -> bool {
 // 헬퍼 함수
 // =============================================================================
 
-/// 심볼을 Yahoo Finance 형식으로 변환.
-fn to_yahoo_symbol(symbol: &str) -> String {
-    if symbol.len() == 6 && symbol.chars().all(|c| c.is_ascii_digit()) {
-        format!("{}.KS", symbol)
-    } else {
-        symbol.to_string()
-    }
-}
 
 /// Timeframe의 Duration 계산.
 fn timeframe_to_duration(timeframe: Timeframe) -> Duration {
@@ -761,6 +948,89 @@ impl YahooProviderWrapper {
 
         Ok(sorted)
     }
+
+    /// 날짜 범위로 캔들 데이터 조회.
+    pub async fn get_klines_range(
+        &self,
+        symbol: &str,
+        timeframe: Timeframe,
+        start_date: NaiveDate,
+        end_date: NaiveDate,
+    ) -> Result<Vec<Kline>> {
+        let interval = match timeframe {
+            Timeframe::M1 => "1m",
+            Timeframe::M3 | Timeframe::M5 => "5m",
+            Timeframe::M15 => "15m",
+            Timeframe::M30 => "30m",
+            Timeframe::H1 | Timeframe::H2 | Timeframe::H4 |
+            Timeframe::H6 | Timeframe::H8 | Timeframe::H12 => "1h",
+            Timeframe::D1 | Timeframe::D3 => "1d",
+            Timeframe::W1 => "1wk",
+            Timeframe::MN1 => "1mo",
+        };
+
+        // chrono::NaiveDate → time::OffsetDateTime 변환
+        let start = naive_date_to_offset_datetime(start_date);
+        let end = naive_date_to_offset_datetime(end_date);
+
+        debug!(
+            symbol = symbol,
+            interval = interval,
+            start = %start_date,
+            end = %end_date,
+            "Yahoo Finance API 날짜 범위 호출"
+        );
+
+        let response = self.connector
+            .get_quote_history_interval(symbol, start, end, interval)
+            .await
+            .map_err(|e| DataError::FetchError(format!("Yahoo Finance API 오류 ({}): {}", symbol, e)))?;
+
+        let quotes = response.quotes()
+            .map_err(|e| DataError::ParseError(format!("Quote 파싱 오류: {}", e)))?;
+
+        if quotes.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let currency = guess_currency(symbol);
+        let symbol_obj = Symbol::stock(symbol, currency);
+
+        let klines: Vec<Kline> = quotes.iter().map(|q| {
+            let open_time = Utc.timestamp_opt(q.timestamp as i64, 0)
+                .single()
+                .unwrap_or_else(|| Utc::now());
+            let close_time = open_time + timeframe_to_duration(timeframe);
+
+            Kline {
+                symbol: symbol_obj.clone(),
+                timeframe,
+                open_time,
+                open: Decimal::from_f64_retain(q.open).unwrap_or_default(),
+                high: Decimal::from_f64_retain(q.high).unwrap_or_default(),
+                low: Decimal::from_f64_retain(q.low).unwrap_or_default(),
+                close: Decimal::from_f64_retain(q.close).unwrap_or_default(),
+                volume: Decimal::from(q.volume),
+                close_time,
+                quote_volume: None,
+                num_trades: None,
+            }
+        }).collect();
+
+        let mut sorted = klines;
+        sorted.sort_by_key(|k| k.open_time);
+
+        Ok(sorted)
+    }
+}
+
+/// NaiveDate를 OffsetDateTime으로 변환.
+fn naive_date_to_offset_datetime(date: NaiveDate) -> OffsetDateTime {
+    let (year, month, day) = (date.year(), date.month() as u8, date.day() as u8);
+    time::Date::from_calendar_date(year, time::Month::try_from(month).unwrap(), day)
+        .unwrap()
+        .midnight()
+        .assume_utc()
 }
 
 fn calculate_range_string(timeframe: Timeframe, limit: usize) -> &'static str {

@@ -18,7 +18,7 @@
 
 ZeroQuant는 암호화폐와 주식 시장에서 **24/7 자동화된 거래**를 수행하는 트레이딩 시스템입니다.
 
-검증된 17가지 전략과 47개의 ML 패턴 인식을 통해 **그리드 트레이딩**, **자산배분**, **모멘텀** 등 다양한 투자 방법론을 지원합니다. 웹 대시보드에서 실시간 모니터링과 전략 제어가 가능하며, 리스크 관리 시스템이 자동으로 자산을 보호합니다.
+검증된 27가지 전략과 47개의 ML 패턴 인식을 통해 **그리드 트레이딩**, **자산배분**, **모멘텀** 등 다양한 투자 방법론을 지원합니다. 웹 대시보드에서 실시간 모니터링과 전략 제어가 가능하며, 리스크 관리 시스템이 자동으로 자산을 보호합니다.
 
 ## 주요 기능
 
@@ -88,6 +88,24 @@ ZeroQuant는 암호화폐와 주식 시장에서 **24/7 자동화된 거래**를
 | **XAA** | eXtended Asset Allocation (TOP 4 선택) |
 | **Simple Power** | TQQQ/SCHD/PFIX/TMF 조합 + MA 필터 |
 | **Market Cap Top** | 시가총액 상위 종목 월간 리밸런싱 |
+| **BAA** | Bold Asset Allocation (공격/수비 모드 전환) |
+| **Dual Momentum** | 절대/상대 모멘텀 기반 자산배분 |
+| **Pension Bot** | 연금 계좌 자동 운용 (MDD 최소화) |
+
+### 섹터/레버리지 전략
+| 전략 | 설명 |
+|------|------|
+| **Sector Momentum** | 섹터 ETF 로테이션 전략 |
+| **Sector VB** | 섹터별 변동성 돌파 |
+| **US 3X Leverage** | 미국 3배 레버리지 ETF (TQQQ/SOXL) |
+
+### 국내 주식 전략
+| 전략 | 설명 |
+|------|------|
+| **Kosdaq Fire Rain** | 코스닥 단타 변동성 돌파 |
+| **KOSPI Bothside** | 코스피 롱숏 양방향 매매 |
+| **Small Cap Quant** | 소형주 퀀트 팩터 전략 |
+| **Stock Gugan** | 구간별 분할 매매 전략 |
 
 ## 전략 개발 가이드
 
@@ -201,7 +219,7 @@ zeroquant/
 ├── crates/
 │   ├── trader-core/         # 도메인 모델, 공통 유틸리티
 │   ├── trader-exchange/     # 거래소 연동 (Binance, KIS)
-│   ├── trader-strategy/     # 전략 엔진, 17개 전략
+│   ├── trader-strategy/     # 전략 엔진, 27개 전략
 │   ├── trader-risk/         # 리스크 관리
 │   ├── trader-execution/    # 주문 실행 엔진
 │   ├── trader-data/         # 데이터 수집/저장 (OHLCV)
@@ -217,7 +235,7 @@ zeroquant/
 │       ├── Dataset.tsx      # 데이터셋 관리
 │       ├── Backtest.tsx     # 백테스트 실행
 │       └── Simulation.tsx   # 시뮬레이션
-├── migrations/              # DB 마이그레이션 (10개)
+├── migrations/              # DB 마이그레이션 (13개)
 └── monitoring/              # Prometheus/Grafana
 ```
 

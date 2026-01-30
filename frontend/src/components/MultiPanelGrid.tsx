@@ -1,5 +1,5 @@
 import { createSignal, createEffect, For, Show, onCleanup, type JSXElement } from 'solid-js'
-import { Maximize2, Minimize2, X, GripVertical, Columns, Grid2x2, LayoutGrid, Square } from 'lucide-solid'
+import { Maximize2, Minimize2, X, GripVertical, Columns, Grid2x2, LayoutGrid, Square, Search, TrendingUp } from 'lucide-solid'
 
 // ==================== 타입 ====================
 
@@ -20,6 +20,13 @@ export interface GridPanel {
   height: number
 }
 
+// 심볼 검색 결과 타입
+export interface SymbolSearchItem {
+  ticker: string
+  name: string
+  market?: string
+}
+
 interface MultiPanelGridProps {
   panels: PanelConfig[]
   layoutMode: LayoutMode
@@ -27,6 +34,11 @@ interface MultiPanelGridProps {
   onPanelClose?: (id: string) => void
   onPanelMaximize?: (id: string) => void
   onLayoutChange?: (mode: LayoutMode) => void
+  // 심볼 자동완성 관련 props
+  availableSymbols?: string[]
+  onSymbolChange?: (panelId: string, symbol: string) => void
+  // 심볼 검색 API 콜백 (회사명 검색 지원)
+  onSymbolSearch?: (query: string) => Promise<SymbolSearchItem[]>
 }
 
 // ==================== 유틸리티 ====================
@@ -60,8 +72,94 @@ export function MultiPanelGrid(props: MultiPanelGridProps) {
   const [draggingPanel, setDraggingPanel] = createSignal<string | null>(null)
   const [dragOverPanel, setDragOverPanel] = createSignal<string | null>(null)
 
+  // 심볼 자동완성 상태 (패널별)
+  const [editingPanelId, setEditingPanelId] = createSignal<string | null>(null)
+  const [searchQuery, setSearchQuery] = createSignal('')
+  const [selectedIndex, setSelectedIndex] = createSignal(-1)
+  // API 검색 결과 상태
+  const [searchResults, setSearchResults] = createSignal<SymbolSearchItem[]>([])
+  const [isSearching, setIsSearching] = createSignal(false)
+
   const config = () => layoutConfigs[props.layoutMode]
   const maxPanels = () => config().cols * config().rows
+
+  // 검색 실행 (debounced)
+  let searchTimeout: ReturnType<typeof setTimeout> | null = null
+  const performSearch = async (query: string) => {
+    if (!query.trim()) {
+      setSearchResults([])
+      return
+    }
+
+    // API 검색이 있으면 사용
+    if (props.onSymbolSearch) {
+      setIsSearching(true)
+      try {
+        const results = await props.onSymbolSearch(query)
+        setSearchResults(results)
+      } catch {
+        setSearchResults([])
+      } finally {
+        setIsSearching(false)
+      }
+    } else if (props.availableSymbols) {
+      // 로컬 필터링 폴백
+      const queryUpper = query.toUpperCase()
+      const filtered = props.availableSymbols
+        .filter(s => s.toUpperCase().includes(queryUpper))
+        .slice(0, 8)
+        .map(ticker => ({ ticker, name: ticker }))
+      setSearchResults(filtered)
+    }
+  }
+
+  // 검색어 변경 시 debounced 검색
+  const handleSearchInput = (value: string) => {
+    setSearchQuery(value)
+    setSelectedIndex(-1)
+
+    if (searchTimeout) clearTimeout(searchTimeout)
+    searchTimeout = setTimeout(() => performSearch(value), 200)
+  }
+
+  // 자동완성 심볼 목록 (API 결과 또는 로컬 필터링)
+  const filteredSymbols = () => searchResults()
+
+  // 심볼 선택 처리
+  const handleSymbolSelect = (panelId: string, symbol: string) => {
+    props.onSymbolChange?.(panelId, symbol)
+    setEditingPanelId(null)
+    setSearchQuery('')
+    setSelectedIndex(-1)
+  }
+
+  // 키보드 네비게이션
+  const handleKeyDown = (e: KeyboardEvent, panelId: string) => {
+    const symbols = filteredSymbols()
+    const len = symbols.length
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setSelectedIndex(prev => len > 0 ? (prev + 1) % len : -1)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setSelectedIndex(prev => len > 0 ? (prev - 1 + len) % len : -1)
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      const idx = selectedIndex()
+      if (idx >= 0 && idx < len) {
+        handleSymbolSelect(panelId, symbols[idx].ticker)
+      } else if (searchQuery().trim()) {
+        // 검색어가 있으면 그대로 사용
+        handleSymbolSelect(panelId, searchQuery().trim().toUpperCase())
+      }
+    } else if (e.key === 'Escape') {
+      setEditingPanelId(null)
+      setSearchQuery('')
+      setSelectedIndex(-1)
+      setSearchResults([])
+    }
+  }
 
   // 패널 순서 (드래그로 재정렬 가능)
   const [panelOrder, setPanelOrder] = createSignal<string[]>(props.panels.map(p => p.id))
@@ -232,17 +330,92 @@ export function MultiPanelGrid(props: MultiPanelGridProps) {
                 {/* 패널 헤더 */}
                 <div
                   class="flex items-center justify-between px-3 py-2 bg-[var(--color-surface-light)]
-                         border-b border-[var(--color-bg)] cursor-move"
-                  draggable={true}
-                  onDragStart={(e) => handleDragStart(e, panel.id)}
-                  onDragEnd={handleDragEnd}
+                         border-b border-[var(--color-bg)]"
                 >
-                  <div class="flex items-center gap-2">
-                    <GripVertical class="w-4 h-4 text-[var(--color-text-muted)]" />
-                    <span class="text-sm font-medium text-[var(--color-text)]">
-                      {panel.symbol || '심볼 선택...'}
-                    </span>
-                    <Show when={panel.timeframe}>
+                  <div class="flex items-center gap-2 flex-1 min-w-0">
+                    <div
+                      class="cursor-move"
+                      draggable={true}
+                      onDragStart={(e) => handleDragStart(e, panel.id)}
+                      onDragEnd={handleDragEnd}
+                    >
+                      <GripVertical class="w-4 h-4 text-[var(--color-text-muted)]" />
+                    </div>
+
+                    {/* 심볼 자동완성 영역 */}
+                    <Show
+                      when={editingPanelId() === panel.id}
+                      fallback={
+                        <button
+                          onClick={() => {
+                            setEditingPanelId(panel.id)
+                            setSearchQuery(panel.symbol || '')
+                            setSelectedIndex(-1)
+                          }}
+                          class="flex items-center gap-1.5 text-sm font-medium text-[var(--color-text)]
+                                 hover:text-[var(--color-primary)] transition px-2 py-0.5 rounded
+                                 hover:bg-[var(--color-surface)]"
+                        >
+                          <Search class="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
+                          <span>{panel.symbol || '심볼 검색...'}</span>
+                        </button>
+                      }
+                    >
+                      <div class="relative flex-1">
+                        <div class="flex items-center gap-1">
+                          <Search class="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
+                          <input
+                            type="text"
+                            value={searchQuery()}
+                            onInput={(e) => handleSearchInput(e.currentTarget.value)}
+                            onKeyDown={(e) => handleKeyDown(e, panel.id)}
+                            onBlur={() => setTimeout(() => {
+                              setEditingPanelId(null)
+                              setSearchQuery('')
+                              setSearchResults([])
+                            }, 200)}
+                            placeholder="심볼/회사명 검색..."
+                            autofocus
+                            class="w-full px-2 py-0.5 text-sm bg-[var(--color-bg)] text-[var(--color-text)]
+                                   rounded border border-[var(--color-primary)] outline-none"
+                          />
+                        </div>
+
+                        {/* 자동완성 드롭다운 */}
+                        <Show when={searchQuery().trim() && (filteredSymbols().length > 0 || isSearching())}>
+                          <div class="absolute top-full left-0 right-0 mt-1 bg-[var(--color-surface)]
+                                      border border-[var(--color-surface-light)] rounded-lg shadow-xl z-50
+                                      max-h-48 overflow-auto">
+                            <For each={filteredSymbols()}>
+                              {(item, idx) => (
+                                <button
+                                  onMouseDown={(e) => {
+                                    e.preventDefault()
+                                    handleSymbolSelect(panel.id, item.ticker)
+                                  }}
+                                  class={`w-full px-3 py-2 text-left text-sm flex items-center gap-2
+                                          transition hover:bg-[var(--color-surface-light)]
+                                          ${idx() === selectedIndex()
+                                            ? 'bg-[var(--color-primary)]/20 text-[var(--color-primary)]'
+                                            : 'text-[var(--color-text)]'}`}
+                                >
+                                  <TrendingUp class="w-3.5 h-3.5 text-[var(--color-primary)] flex-shrink-0" />
+                                  <span class="font-mono font-medium">{item.ticker}</span>
+                                  <span class="text-xs text-[var(--color-text-muted)] truncate">{item.name}</span>
+                                  <Show when={item.market}>
+                                    <span class="ml-auto text-xs px-1 py-0.5 rounded bg-[var(--color-bg)] text-[var(--color-text-muted)]">
+                                      {item.market}
+                                    </span>
+                                  </Show>
+                                </button>
+                              )}
+                            </For>
+                          </div>
+                        </Show>
+                      </div>
+                    </Show>
+
+                    <Show when={panel.timeframe && editingPanelId() !== panel.id}>
                       <span class="text-xs px-1.5 py-0.5 bg-[var(--color-primary)]/20 text-[var(--color-primary)] rounded">
                         {panel.timeframe}
                       </span>

@@ -15,7 +15,7 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::{error, info, warn};
@@ -23,6 +23,7 @@ use tracing::{error, info, warn};
 use trader_core::Timeframe;
 use trader_data::cache::CachedHistoricalDataProvider;
 
+use crate::repository::{SymbolInfoRepository, SymbolSearchResult};
 use crate::routes::strategies::ApiError;
 use crate::state::AppState;
 
@@ -34,6 +35,9 @@ use crate::state::AppState;
 pub struct DatasetSummary {
     /// 심볼
     pub symbol: String,
+    /// 표시 이름 (예: "005930(삼성전자)")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
     /// 타임프레임
     pub timeframe: String,
     /// 첫 번째 캔들 시간
@@ -85,9 +89,15 @@ pub struct FetchDatasetRequest {
     /// 타임프레임 (1d, 1h, 5m 등)
     #[serde(default = "default_timeframe")]
     pub timeframe: String,
-    /// 다운로드할 캔들 수
+    /// 다운로드할 캔들 수 (start_date/end_date가 없을 때 사용)
     #[serde(default = "default_limit")]
     pub limit: usize,
+    /// 시작 날짜 (ISO 8601, 예: 2024-01-01)
+    #[serde(default)]
+    pub start_date: Option<String>,
+    /// 종료 날짜 (ISO 8601, 예: 2024-12-31)
+    #[serde(default)]
+    pub end_date: Option<String>,
 }
 
 fn default_timeframe() -> String {
@@ -214,15 +224,41 @@ pub async fn list_datasets(
 
     match provider.get_cache_stats().await {
         Ok(stats) => {
+            // 심볼 목록 추출 (Yahoo 형식에서 canonical로 변환)
+            let symbols: Vec<String> = stats
+                .iter()
+                .map(|s| {
+                    // .KS, .KQ 등 Yahoo 접미사 제거
+                    if s.symbol.ends_with(".KS") || s.symbol.ends_with(".KQ") {
+                        s.symbol[..s.symbol.len() - 3].to_string()
+                    } else {
+                        s.symbol.clone()
+                    }
+                })
+                .collect();
+
+            // display_name 배치 조회
+            let display_names = state.get_display_names(&symbols, false).await;
+
             let datasets: Vec<DatasetSummary> = stats
                 .into_iter()
-                .map(|s| DatasetSummary {
-                    symbol: s.symbol,
-                    timeframe: s.timeframe,
-                    first_time: s.first_time,
-                    last_time: s.last_time,
-                    candle_count: s.candle_count,
-                    last_updated: s.last_updated,
+                .map(|s| {
+                    // Yahoo 형식에서 canonical 심볼로 변환
+                    let canonical = if s.symbol.ends_with(".KS") || s.symbol.ends_with(".KQ") {
+                        s.symbol[..s.symbol.len() - 3].to_string()
+                    } else {
+                        s.symbol.clone()
+                    };
+                    let display_name = display_names.get(&canonical).cloned();
+                    DatasetSummary {
+                        symbol: canonical,
+                        display_name,
+                        timeframe: s.timeframe,
+                        first_time: s.first_time,
+                        last_time: s.last_time,
+                        candle_count: s.candle_count,
+                        last_updated: s.last_updated,
+                    }
                 })
                 .collect();
 
@@ -248,6 +284,13 @@ pub async fn list_datasets(
 /// 새 데이터셋 다운로드 요청.
 ///
 /// POST /api/v1/dataset/fetch
+///
+/// # 요청 본문
+/// - `symbol`: 심볼 (예: 005930, AAPL)
+/// - `timeframe`: 타임프레임 (기본값: 1d)
+/// - `limit`: 캔들 수 (start_date/end_date가 없을 때 사용, 기본값: 500)
+/// - `start_date`: 시작 날짜 (선택, 예: 2024-01-01)
+/// - `end_date`: 종료 날짜 (선택, 예: 2024-12-31)
 pub async fn fetch_dataset(
     State(state): State<Arc<AppState>>,
     Json(req): Json<FetchDatasetRequest>,
@@ -266,12 +309,39 @@ pub async fn fetch_dataset(
         symbol = %req.symbol,
         timeframe = %req.timeframe,
         limit = req.limit,
+        start_date = ?req.start_date,
+        end_date = ?req.end_date,
         "데이터셋 다운로드 요청"
     );
 
-    match provider.get_klines(&req.symbol, timeframe, req.limit).await {
+    // 날짜 범위가 지정된 경우 날짜 범위 API 사용
+    let result = if req.start_date.is_some() && req.end_date.is_some() {
+        let (start_date, end_date) = parse_date_range(&req)?;
+        provider.get_klines_range(&req.symbol, timeframe, start_date, end_date).await
+    } else if req.start_date.is_some() {
+        // 시작 날짜만 있으면: 시작일 ~ 오늘
+        let start_date = parse_start_date(&req)?;
+        let end_date = Utc::now().date_naive();
+        provider.get_klines_range(&req.symbol, timeframe, start_date, end_date).await
+    } else {
+        // 날짜 범위 없으면 기존 방식 (최근 N개)
+        provider.get_klines(&req.symbol, timeframe, req.limit).await
+    };
+
+    match result {
         Ok(klines) => {
             let fetched_count = klines.len();
+            let message = if req.start_date.is_some() || req.end_date.is_some() {
+                format!(
+                    "{}개 캔들 데이터가 캐시되었습니다 (기간: {} ~ {})",
+                    fetched_count,
+                    req.start_date.as_deref().unwrap_or("처음"),
+                    req.end_date.as_deref().unwrap_or("오늘")
+                )
+            } else {
+                format!("{}개 캔들 데이터가 캐시되었습니다", fetched_count)
+            };
+
             info!(
                 symbol = %req.symbol,
                 count = fetched_count,
@@ -282,7 +352,7 @@ pub async fn fetch_dataset(
                 symbol: req.symbol,
                 timeframe: req.timeframe,
                 fetched_count,
-                message: format!("{}개 캔들 데이터가 캐시되었습니다", fetched_count),
+                message,
             }))
         }
         Err(e) => {
@@ -296,6 +366,135 @@ pub async fn fetch_dataset(
                 Json(ApiError::new("FETCH_ERROR", &format!("데이터 다운로드 실패: {}", e))),
             ))
         }
+    }
+}
+
+/// 날짜 범위 파싱.
+fn parse_date_range(
+    req: &FetchDatasetRequest,
+) -> Result<(NaiveDate, NaiveDate), (StatusCode, Json<ApiError>)> {
+    let start = req.start_date.as_ref().unwrap();
+    let end = req.end_date.as_ref().unwrap();
+
+    let start_date = NaiveDate::parse_from_str(start, "%Y-%m-%d").map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ApiError::new(
+                "INVALID_START_DATE",
+                &format!("시작 날짜 형식 오류 (YYYY-MM-DD): {}", e),
+            )),
+        )
+    })?;
+
+    let end_date = NaiveDate::parse_from_str(end, "%Y-%m-%d").map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ApiError::new(
+                "INVALID_END_DATE",
+                &format!("종료 날짜 형식 오류 (YYYY-MM-DD): {}", e),
+            )),
+        )
+    })?;
+
+    if start_date > end_date {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ApiError::new(
+                "INVALID_DATE_RANGE",
+                "시작 날짜가 종료 날짜보다 늦습니다",
+            )),
+        ));
+    }
+
+    Ok((start_date, end_date))
+}
+
+/// 시작 날짜 파싱.
+fn parse_start_date(
+    req: &FetchDatasetRequest,
+) -> Result<NaiveDate, (StatusCode, Json<ApiError>)> {
+    let start = req.start_date.as_ref().unwrap();
+
+    NaiveDate::parse_from_str(start, "%Y-%m-%d").map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ApiError::new(
+                "INVALID_START_DATE",
+                &format!("시작 날짜 형식 오류 (YYYY-MM-DD): {}", e),
+            )),
+        )
+    })
+}
+
+#[allow(dead_code)]
+/// 날짜 범위에서 유효한 limit 계산 (사용하지 않음).
+fn calculate_effective_limit(
+    req: &FetchDatasetRequest,
+) -> Result<usize, (StatusCode, Json<ApiError>)> {
+    match (&req.start_date, &req.end_date) {
+        (Some(start), Some(end)) => {
+            let start_date = NaiveDate::parse_from_str(start, "%Y-%m-%d").map_err(|e| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(ApiError::new(
+                        "INVALID_START_DATE",
+                        &format!("시작 날짜 형식 오류 (YYYY-MM-DD): {}", e),
+                    )),
+                )
+            })?;
+            let end_date = NaiveDate::parse_from_str(end, "%Y-%m-%d").map_err(|e| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(ApiError::new(
+                        "INVALID_END_DATE",
+                        &format!("종료 날짜 형식 오류 (YYYY-MM-DD): {}", e),
+                    )),
+                )
+            })?;
+
+            if start_date > end_date {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ApiError::new(
+                        "INVALID_DATE_RANGE",
+                        "시작 날짜가 종료 날짜보다 늦습니다",
+                    )),
+                ));
+            }
+
+            let days = (end_date - start_date).num_days() as usize;
+            // 최소 1일, 여유분 포함
+            Ok(days.max(1) + 30)
+        }
+        (Some(start), None) => {
+            let start_date = NaiveDate::parse_from_str(start, "%Y-%m-%d").map_err(|e| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(ApiError::new(
+                        "INVALID_START_DATE",
+                        &format!("시작 날짜 형식 오류 (YYYY-MM-DD): {}", e),
+                    )),
+                )
+            })?;
+            let today = Utc::now().date_naive();
+            let days = (today - start_date).num_days() as usize;
+            Ok(days.max(1) + 30)
+        }
+        (None, Some(end)) => {
+            // 종료 날짜만 지정된 경우, 기본 limit 사용하되 최대 범위 제한
+            let end_date = NaiveDate::parse_from_str(end, "%Y-%m-%d").map_err(|e| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(ApiError::new(
+                        "INVALID_END_DATE",
+                        &format!("종료 날짜 형식 오류 (YYYY-MM-DD): {}", e),
+                    )),
+                )
+            })?;
+            let _ = end_date; // 유효성 검사만 수행
+            Ok(req.limit)
+        }
+        (None, None) => Ok(req.limit),
     }
 }
 
@@ -630,6 +829,87 @@ fn timeframe_to_db_string(tf: &str) -> String {
     .to_string()
 }
 
+// ==================== 심볼 검색 ====================
+
+/// 심볼 검색 요청 파라미터.
+#[derive(Debug, Deserialize)]
+pub struct SymbolSearchQuery {
+    /// 검색어 (티커 또는 회사명)
+    pub q: String,
+    /// 최대 결과 수 (기본: 10)
+    #[serde(default = "default_search_limit")]
+    pub limit: i64,
+}
+
+fn default_search_limit() -> i64 {
+    10
+}
+
+/// 심볼 검색 응답.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SymbolSearchResponse {
+    pub results: Vec<SymbolSearchResult>,
+    pub total: usize,
+}
+
+/// 심볼 검색 API.
+///
+/// 티커 코드와 회사명으로 검색합니다.
+///
+/// # Query Parameters
+///
+/// - `q`: 검색어 (필수)
+/// - `limit`: 최대 결과 수 (선택, 기본 10)
+///
+/// # 예시
+///
+/// ```text
+/// GET /api/v1/dataset/search?q=삼성&limit=5
+/// GET /api/v1/dataset/search?q=AAPL
+/// ```
+pub async fn search_symbols(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<SymbolSearchQuery>,
+) -> Result<Json<SymbolSearchResponse>, (StatusCode, Json<ApiError>)> {
+    if params.q.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ApiError {
+                code: "INVALID_QUERY".to_string(),
+                message: "검색어가 필요합니다".to_string(),
+            }),
+        ));
+    }
+
+    let pool = state.db_pool.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ApiError {
+                code: "DB_UNAVAILABLE".to_string(),
+                message: "데이터베이스를 사용할 수 없습니다".to_string(),
+            }),
+        )
+    })?;
+
+    let results = SymbolInfoRepository::search(pool, &params.q, params.limit)
+        .await
+        .map_err(|e| {
+            error!("심볼 검색 실패: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiError {
+                    code: "SEARCH_ERROR".to_string(),
+                    message: format!("검색 실패: {}", e),
+                }),
+            )
+        })?;
+
+    let total = results.len();
+
+    Ok(Json(SymbolSearchResponse { results, total }))
+}
+
 // ==================== 라우터 ====================
 
 /// Dataset 라우터 생성.
@@ -637,6 +917,7 @@ pub fn dataset_router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", get(list_datasets))
         .route("/fetch", post(fetch_dataset))
+        .route("/search", get(search_symbols))
         .route("/:symbol", get(get_candles))
         .route("/:symbol", delete(delete_dataset))
 }

@@ -13,6 +13,7 @@ export interface Ticker {
 export interface Position {
   id: string;
   symbol: string;
+  displayName?: string;  // "005930(삼성전자)" 형식
   side: 'Long' | 'Short';
   quantity: number;
   entryPrice: number;
@@ -25,6 +26,7 @@ export interface Position {
 export interface Order {
   id: string;
   symbol: string;
+  displayName?: string;  // "005930(삼성전자)" 형식
   side: 'Buy' | 'Sell';
   type: 'Market' | 'Limit' | 'StopLoss' | 'TakeProfit';
   quantity: number;
@@ -41,6 +43,7 @@ export interface Strategy {
   status: 'Running' | 'Stopped' | 'Error';
   market: 'KR' | 'US' | 'CRYPTO';
   symbols: string[];
+  timeframe: string;  // 타임프레임 (예: "1m", "15m", "1d")
   pnl: number;
   winRate: number;
   tradesCount: number;

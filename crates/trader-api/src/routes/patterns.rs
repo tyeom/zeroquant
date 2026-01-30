@@ -474,7 +474,7 @@ mod tests {
     #[test]
     fn test_pattern_query_defaults() {
         // serde를 사용한 기본값 테스트
-        let query: PatternQuery = serde_urlencoded::from_str("symbol=BTC/USDT").unwrap();
+        let query: PatternQuery = serde_json::from_str(r#"{"symbol": "BTC/USDT"}"#).unwrap();
         assert_eq!(query.symbol, "BTC/USDT");
         assert_eq!(query.timeframe, "1h");
         assert_eq!(query.limit, 100);

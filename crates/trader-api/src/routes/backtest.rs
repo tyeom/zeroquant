@@ -38,6 +38,18 @@ use trader_strategy::strategies::{
     CandlePatternStrategy, CandlePatternConfig,
     InfinityBotStrategy, InfinityBotConfig,
     MarketInterestDayStrategy, MarketInterestDayConfig,
+    // 3차 전략들
+    BaaStrategy, BaaConfig, BaaVersion,
+    SectorMomentumStrategy, SectorMomentumConfig, SectorMomentumMarket,
+    DualMomentumStrategy, DualMomentumConfig,
+    SmallCapQuantStrategy, SmallCapQuantConfig,
+    PensionBotStrategy, PensionBotConfig,
+    // 2차 전략들 (코드 구현 완료, API 등록)
+    SectorVbStrategy, SectorVbConfig,
+    KospiBothSideStrategy, KospiBothSideConfig,
+    KosdaqFireRainStrategy, KosdaqFireRainConfig,
+    Us3xLeverageStrategy, Us3xLeverageConfig,
+    StockGuganStrategy, StockGuganConfig,
 };
 
 // ==================== 요청/응답 타입 ====================
@@ -1521,6 +1533,257 @@ fn build_market_cap_top_ui_schema() -> UiSchema {
     }
 }
 
+/// 섹터 모멘텀 전략 UI 스키마
+fn build_sector_momentum_ui_schema() -> UiSchema {
+    UiSchema {
+        fields: vec![
+            UiField {
+                key: "market".to_string(),
+                label: "시장".to_string(),
+                field_type: UiFieldType::Select,
+                default_value: Some(serde_json::json!("US")),
+                placeholder: None,
+                help_text: Some("US(미국 섹터 ETF) 또는 KR(국내 섹터 ETF) 선택".to_string()),
+                validation: UiValidation { required: true, ..Default::default() },
+                options: Some(vec![
+                    UiSelectOption { label: "미국 섹터 ETF".to_string(), value: serde_json::json!("US"), description: Some("XLK, XLF, XLV 등 11개 섹터".to_string()) },
+                    UiSelectOption { label: "국내 섹터 ETF".to_string(), value: serde_json::json!("KR"), description: Some("KODEX/TIGER 섹터 ETF 10개".to_string()) },
+                ]),
+                group: Some("basic".to_string()),
+                order: 1,
+                show_when: None,
+                unit: None,
+                symbol_categories: None,
+            },
+            UiField {
+                key: "top_n".to_string(),
+                label: "상위 섹터 수".to_string(),
+                field_type: UiFieldType::Number,
+                default_value: Some(serde_json::json!(3)),
+                placeholder: None,
+                help_text: Some("투자할 모멘텀 상위 섹터 수".to_string()),
+                validation: UiValidation { required: true, min: Some(1.0), max: Some(5.0), step: Some(1.0), ..Default::default() },
+                options: None,
+                group: Some("basic".to_string()),
+                order: 2,
+                show_when: None,
+                unit: Some("개".to_string()),
+                symbol_categories: None,
+            },
+            UiField {
+                key: "weighting_method".to_string(),
+                label: "비중 배분 방식".to_string(),
+                field_type: UiFieldType::Select,
+                default_value: Some(serde_json::json!("Equal")),
+                placeholder: None,
+                help_text: Some("섹터별 비중 배분 방식".to_string()),
+                validation: UiValidation { required: true, ..Default::default() },
+                options: Some(vec![
+                    UiSelectOption { label: "동일 비중".to_string(), value: serde_json::json!("Equal"), description: Some("모든 섹터에 동일 비중 배분".to_string()) },
+                    UiSelectOption { label: "모멘텀 비례".to_string(), value: serde_json::json!("Momentum"), description: Some("모멘텀 점수에 비례하여 비중 배분".to_string()) },
+                ]),
+                group: Some("basic".to_string()),
+                order: 3,
+                show_when: None,
+                unit: None,
+                symbol_categories: None,
+            },
+        ],
+        groups: vec![
+            UiFieldGroup { id: "basic".to_string(), label: "기본 설정".to_string(), description: None, order: 1, collapsed: false },
+        ],
+        layout: Some(UiLayout { columns: 1 }),
+    }
+}
+
+/// 듀얼 모멘텀 전략 UI 스키마
+fn build_dual_momentum_ui_schema() -> UiSchema {
+    UiSchema {
+        fields: vec![
+            UiField {
+                key: "momentum_period".to_string(),
+                label: "모멘텀 기간".to_string(),
+                field_type: UiFieldType::Number,
+                default_value: Some(serde_json::json!(63)),
+                placeholder: None,
+                help_text: Some("모멘텀 계산 기간 (거래일 기준, 63일 ≈ 3개월)".to_string()),
+                validation: UiValidation { required: true, min: Some(20.0), max: Some(252.0), step: Some(1.0), ..Default::default() },
+                options: None,
+                group: Some("basic".to_string()),
+                order: 1,
+                show_when: None,
+                unit: Some("일".to_string()),
+                symbol_categories: None,
+            },
+            UiField {
+                key: "use_absolute_momentum".to_string(),
+                label: "절대 모멘텀 사용".to_string(),
+                field_type: UiFieldType::Boolean,
+                default_value: Some(serde_json::json!(true)),
+                placeholder: None,
+                help_text: Some("절대 모멘텀이 음수면 안전 자산(BIL)으로 전환".to_string()),
+                validation: UiValidation::default(),
+                options: None,
+                group: Some("basic".to_string()),
+                order: 2,
+                show_when: None,
+                unit: None,
+                symbol_categories: None,
+            },
+        ],
+        groups: vec![
+            UiFieldGroup { id: "basic".to_string(), label: "기본 설정".to_string(), description: None, order: 1, collapsed: false },
+        ],
+        layout: Some(UiLayout { columns: 1 }),
+    }
+}
+
+/// 소형주 퀀트 전략 UI 스키마
+fn build_small_cap_quant_ui_schema() -> UiSchema {
+    UiSchema {
+        fields: vec![
+            UiField {
+                key: "target_count".to_string(),
+                label: "선택 종목 수".to_string(),
+                field_type: UiFieldType::Number,
+                default_value: Some(serde_json::json!(20)),
+                placeholder: None,
+                help_text: Some("필터 통과 후 투자할 종목 수".to_string()),
+                validation: UiValidation { required: true, min: Some(5.0), max: Some(50.0), step: Some(1.0), ..Default::default() },
+                options: None,
+                group: Some("basic".to_string()),
+                order: 1,
+                show_when: None,
+                unit: Some("개".to_string()),
+                symbol_categories: None,
+            },
+            UiField {
+                key: "ma_period".to_string(),
+                label: "이동평균 기간".to_string(),
+                field_type: UiFieldType::Number,
+                default_value: Some(serde_json::json!(20)),
+                placeholder: None,
+                help_text: Some("시장 상태 판단용 이동평균 기간".to_string()),
+                validation: UiValidation { required: true, min: Some(5.0), max: Some(120.0), step: Some(1.0), ..Default::default() },
+                options: None,
+                group: Some("basic".to_string()),
+                order: 2,
+                show_when: None,
+                unit: Some("일".to_string()),
+                symbol_categories: None,
+            },
+            UiField {
+                key: "min_market_cap".to_string(),
+                label: "최소 시가총액".to_string(),
+                field_type: UiFieldType::Number,
+                default_value: Some(serde_json::json!(50.0)),
+                placeholder: None,
+                help_text: Some("최소 시가총액 필터 (억원)".to_string()),
+                validation: UiValidation { required: true, min: Some(10.0), max: Some(1000.0), step: Some(10.0), ..Default::default() },
+                options: None,
+                group: Some("filter".to_string()),
+                order: 3,
+                show_when: None,
+                unit: Some("억원".to_string()),
+                symbol_categories: None,
+            },
+            UiField {
+                key: "min_roe".to_string(),
+                label: "최소 ROE".to_string(),
+                field_type: UiFieldType::Number,
+                default_value: Some(serde_json::json!(5.0)),
+                placeholder: None,
+                help_text: Some("최소 ROE 필터 (%)".to_string()),
+                validation: UiValidation { required: true, min: Some(0.0), max: Some(50.0), step: Some(1.0), ..Default::default() },
+                options: None,
+                group: Some("filter".to_string()),
+                order: 4,
+                show_when: None,
+                unit: Some("%".to_string()),
+                symbol_categories: None,
+            },
+        ],
+        groups: vec![
+            UiFieldGroup { id: "basic".to_string(), label: "기본 설정".to_string(), description: None, order: 1, collapsed: false },
+            UiFieldGroup { id: "filter".to_string(), label: "재무 필터".to_string(), description: None, order: 2, collapsed: false },
+        ],
+        layout: Some(UiLayout { columns: 1 }),
+    }
+}
+
+/// 연금 자동화 전략 UI 스키마
+fn build_pension_bot_ui_schema() -> UiSchema {
+    UiSchema {
+        fields: vec![
+            UiField {
+                key: "avg_momentum_period".to_string(),
+                label: "평균 모멘텀 기간".to_string(),
+                field_type: UiFieldType::Number,
+                default_value: Some(serde_json::json!(10)),
+                placeholder: None,
+                help_text: Some("평균 모멘텀 계산 기간 (개월)".to_string()),
+                validation: UiValidation { required: true, min: Some(3.0), max: Some(24.0), step: Some(1.0), ..Default::default() },
+                options: None,
+                group: Some("basic".to_string()),
+                order: 1,
+                show_when: None,
+                unit: Some("개월".to_string()),
+                symbol_categories: None,
+            },
+            UiField {
+                key: "top_bonus_count".to_string(),
+                label: "보너스 대상 종목 수".to_string(),
+                field_type: UiFieldType::Number,
+                default_value: Some(serde_json::json!(12)),
+                placeholder: None,
+                help_text: Some("모멘텀 보너스를 받을 상위 종목 수".to_string()),
+                validation: UiValidation { required: true, min: Some(3.0), max: Some(20.0), step: Some(1.0), ..Default::default() },
+                options: None,
+                group: Some("basic".to_string()),
+                order: 2,
+                show_when: None,
+                unit: Some("개".to_string()),
+                symbol_categories: None,
+            },
+            UiField {
+                key: "cash_to_short_term_rate".to_string(),
+                label: "단기자금 배분율".to_string(),
+                field_type: UiFieldType::Number,
+                default_value: Some(serde_json::json!(0.45)),
+                placeholder: None,
+                help_text: Some("남은 현금 중 단기자금에 배분할 비율".to_string()),
+                validation: UiValidation { required: true, min: Some(0.0), max: Some(1.0), step: Some(0.05), ..Default::default() },
+                options: None,
+                group: Some("cash".to_string()),
+                order: 3,
+                show_when: None,
+                unit: None,
+                symbol_categories: None,
+            },
+            UiField {
+                key: "cash_to_bonus_rate".to_string(),
+                label: "보너스 배분율".to_string(),
+                field_type: UiFieldType::Number,
+                default_value: Some(serde_json::json!(0.45)),
+                placeholder: None,
+                help_text: Some("남은 현금 중 모멘텀 보너스로 배분할 비율".to_string()),
+                validation: UiValidation { required: true, min: Some(0.0), max: Some(1.0), step: Some(0.05), ..Default::default() },
+                options: None,
+                group: Some("cash".to_string()),
+                order: 4,
+                show_when: None,
+                unit: None,
+                symbol_categories: None,
+            },
+        ],
+        groups: vec![
+            UiFieldGroup { id: "basic".to_string(), label: "기본 설정".to_string(), description: None, order: 1, collapsed: false },
+            UiFieldGroup { id: "cash".to_string(), label: "현금 배분".to_string(), description: None, order: 2, collapsed: false },
+        ],
+        layout: Some(UiLayout { columns: 1 }),
+    }
+}
+
 /// 전략 ID로 UI 스키마 조회
 fn get_ui_schema_for_strategy(strategy_id: &str) -> Option<UiSchema> {
     match strategy_id {
@@ -1541,6 +1804,12 @@ fn get_ui_schema_for_strategy(strategy_id: &str) -> Option<UiSchema> {
         "snow" => Some(build_snow_ui_schema()),
         "market_cap_top" => Some(build_market_cap_top_ui_schema()),
         "market_interest_day" => Some(build_market_interest_day_ui_schema()),
+        // 3차 전략들 - 기본 스키마 사용 (TODO: 전용 스키마 구현)
+        "baa" => Some(build_haa_ui_schema()),  // BAA는 HAA와 유사한 자산배분 전략
+        "sector_momentum" => Some(build_sector_momentum_ui_schema()),
+        "dual_momentum" => Some(build_dual_momentum_ui_schema()),
+        "small_cap_quant" => Some(build_small_cap_quant_ui_schema()),
+        "pension_bot" => Some(build_pension_bot_ui_schema()),
         _ => None,
     }
 }
@@ -1763,10 +2032,10 @@ pub async fn list_backtest_strategies(
             how_it_works: Some("초기 트레일링 스톱 5%에서 시작하여 수익률 증가에 따라 최대 10%까지 조정됩니다. 고점 대비 설정된 비율 이상 하락 시 자동 청산합니다.".to_string()),
         },
         BacktestableStrategy {
-            id: "all_weather_us".to_string(),
-            name: "올웨더 US".to_string(),
-            description: "레이 달리오 올웨더 포트폴리오 (미국 ETF)".to_string(),
-            supported_symbols: vec!["SPY".to_string(), "TLT".to_string(), "IEF".to_string(), "GLD".to_string()],
+            id: "all_weather".to_string(),
+            name: "올웨더".to_string(),
+            description: "레이 달리오 올웨더 포트폴리오 (US/KR 선택)".to_string(),
+            supported_symbols: vec![],  // 시장 선택에 따라 자동 결정
             default_params: serde_json::json!({
                 "market": "US",
                 "use_seasonality": true,
@@ -1775,34 +2044,16 @@ pub async fn list_backtest_strategies(
             }),
             ui_schema: get_ui_schema_for_strategy("all_weather"),
             category: Some("자산배분".to_string()),
-            tags: vec!["자산배분".to_string(), "올웨더".to_string(), "다중자산".to_string(), "미국ETF".to_string()],
+            tags: vec!["자산배분".to_string(), "올웨더".to_string(), "다중자산".to_string()],
             execution_schedule: Some(ExecutionSchedule::Monthly),
             schedule_detail: Some("매월 첫 거래일 리밸런싱".to_string()),
-            how_it_works: Some("SPY(20%), TLT(27%), IEF(15%), GLD(8%), PDBC(8%), IYK(22%) 기본 비중. 5~10월 지옥기간에는 주식 비중 감소, 채권 비중 증가. MA 필터로 추가 조정합니다.".to_string()),
+            how_it_works: Some("US: SPY, TLT, IEF, GLD, PDBC, IYK / KR: 360750, 294400, 148070 등 시장별 자산에 분산 투자. 5~10월 지옥기간 방어적 운용, MA 필터로 동적 조정.".to_string()),
         },
         BacktestableStrategy {
-            id: "all_weather_kr".to_string(),
-            name: "올웨더 KR".to_string(),
-            description: "한국형 올웨더 포트폴리오 (국내 ETF)".to_string(),
-            supported_symbols: vec!["360750".to_string(), "294400".to_string(), "148070".to_string()],
-            default_params: serde_json::json!({
-                "market": "KR",
-                "use_seasonality": true,
-                "ma_periods": [50, 80, 120, 150],
-                "rebalance_days": 30
-            }),
-            ui_schema: get_ui_schema_for_strategy("all_weather"),
-            category: Some("자산배분".to_string()),
-            tags: vec!["자산배분".to_string(), "올웨더".to_string(), "다중자산".to_string(), "한국ETF".to_string()],
-            execution_schedule: Some(ExecutionSchedule::Monthly),
-            schedule_detail: Some("매월 첫 거래일 리밸런싱".to_string()),
-            how_it_works: Some("한국 ETF를 활용한 올웨더 포트폴리오입니다. 계절성 조정과 MA 필터를 적용하여 주식/채권 비중을 동적으로 조절합니다.".to_string()),
-        },
-        BacktestableStrategy {
-            id: "snow_us".to_string(),
-            name: "스노우 US".to_string(),
-            description: "TIP 기반 모멘텀 전략 (UPRO/TLT/BIL)".to_string(),
-            supported_symbols: vec!["UPRO".to_string(), "TLT".to_string(), "TIP".to_string()],
+            id: "snow".to_string(),
+            name: "스노우".to_string(),
+            description: "TIP 기반 모멘텀 전략 (US/KR 선택)".to_string(),
+            supported_symbols: vec![],  // 시장 선택에 따라 자동 결정
             default_params: serde_json::json!({
                 "market": "US",
                 "tip_ma_period": 200,
@@ -1811,28 +2062,10 @@ pub async fn list_backtest_strategies(
             }),
             ui_schema: get_ui_schema_for_strategy("snow"),
             category: Some("자산배분".to_string()),
-            tags: vec!["모멘텀".to_string(), "자산배분".to_string(), "미국ETF".to_string()],
+            tags: vec!["모멘텀".to_string(), "자산배분".to_string()],
             execution_schedule: Some(ExecutionSchedule::Daily),
             schedule_detail: Some("장 마감 후 실행".to_string()),
-            how_it_works: Some("TIP 10개월 이동평균 기준으로 모멘텀 판단. TIP 모멘텀 양수면 UPRO(3x S&P 500), 음수면 TLT(20년 국채) 또는 BIL(단기 국채)에 투자합니다.".to_string()),
-        },
-        BacktestableStrategy {
-            id: "snow_kr".to_string(),
-            name: "스노우 KR".to_string(),
-            description: "TIP 기반 모멘텀 전략 (레버리지/국채)".to_string(),
-            supported_symbols: vec!["122630".to_string(), "148070".to_string()],
-            default_params: serde_json::json!({
-                "market": "KR",
-                "tip_ma_period": 200,
-                "attack_ma_period": 5,
-                "rebalance_days": 1
-            }),
-            ui_schema: get_ui_schema_for_strategy("snow"),
-            category: Some("자산배분".to_string()),
-            tags: vec!["모멘텀".to_string(), "자산배분".to_string(), "한국ETF".to_string()],
-            execution_schedule: Some(ExecutionSchedule::Daily),
-            schedule_detail: Some("장 마감 후 실행".to_string()),
-            how_it_works: Some("한국형 스노우 전략입니다. TIP 모멘텀 기준으로 KODEX 레버리지(122630) 또는 국고채 10년 ETF(148070)에 투자합니다.".to_string()),
+            how_it_works: Some("TIP 10개월 MA 기준 모멘텀 판단. US: UPRO/TLT/BIL, KR: 레버리지(122630)/국고채(148070)에 투자.".to_string()),
         },
         BacktestableStrategy {
             id: "market_cap_top".to_string(),
@@ -1911,6 +2144,235 @@ pub async fn list_backtest_strategies(
             execution_schedule: Some(ExecutionSchedule::Daily),
             schedule_detail: Some("장 시작 직후 실행".to_string()),
             how_it_works: Some("거래량이 평균 대비 2배 이상 급증하고, 연속 상승봉이 나타나면 진입합니다. 트레일링 스톱으로 수익 보호하고, 최대 120분 보유 후 청산합니다.".to_string()),
+        },
+        // 3차 전략들
+        BacktestableStrategy {
+            id: "baa".to_string(),
+            name: "BAA".to_string(),
+            description: "Bold Asset Allocation - 카나리아 자산 기반 듀얼 모멘텀 전략".to_string(),
+            supported_symbols: vec![
+                "SPY".to_string(), "VEA".to_string(), "VWO".to_string(), "BND".to_string(),
+                "QQQ".to_string(), "IWM".to_string(),
+                "TIP".to_string(), "DBC".to_string(), "BIL".to_string(), "IEF".to_string(), "TLT".to_string(),
+            ],
+            default_params: serde_json::json!({
+                "version": "Bold",
+                "total_amount": 10000000,
+                "rebalance_threshold": 5
+            }),
+            ui_schema: get_ui_schema_for_strategy("baa"),
+            category: Some("자산배분".to_string()),
+            tags: vec!["듀얼모멘텀".to_string(), "카나리아".to_string(), "자산배분".to_string(), "월간리밸런싱".to_string()],
+            execution_schedule: Some(ExecutionSchedule::Monthly),
+            schedule_detail: Some("매월 초 리밸런싱".to_string()),
+            how_it_works: Some("4개 카나리아 자산(SPY, VEA, VWO, BND)의 모멘텀으로 시장 상태를 판단합니다. 모두 양수면 공격 자산(QQQ, IWM 등) 중 최고 모멘텀 종목에 투자, 하나라도 음수면 방어 자산(TIP, TLT 등)으로 전환합니다.".to_string()),
+        },
+        BacktestableStrategy {
+            id: "sector_momentum".to_string(),
+            name: "섹터 모멘텀".to_string(),
+            description: "섹터 ETF 모멘텀 순위 기반 투자 전략 (US/KR 지원)".to_string(),
+            supported_symbols: vec![
+                // US 섹터
+                "XLK".to_string(), "XLF".to_string(), "XLV".to_string(), "XLY".to_string(),
+                "XLP".to_string(), "XLE".to_string(), "XLI".to_string(), "XLB".to_string(),
+                "XLU".to_string(), "XLRE".to_string(), "XLC".to_string(),
+            ],
+            default_params: serde_json::json!({
+                "market": "US",
+                "top_n": 3,
+                "weighting_method": "Equal",
+                "short_period": 20,
+                "medium_period": 60,
+                "long_period": 120
+            }),
+            ui_schema: get_ui_schema_for_strategy("sector_momentum"),
+            category: Some("자산배분".to_string()),
+            tags: vec!["섹터".to_string(), "모멘텀".to_string(), "ETF".to_string(), "월간리밸런싱".to_string()],
+            execution_schedule: Some(ExecutionSchedule::Monthly),
+            schedule_detail: Some("매월 초 리밸런싱".to_string()),
+            how_it_works: Some("섹터 ETF의 단기(20일)/중기(60일)/장기(120일) 모멘텀을 가중 합산하여 순위를 매기고, 상위 N개 섹터에 동일 비중 또는 모멘텀 비례 비중으로 투자합니다.".to_string()),
+        },
+        BacktestableStrategy {
+            id: "dual_momentum".to_string(),
+            name: "듀얼 모멘텀".to_string(),
+            description: "한국 주식 + 미국 채권 듀얼 모멘텀 전략".to_string(),
+            supported_symbols: vec![
+                // 한국 주식
+                "069500".to_string(), "229200".to_string(),
+                // 미국 채권
+                "TLT".to_string(), "IEF".to_string(), "BIL".to_string(),
+            ],
+            default_params: serde_json::json!({
+                "momentum_period": 63,
+                "use_absolute_momentum": true,
+                "total_amount": 10000000
+            }),
+            ui_schema: get_ui_schema_for_strategy("dual_momentum"),
+            category: Some("자산배분".to_string()),
+            tags: vec!["듀얼모멘텀".to_string(), "한국주식".to_string(), "미국채권".to_string(), "월간리밸런싱".to_string()],
+            execution_schedule: Some(ExecutionSchedule::Monthly),
+            schedule_detail: Some("매월 초 리밸런싱".to_string()),
+            how_it_works: Some("한국 주식(KODEX 200, 코스닥150)과 미국 채권(TLT, IEF)의 상대 모멘텀을 비교하여 더 높은 쪽에 투자합니다. 선택된 자산의 절대 모멘텀이 음수면 안전 자산(BIL)으로 전환합니다.".to_string()),
+        },
+        BacktestableStrategy {
+            id: "small_cap_quant".to_string(),
+            name: "소형주 퀀트".to_string(),
+            description: "코스닥 소형주 퀀트 전략. 20일 MA 필터 + 재무 필터".to_string(),
+            supported_symbols: vec![
+                "229200".to_string(),  // 코스닥150 ETF (기준 지수)
+            ],
+            default_params: serde_json::json!({
+                "target_count": 20,
+                "ma_period": 20,
+                "min_market_cap": 50.0,
+                "min_roe": 5.0,
+                "min_pbr": 0.2,
+                "min_per": 2.0,
+                "total_amount": 10000000
+            }),
+            ui_schema: Some(build_small_cap_quant_ui_schema()),
+            category: Some("퀀트".to_string()),
+            tags: vec!["소형주".to_string(), "퀀트".to_string(), "한국주식".to_string(), "월간리밸런싱".to_string()],
+            execution_schedule: Some(ExecutionSchedule::Monthly),
+            schedule_detail: Some("매월 초 리밸런싱".to_string()),
+            how_it_works: Some("코스닥 소형지수가 20일 MA 위에 있을 때, 재무 필터(시총 50억+, ROE 5%+, PBR 0.2+, PER 2+)를 통과한 소형주 상위 20개에 동일 비중 투자합니다. MA 하회 시 전량 매도합니다.".to_string()),
+        },
+        BacktestableStrategy {
+            id: "pension_bot".to_string(),
+            name: "연금 자동화".to_string(),
+            description: "개인연금 계좌용 정적+동적 자산배분 조합 전략".to_string(),
+            supported_symbols: vec![
+                // 주식 ETF
+                "448290".to_string(), "379780".to_string(), "294400".to_string(),
+                // 채권 ETF
+                "305080".to_string(), "148070".to_string(),
+                // 원자재 ETF
+                "319640".to_string(),
+                // 단기자금
+                "130730".to_string(),
+            ],
+            default_params: serde_json::json!({
+                "avg_momentum_period": 10,
+                "top_bonus_count": 12,
+                "cash_to_short_term_rate": 0.45,
+                "cash_to_bonus_rate": 0.45,
+                "total_amount": 10000000
+            }),
+            ui_schema: Some(build_pension_bot_ui_schema()),
+            category: Some("자산배분".to_string()),
+            tags: vec!["연금".to_string(), "자산배분".to_string(), "모멘텀".to_string(), "월간리밸런싱".to_string()],
+            execution_schedule: Some(ExecutionSchedule::Monthly),
+            schedule_detail: Some("매월 초 리밸런싱".to_string()),
+            how_it_works: Some("정적 자산배분(주식 44%, 채권 30%, 원자재 14%, 현금 12%)에 평균 모멘텀을 적용하여 동적 비중 조절. 남은 현금의 45%는 단기자금, 45%는 모멘텀 TOP 12에 차등 보너스로 분배합니다.".to_string()),
+        },
+        // 2차 전략들
+        BacktestableStrategy {
+            id: "sector_vb".to_string(),
+            name: "섹터 변동성 돌파".to_string(),
+            description: "한국 섹터 ETF 변동성 돌파 전략".to_string(),
+            supported_symbols: vec![
+                "139220".to_string(), "139230".to_string(), "139240".to_string(),
+                "139250".to_string(), "139260".to_string(), "139270".to_string(),
+            ],
+            default_params: serde_json::json!({
+                "k_factor": 0.5,
+                "lookback_days": 20,
+                "top_n": 3,
+                "total_amount": 10000000
+            }),
+            ui_schema: None,
+            category: Some("변동성".to_string()),
+            tags: vec!["섹터".to_string(), "변동성돌파".to_string(), "한국주식".to_string(), "일간".to_string()],
+            execution_schedule: Some(ExecutionSchedule::Daily),
+            schedule_detail: Some("매일 장 시작 전 실행".to_string()),
+            how_it_works: Some("한국 섹터 ETF 중 변동성 돌파 신호가 발생한 상위 3개 섹터에 투자합니다. 전일 고가-저가 범위의 K배 돌파 시 진입합니다.".to_string()),
+        },
+        BacktestableStrategy {
+            id: "kospi_bothside".to_string(),
+            name: "코스피 양방향".to_string(),
+            description: "코스피 레버리지/인버스 양방향 매매 전략".to_string(),
+            supported_symbols: vec![
+                "122630".to_string(), // KODEX 레버리지
+                "252670".to_string(), // KODEX 200선물인버스2X
+            ],
+            default_params: serde_json::json!({
+                "rsi_period": 14,
+                "rsi_oversold": 30,
+                "rsi_overbought": 70,
+                "ma_period": 20,
+                "total_amount": 10000000
+            }),
+            ui_schema: None,
+            category: Some("지수".to_string()),
+            tags: vec!["코스피".to_string(), "레버리지".to_string(), "인버스".to_string(), "양방향".to_string()],
+            execution_schedule: Some(ExecutionSchedule::Daily),
+            schedule_detail: Some("매일 장중 실행".to_string()),
+            how_it_works: Some("코스피 방향성에 따라 레버리지 또는 인버스 ETF에 투자합니다. RSI와 이동평균을 기반으로 방향을 판단합니다.".to_string()),
+        },
+        BacktestableStrategy {
+            id: "kosdaq_fire_rain".to_string(),
+            name: "코스닥 급등주".to_string(),
+            description: "코스피/코스닥 복합 양방향 전략".to_string(),
+            supported_symbols: vec![
+                "229200".to_string(), // KODEX 코스닥150
+                "251340".to_string(), // KODEX 코스닥150선물인버스
+            ],
+            default_params: serde_json::json!({
+                "lookback_period": 20,
+                "momentum_threshold": 0.05,
+                "volume_threshold": 2.0,
+                "total_amount": 10000000
+            }),
+            ui_schema: None,
+            category: Some("지수".to_string()),
+            tags: vec!["코스닥".to_string(), "급등주".to_string(), "모멘텀".to_string(), "양방향".to_string()],
+            execution_schedule: Some(ExecutionSchedule::Daily),
+            schedule_detail: Some("매일 장중 실행".to_string()),
+            how_it_works: Some("코스닥 지수의 모멘텀과 거래량을 분석하여 레버리지 또는 인버스 ETF에 투자합니다.".to_string()),
+        },
+        BacktestableStrategy {
+            id: "us_3x_leverage".to_string(),
+            name: "미국 3배 레버리지".to_string(),
+            description: "미국 3배 레버리지/인버스 ETF 조합 전략".to_string(),
+            supported_symbols: vec![
+                "TQQQ".to_string(), // ProShares UltraPro QQQ
+                "SQQQ".to_string(), // ProShares UltraPro Short QQQ
+                "UPRO".to_string(), // ProShares UltraPro S&P500
+                "SPXU".to_string(), // ProShares UltraPro Short S&P500
+            ],
+            default_params: serde_json::json!({
+                "ma_period": 20,
+                "momentum_period": 10,
+                "rebalance_threshold": 0.05,
+                "total_amount": 10000000
+            }),
+            ui_schema: None,
+            category: Some("레버리지".to_string()),
+            tags: vec!["미국".to_string(), "3배레버리지".to_string(), "인버스".to_string(), "ETF".to_string()],
+            execution_schedule: Some(ExecutionSchedule::Daily),
+            schedule_detail: Some("매일 미국 장 마감 후 실행".to_string()),
+            how_it_works: Some("미국 주요 지수(나스닥, S&P500)의 모멘텀에 따라 3배 레버리지 또는 인버스 ETF에 투자합니다.".to_string()),
+        },
+        BacktestableStrategy {
+            id: "stock_gugan".to_string(),
+            name: "주식 구간 매매".to_string(),
+            description: "주식 구간 분할 매매 전략".to_string(),
+            supported_symbols: vec![
+                "005930".to_string(), // 삼성전자
+                "000660".to_string(), // SK하이닉스
+            ],
+            default_params: serde_json::json!({
+                "zone_count": 10,
+                "zone_pct": 5.0,
+                "invest_per_zone": 1000000,
+                "total_amount": 10000000
+            }),
+            ui_schema: None,
+            category: Some("분할매매".to_string()),
+            tags: vec!["구간매매".to_string(), "분할매수".to_string(), "한국주식".to_string()],
+            execution_schedule: Some(ExecutionSchedule::Daily),
+            schedule_detail: Some("매일 장중 실행".to_string()),
+            how_it_works: Some("주가를 10개 구간으로 나누어 하락 시 분할 매수, 상승 시 분할 매도합니다. 구간별 동일 금액을 투자합니다.".to_string()),
         },
     ];
 
@@ -1991,9 +2453,14 @@ pub async fn run_backtest(
         "bollinger", "volatility_breakout", "magic_split",
         "simple_power", "haa", "xaa", "stock_rotation",
         // 신규 전략
-        "trailing_stop", "all_weather_us", "all_weather_kr",
-        "snow_us", "snow_kr", "market_cap_top",
+        "trailing_stop", "all_weather", "snow", "market_cap_top",
         "candle_pattern", "infinity_bot", "market_interest_day",
+        // 3차 전략
+        "baa", "sector_momentum", "dual_momentum",
+        "small_cap_quant", "pension_bot",
+        // 2차 전략
+        "sector_vb", "kospi_bothside", "kosdaq_fire_rain",
+        "us_3x_leverage", "stock_gugan",
     ];
     if !valid_strategies.contains(&request.strategy_id.as_str()) {
         return Err((
@@ -2235,38 +2702,20 @@ async fn run_strategy_backtest(
             strategy.initialize(strategy_config).await.map_err(|e| e.to_string())?;
             engine.run(&mut strategy, klines).await.map_err(|e| e.to_string())
         }
-        "all_weather_us" => {
+        "all_weather" | "all_weather_us" | "all_weather_kr" => {
             let mut strategy = AllWeatherStrategy::new();
-            let mut config = AllWeatherConfig::default();
-            config.market = AllWeatherMarket::US;
-            let default_cfg = serde_json::to_value(config).map_err(|e| e.to_string())?;
+            // market 필드가 params에 있으면 그대로 사용, 없으면 기본값 US
+            let default_cfg = serde_json::to_value(AllWeatherConfig::default())
+                .map_err(|e| e.to_string())?;
             let strategy_config = merge_params(default_cfg, params);
             strategy.initialize(strategy_config).await.map_err(|e| e.to_string())?;
             engine.run(&mut strategy, klines).await.map_err(|e| e.to_string())
         }
-        "all_weather_kr" => {
-            let mut strategy = AllWeatherStrategy::new();
-            let mut config = AllWeatherConfig::default();
-            config.market = AllWeatherMarket::KR;
-            let default_cfg = serde_json::to_value(config).map_err(|e| e.to_string())?;
-            let strategy_config = merge_params(default_cfg, params);
-            strategy.initialize(strategy_config).await.map_err(|e| e.to_string())?;
-            engine.run(&mut strategy, klines).await.map_err(|e| e.to_string())
-        }
-        "snow_us" => {
+        "snow" | "snow_us" | "snow_kr" => {
             let mut strategy = SnowStrategy::new();
-            let mut config = SnowConfig::default();
-            config.market = SnowMarket::US;
-            let default_cfg = serde_json::to_value(config).map_err(|e| e.to_string())?;
-            let strategy_config = merge_params(default_cfg, params);
-            strategy.initialize(strategy_config).await.map_err(|e| e.to_string())?;
-            engine.run(&mut strategy, klines).await.map_err(|e| e.to_string())
-        }
-        "snow_kr" => {
-            let mut strategy = SnowStrategy::new();
-            let mut config = SnowConfig::default();
-            config.market = SnowMarket::KR;
-            let default_cfg = serde_json::to_value(config).map_err(|e| e.to_string())?;
+            // market 필드가 params에 있으면 그대로 사용, 없으면 기본값 US
+            let default_cfg = serde_json::to_value(SnowConfig::default())
+                .map_err(|e| e.to_string())?;
             let strategy_config = merge_params(default_cfg, params);
             strategy.initialize(strategy_config).await.map_err(|e| e.to_string())?;
             engine.run(&mut strategy, klines).await.map_err(|e| e.to_string())
@@ -2298,6 +2747,88 @@ async fn run_strategy_backtest(
         "market_interest_day" => {
             let mut strategy = MarketInterestDayStrategy::new();
             let default_cfg = serde_json::to_value(MarketInterestDayConfig::default())
+                .map_err(|e| e.to_string())?;
+            let strategy_config = merge_params(default_cfg, params);
+            strategy.initialize(strategy_config).await.map_err(|e| e.to_string())?;
+            engine.run(&mut strategy, klines).await.map_err(|e| e.to_string())
+        }
+        // 3차 전략들
+        "baa" => {
+            let mut strategy = BaaStrategy::new();
+            let default_cfg = serde_json::to_value(BaaConfig::default())
+                .map_err(|e| e.to_string())?;
+            let strategy_config = merge_params(default_cfg, params);
+            strategy.initialize(strategy_config).await.map_err(|e| e.to_string())?;
+            engine.run(&mut strategy, klines).await.map_err(|e| e.to_string())
+        }
+        "sector_momentum" => {
+            let mut strategy = SectorMomentumStrategy::new();
+            let default_cfg = serde_json::to_value(SectorMomentumConfig::default())
+                .map_err(|e| e.to_string())?;
+            let strategy_config = merge_params(default_cfg, params);
+            strategy.initialize(strategy_config).await.map_err(|e| e.to_string())?;
+            engine.run(&mut strategy, klines).await.map_err(|e| e.to_string())
+        }
+        "dual_momentum" => {
+            let mut strategy = DualMomentumStrategy::new();
+            let default_cfg = serde_json::to_value(DualMomentumConfig::default())
+                .map_err(|e| e.to_string())?;
+            let strategy_config = merge_params(default_cfg, params);
+            strategy.initialize(strategy_config).await.map_err(|e| e.to_string())?;
+            engine.run(&mut strategy, klines).await.map_err(|e| e.to_string())
+        }
+        "small_cap_quant" => {
+            let mut strategy = SmallCapQuantStrategy::new();
+            let default_cfg = serde_json::to_value(SmallCapQuantConfig::default())
+                .map_err(|e| e.to_string())?;
+            let strategy_config = merge_params(default_cfg, params);
+            strategy.initialize(strategy_config).await.map_err(|e| e.to_string())?;
+            engine.run(&mut strategy, klines).await.map_err(|e| e.to_string())
+        }
+        "pension_bot" => {
+            let mut strategy = PensionBotStrategy::new();
+            let default_cfg = serde_json::to_value(PensionBotConfig::default())
+                .map_err(|e| e.to_string())?;
+            let strategy_config = merge_params(default_cfg, params);
+            strategy.initialize(strategy_config).await.map_err(|e| e.to_string())?;
+            engine.run(&mut strategy, klines).await.map_err(|e| e.to_string())
+        }
+        // 2차 전략들
+        "sector_vb" => {
+            let mut strategy = SectorVbStrategy::new();
+            let default_cfg = serde_json::to_value(SectorVbConfig::default())
+                .map_err(|e| e.to_string())?;
+            let strategy_config = merge_params(default_cfg, params);
+            strategy.initialize(strategy_config).await.map_err(|e| e.to_string())?;
+            engine.run(&mut strategy, klines).await.map_err(|e| e.to_string())
+        }
+        "kospi_bothside" => {
+            let mut strategy = KospiBothSideStrategy::new();
+            let default_cfg = serde_json::to_value(KospiBothSideConfig::default())
+                .map_err(|e| e.to_string())?;
+            let strategy_config = merge_params(default_cfg, params);
+            strategy.initialize(strategy_config).await.map_err(|e| e.to_string())?;
+            engine.run(&mut strategy, klines).await.map_err(|e| e.to_string())
+        }
+        "kosdaq_fire_rain" => {
+            let mut strategy = KosdaqFireRainStrategy::new();
+            let default_cfg = serde_json::to_value(KosdaqFireRainConfig::default())
+                .map_err(|e| e.to_string())?;
+            let strategy_config = merge_params(default_cfg, params);
+            strategy.initialize(strategy_config).await.map_err(|e| e.to_string())?;
+            engine.run(&mut strategy, klines).await.map_err(|e| e.to_string())
+        }
+        "us_3x_leverage" => {
+            let mut strategy = Us3xLeverageStrategy::new();
+            let default_cfg = serde_json::to_value(Us3xLeverageConfig::default())
+                .map_err(|e| e.to_string())?;
+            let strategy_config = merge_params(default_cfg, params);
+            strategy.initialize(strategy_config).await.map_err(|e| e.to_string())?;
+            engine.run(&mut strategy, klines).await.map_err(|e| e.to_string())
+        }
+        "stock_gugan" => {
+            let mut strategy = StockGuganStrategy::new();
+            let default_cfg = serde_json::to_value(StockGuganConfig::default())
                 .map_err(|e| e.to_string())?;
             let strategy_config = merge_params(default_cfg, params);
             strategy.initialize(strategy_config).await.map_err(|e| e.to_string())?;

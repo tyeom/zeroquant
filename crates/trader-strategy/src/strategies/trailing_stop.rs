@@ -296,7 +296,7 @@ impl Strategy for TrailingStopStrategy {
             "Initializing Trailing Stop strategy"
         );
 
-        self.symbol = Symbol::from_string(&ts_config.symbol, MarketType::KrStock);
+        self.symbol = Some(Symbol::stock(&ts_config.symbol, "KRW"));
         self.config = Some(ts_config);
         self.position = None;
         self.last_price = None;
@@ -438,7 +438,7 @@ mod tests {
         let mut strategy = TrailingStopStrategy::new();
 
         let config = json!({
-            "symbol": "005930",
+            "symbol": "005930/KRW",
             "trailing_stop_pct": "5",
             "amount": "1000000"
         });
@@ -452,14 +452,14 @@ mod tests {
         let mut strategy = TrailingStopStrategy::new();
 
         let config = json!({
-            "symbol": "005930",
+            "symbol": "005930/KRW",
             "trailing_stop_pct": "5",
             "amount": "1000000"
         });
 
         strategy.initialize(config).await.unwrap();
 
-        let symbol = Symbol::new("005930", MarketType::KrStock);
+        let symbol = Symbol::stock("005930", "KRW");
 
         // 진입
         let data = create_kline(&symbol, dec!(100000));
@@ -477,13 +477,15 @@ mod tests {
             ..Default::default()
         });
 
+        let config = strategy.config.as_ref().unwrap();
+
         // 수익률 0% - 기본 트레일링 5%
-        assert_eq!(strategy.adjust_trailing_stop(dec!(0)), dec!(5));
+        assert_eq!(TrailingStopStrategy::adjust_trailing_stop(config, dec!(0)), dec!(5));
 
         // 수익률 2% - 트레일링 4.5%
-        assert_eq!(strategy.adjust_trailing_stop(dec!(2)), dec!(4.5));
+        assert_eq!(TrailingStopStrategy::adjust_trailing_stop(config, dec!(2)), dec!(4.5));
 
         // 수익률 4% - 트레일링 4%
-        assert_eq!(strategy.adjust_trailing_stop(dec!(4)), dec!(4));
+        assert_eq!(TrailingStopStrategy::adjust_trailing_stop(config, dec!(4)), dec!(4));
     }
 }

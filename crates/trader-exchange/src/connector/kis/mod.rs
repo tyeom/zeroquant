@@ -122,10 +122,12 @@ pub mod tr_id {
     /// 국내 주식 매수 가능 조회 (모의)
     pub const KR_BUYABLE_PAPER: &str = "VTTC8908R";
 
-    /// 국내 주식 일별 주문체결 조회 (실전)
+    /// 국내 주식 일별 주문체결 조회 (실전 - 일반계좌, 3개월 이내)
     pub const KR_ORDER_HISTORY_REAL: &str = "TTTC0081R";
     /// 국내 주식 일별 주문체결 조회 (모의)
     pub const KR_ORDER_HISTORY_PAPER: &str = "VTTC8001R";
+    /// 국내 주식 일별 주문체결 조회 (실전 - ISA/연금저축 등 특수계좌, 1년 이내)
+    pub const KR_ORDER_HISTORY_ISA_REAL: &str = "CTSC9115R";
 
     // ========================================
     // US Stock (해외 주식 - 미국)

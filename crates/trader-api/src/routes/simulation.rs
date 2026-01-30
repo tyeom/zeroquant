@@ -48,6 +48,9 @@ pub enum SimulationState {
 pub struct SimulationPosition {
     /// 심볼
     pub symbol: String,
+    /// 표시 이름 (예: "005930(삼성전자)")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
     /// 방향 (Long/Short)
     pub side: String,
     /// 수량
@@ -71,6 +74,9 @@ pub struct SimulationTrade {
     pub id: String,
     /// 심볼
     pub symbol: String,
+    /// 표시 이름 (예: "005930(삼성전자)")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
     /// 방향 (Buy/Sell)
     pub side: String,
     /// 수량
@@ -226,6 +232,7 @@ impl SimulationEngine {
                     symbol.to_string(),
                     SimulationPosition {
                         symbol: symbol.to_string(),
+                        display_name: None,
                         side: "Long".to_string(),
                         quantity,
                         entry_price: price,
@@ -256,6 +263,7 @@ impl SimulationEngine {
                     symbol.to_string(),
                     SimulationPosition {
                         symbol: symbol.to_string(),
+                        display_name: None,
                         side: "Short".to_string(),
                         quantity,
                         entry_price: price,
@@ -273,6 +281,7 @@ impl SimulationEngine {
         let trade = SimulationTrade {
             id: trade_id,
             symbol: symbol.to_string(),
+            display_name: None,
             side: side.to_string(),
             quantity,
             price,
@@ -646,12 +655,21 @@ pub async fn execute_simulation_order(
 ///
 /// GET /api/v1/simulation/positions
 pub async fn get_simulation_positions(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
     let engine = SIMULATION_ENGINE.read().await;
 
-    let positions: Vec<SimulationPosition> = engine.positions.values().cloned().collect();
+    let mut positions: Vec<SimulationPosition> = engine.positions.values().cloned().collect();
     let total_unrealized_pnl: Decimal = positions.iter().map(|p| p.unrealized_pnl).sum();
+
+    // display_name 설정
+    let symbols: Vec<String> = positions.iter().map(|p| p.symbol.clone()).collect();
+    let display_names = state.get_display_names(&symbols, false).await;
+    for pos in positions.iter_mut() {
+        if let Some(name) = display_names.get(&pos.symbol) {
+            pos.display_name = Some(name.clone());
+        }
+    }
 
     Json(SimulationPositionsResponse {
         positions,
@@ -663,13 +681,25 @@ pub async fn get_simulation_positions(
 ///
 /// GET /api/v1/simulation/trades
 pub async fn get_simulation_trades(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
     let engine = SIMULATION_ENGINE.read().await;
 
+    let mut trades = engine.trades.clone();
+    let total = trades.len();
+
+    // display_name 설정
+    let symbols: Vec<String> = trades.iter().map(|t| t.symbol.clone()).collect();
+    let display_names = state.get_display_names(&symbols, false).await;
+    for trade in trades.iter_mut() {
+        if let Some(name) = display_names.get(&trade.symbol) {
+            trade.display_name = Some(name.clone());
+        }
+    }
+
     Json(SimulationTradesResponse {
-        trades: engine.trades.clone(),
-        total: engine.trades.len(),
+        trades,
+        total,
         total_realized_pnl: engine.total_realized_pnl,
         total_commission: engine.total_commission,
     })

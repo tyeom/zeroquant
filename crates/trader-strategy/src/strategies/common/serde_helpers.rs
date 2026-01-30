@@ -45,6 +45,49 @@ where
     }
 }
 
+/// 문자열 배열을 Vec<String>으로 역직렬화.
+///
+/// SDUI의 `symbol_picker`는 배열을 생성합니다.
+/// 이 함수는 배열 또는 단일 문자열 모두 처리할 수 있습니다.
+///
+/// # Examples
+///
+/// ```ignore
+/// #[derive(Deserialize)]
+/// struct Config {
+///     #[serde(deserialize_with = "deserialize_symbols")]
+///     symbols: Vec<String>,
+/// }
+///
+/// // 다음 모두 작동:
+/// // { "symbols": ["005930", "000660"] }
+/// // { "symbols": "005930" }
+/// ```
+pub fn deserialize_symbols<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+
+    let value = Value::deserialize(deserializer)?;
+
+    match value {
+        Value::String(s) => Ok(vec![s]),
+        Value::Array(arr) => {
+            let mut result = Vec::new();
+            for item in arr {
+                if let Value::String(s) = item {
+                    result.push(s);
+                } else {
+                    return Err(D::Error::custom("symbols array contains non-string"));
+                }
+            }
+            Ok(result)
+        }
+        _ => Err(D::Error::custom("symbols must be a string or array of strings")),
+    }
+}
+
 /// 옵션 필드용: 문자열 또는 문자열 배열을 Option<String>으로 역직렬화.
 pub fn deserialize_symbol_opt<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
 where

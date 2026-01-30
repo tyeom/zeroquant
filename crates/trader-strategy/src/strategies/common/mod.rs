@@ -21,4 +21,4 @@ pub use rebalance::{
     RebalanceResult, PortfolioPosition, TargetAllocation,
 };
 
-pub use serde_helpers::{deserialize_symbol, deserialize_symbol_opt};
+pub use serde_helpers::{deserialize_symbol, deserialize_symbol_opt, deserialize_symbols};

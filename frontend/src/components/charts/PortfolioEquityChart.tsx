@@ -52,16 +52,6 @@ export function PortfolioEquityChart(props: PortfolioEquityChartProps) {
   // 동기화 관련 상태
   const [showSyncModal, setShowSyncModal] = createSignal(false)
   const [syncCredentialId, setSyncCredentialId] = createSignal('')
-  const getDefaultStartDate = () => {
-    const d = new Date()
-    d.setMonth(d.getMonth() - 3)
-    return d.toISOString().slice(0, 10).replace(/-/g, '')
-  }
-  const getDefaultEndDate = () => {
-    return new Date().toISOString().slice(0, 10).replace(/-/g, '')
-  }
-  const [syncStartDate, setSyncStartDate] = createSignal(getDefaultStartDate())
-  const [syncEndDate, setSyncEndDate] = createSignal(getDefaultEndDate())
   const [syncLoading, setSyncLoading] = createSignal(false)
   const [syncResult, setSyncResult] = createSignal<{ success: boolean; message: string } | null>(null)
 
@@ -125,10 +115,15 @@ export function PortfolioEquityChart(props: PortfolioEquityChartProps) {
     setSyncResult(null)
 
     try {
+      // 날짜 범위는 백엔드에서 자동 감지 (현재 보유 포지션의 첫 매수일부터)
+      // 충분히 넓은 범위를 지정하여 모든 체결 내역을 가져옴
+      const endDate = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+      const startDate = '20200101' // 충분히 과거 날짜
+
       const request: SyncEquityCurveRequest = {
         credential_id: credId,
-        start_date: syncStartDate(),
-        end_date: syncEndDate(),
+        start_date: startDate,
+        end_date: endDate,
       }
       const result = await syncEquityCurve(request)
       setSyncResult({
@@ -175,14 +170,14 @@ export function PortfolioEquityChart(props: PortfolioEquityChartProps) {
       const data = equityCurveData()
       if (!data?.data) return []
       return data.data.map((point) => ({
-        time: point.x, // timestamp in milliseconds
+        time: Math.floor(point.x / 1000), // milliseconds → seconds (lightweight-charts expects UNIX timestamp)
         value: parseFloat(point.y),
       }))
     } else {
       const backtest = selectedBacktest()
       if (!backtest?.equity_curve) return []
       return backtest.equity_curve.map((point) => ({
-        time: point.timestamp,
+        time: point.timestamp, // 백테스트는 이미 초 단위
         value: parseFloat(point.equity),
       }))
     }
@@ -198,6 +193,16 @@ export function PortfolioEquityChart(props: PortfolioEquityChartProps) {
         totalReturn: parseFloat(perf.total_return_pct || perf.totalReturnPct || '0'),
         maxDrawdown: parseFloat(perf.max_drawdown_pct || perf.maxDrawdownPct || '0'),
         cagr: parseFloat(perf.cagr_pct || perf.cagrPct || '0'),
+        // 포지션 기반 지표
+        totalCostBasis: perf.total_cost_basis || perf.totalCostBasis
+          ? parseFloat(perf.total_cost_basis || perf.totalCostBasis || '0')
+          : undefined,
+        positionPnl: perf.position_pnl || perf.positionPnl
+          ? parseFloat(perf.position_pnl || perf.positionPnl || '0')
+          : undefined,
+        positionPnlPct: perf.position_pnl_pct || perf.positionPnlPct
+          ? parseFloat(perf.position_pnl_pct || perf.positionPnlPct || '0')
+          : undefined,
       }
     } else {
       const backtest = selectedBacktest()
@@ -207,6 +212,9 @@ export function PortfolioEquityChart(props: PortfolioEquityChartProps) {
         totalReturn: parseFloat(backtest.metrics.total_return_pct),
         maxDrawdown: parseFloat(backtest.metrics.max_drawdown_pct),
         cagr: parseFloat(backtest.metrics.annualized_return_pct),
+        totalCostBasis: undefined,
+        positionPnl: undefined,
+        positionPnlPct: undefined,
       }
     }
   }
@@ -326,7 +334,40 @@ export function PortfolioEquityChart(props: PortfolioEquityChartProps) {
 
         {/* Metrics Summary */}
         <Show when={metrics()}>
-          <div class="grid grid-cols-4 gap-4 mt-4">
+          {/* 포지션 기반 지표 (실제 투자 원금 대비) - 있을 경우만 표시 */}
+          <Show when={dataSource() === 'portfolio' && metrics()!.totalCostBasis !== undefined}>
+            <div class="grid grid-cols-3 gap-4 mt-4 pb-3 border-b border-[var(--color-surface-light)]">
+              <div class="text-center">
+                <div class="text-xs text-[var(--color-text-muted)] mb-1">투자 원금</div>
+                <div class="text-lg font-semibold text-[var(--color-text)]">
+                  {formatCurrency(metrics()!.totalCostBasis!)}
+                </div>
+              </div>
+              <div class="text-center">
+                <div class="text-xs text-[var(--color-text-muted)] mb-1">현재 평가액</div>
+                <div class="text-lg font-semibold text-[var(--color-text)]">
+                  {formatCurrency(metrics()!.currentEquity)}
+                </div>
+              </div>
+              <div class="text-center">
+                <div class="text-xs text-[var(--color-text-muted)] mb-1">포지션 손익</div>
+                <div class={`text-lg font-semibold flex items-center justify-center gap-1 ${
+                  (metrics()!.positionPnlPct ?? 0) >= 0 ? 'text-green-500' : 'text-red-500'
+                }`}>
+                  {(metrics()!.positionPnlPct ?? 0) >= 0 ? (
+                    <TrendingUp class="w-4 h-4" />
+                  ) : (
+                    <TrendingDown class="w-4 h-4" />
+                  )}
+                  {formatPercent(metrics()!.positionPnlPct ?? 0)}
+                  <span class="text-xs ml-1">({formatCurrency(metrics()!.positionPnl ?? 0)})</span>
+                </div>
+              </div>
+            </div>
+          </Show>
+
+          {/* 기간 기반 지표 */}
+          <div class="grid grid-cols-4 gap-4 mt-3">
             <div class="text-center">
               <div class="text-xs text-[var(--color-text-muted)] mb-1">현재 자산</div>
               <div class="text-lg font-semibold text-[var(--color-text)]">
@@ -334,7 +375,7 @@ export function PortfolioEquityChart(props: PortfolioEquityChartProps) {
               </div>
             </div>
             <div class="text-center">
-              <div class="text-xs text-[var(--color-text-muted)] mb-1">총 수익률</div>
+              <div class="text-xs text-[var(--color-text-muted)] mb-1">기간 수익률</div>
               <div class={`text-lg font-semibold flex items-center justify-center gap-1 ${
                 metrics()!.totalReturn >= 0 ? 'text-green-500' : 'text-red-500'
               }`}>
@@ -484,30 +525,12 @@ export function PortfolioEquityChart(props: PortfolioEquityChartProps) {
                 </select>
               </div>
 
-              {/* Date Range */}
-              <div class="grid grid-cols-2 gap-3">
-                <div>
-                  <label class="block text-sm font-medium text-[var(--color-text)] mb-1">
-                    시작일
-                  </label>
-                  <input
-                    type="date"
-                    value={syncStartDate().replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3')}
-                    onChange={(e) => setSyncStartDate(e.currentTarget.value.replace(/-/g, ''))}
-                    class="w-full bg-[var(--color-surface-light)] text-[var(--color-text)] border border-[var(--color-surface-light)] rounded-lg px-3 py-2 text-sm"
-                  />
-                </div>
-                <div>
-                  <label class="block text-sm font-medium text-[var(--color-text)] mb-1">
-                    종료일
-                  </label>
-                  <input
-                    type="date"
-                    value={syncEndDate().replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3')}
-                    onChange={(e) => setSyncEndDate(e.currentTarget.value.replace(/-/g, ''))}
-                    class="w-full bg-[var(--color-surface-light)] text-[var(--color-text)] border border-[var(--color-surface-light)] rounded-lg px-3 py-2 text-sm"
-                  />
-                </div>
+              {/* Info: 자동 감지 안내 */}
+              <div class="flex items-start gap-2 p-3 rounded-lg bg-blue-500/10 text-blue-400">
+                <Calendar class="w-5 h-5 flex-shrink-0 mt-0.5" />
+                <span class="text-sm">
+                  현재 보유 포지션의 첫 매수일부터 자동으로 데이터를 동기화합니다.
+                </span>
               </div>
 
               {/* Result Message */}

@@ -88,6 +88,7 @@ export const getBalance = async (credentialId?: string): Promise<BalanceInfo> =>
 
 export interface HoldingInfo {
   symbol: string;
+  displayName?: string;  // "005930(삼성전자)" 형식
   name: string;
   quantity: string;
   avgPrice: string;
@@ -626,6 +627,7 @@ export interface SimulationStatusResponse {
 /** 시뮬레이션 포지션 */
 export interface SimulationPosition {
   symbol: string;
+  displayName?: string;  // "005930(삼성전자)" 형식
   side: string;  // "Long" | "Short"
   quantity: string;
   entry_price: string;
@@ -645,6 +647,7 @@ export interface SimulationPositionsResponse {
 export interface SimulationTrade {
   id: string;
   symbol: string;
+  displayName?: string;  // "005930(삼성전자)" 형식
   side: string;  // "Buy" | "Sell"
   quantity: string;
   price: string;
@@ -743,6 +746,10 @@ export interface PerformanceResponse {
   periodDays: number;
   periodReturns: { period: string; returnPct: string }[];
   lastUpdated: string;
+  // 포지션 기반 지표 (실제 투자 원금 대비)
+  totalCostBasis?: string;      // 총 투자 원금
+  positionPnl?: string;         // 포지션 손익 금액
+  positionPnlPct?: string;      // 포지션 손익률 (%)
 }
 
 export interface ChartPointResponse {
@@ -823,6 +830,7 @@ export interface SyncEquityCurveRequest {
   credential_id: string;
   start_date: string;  // YYYYMMDD
   end_date: string;    // YYYYMMDD
+  use_market_prices?: boolean;  // 시장가 기반 자산 계산 (기본값: true)
 }
 
 // 자산 곡선 동기화 응답
@@ -838,7 +846,12 @@ export interface SyncEquityCurveResponse {
 
 // 자산 곡선 동기화 (거래소 체결 내역 기반)
 export const syncEquityCurve = async (request: SyncEquityCurveRequest): Promise<SyncEquityCurveResponse> => {
-  const response = await api.post('/analytics/sync-equity', request);
+  // 기본값: 시장가 기반 자산 계산 (현재 보유 포지션의 주식 가치만 추적)
+  const requestWithDefaults = {
+    ...request,
+    use_market_prices: request.use_market_prices ?? true,
+  };
+  const response = await api.post('/analytics/sync-equity', requestWithDefaults);
   return response.data;
 };
 

@@ -120,7 +120,7 @@ export function Dashboard() {
     const allHoldings = [...(h.krHoldings || []), ...(h.usHoldings || [])]
     return allHoldings.map((holding: HoldingInfo, index: number) => ({
       id: `${holding.market}-${index}`,
-      symbol: holding.name || holding.symbol,
+      symbol: holding.displayName || holding.name || holding.symbol,
       side: 'Long' as const,
       quantity: parseFloat(holding.quantity) || 0,
       entryPrice: parseFloat(holding.avgPrice) || 0,

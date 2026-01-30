@@ -48,6 +48,9 @@ pub struct OrderResponse {
     pub exchange_order_id: Option<String>,
     /// 심볼
     pub symbol: String,
+    /// 표시 이름 (예: "005930(삼성전자)")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
     /// 주문 방향
     pub side: Side,
     /// 주문 유형
@@ -79,6 +82,7 @@ impl From<&Order> for OrderResponse {
             id: order.id.to_string(),
             exchange_order_id: order.exchange_order_id.clone(),
             symbol: order.symbol.to_string(),
+            display_name: None, // 핸들러에서 설정
             side: order.side,
             order_type: order.order_type,
             quantity: order.quantity,
@@ -221,11 +225,15 @@ pub async fn create_order(
         timestamp: Utc::now().timestamp_millis(),
     }));
 
+    // display_name 조회
+    let mut order_response = OrderResponse::from(&order);
+    order_response.display_name = Some(state.get_display_name(&request.symbol, false).await);
+
     Ok(Json(CreateOrderResponse {
         success: true,
         order_id: order_id.to_string(),
         message: "주문이 성공적으로 생성되었습니다".to_string(),
-        order: OrderResponse::from(&order),
+        order: order_response,
     }))
 }
 
@@ -238,7 +246,24 @@ pub async fn list_orders(
     let executor = state.executor.read().await;
     let orders = executor.get_active_orders().await;
 
-    let order_responses: Vec<OrderResponse> = orders.iter().map(OrderResponse::from).collect();
+    // 심볼 목록 추출
+    let symbols: Vec<String> = orders.iter().map(|o| o.symbol.to_string()).collect();
+
+    // display name 배치 조회
+    let display_names = state.get_display_names(&symbols, false).await;
+
+    // 응답 생성 및 display_name 설정
+    let order_responses: Vec<OrderResponse> = orders
+        .iter()
+        .map(|o| {
+            let mut resp = OrderResponse::from(o);
+            if let Some(name) = display_names.get(&o.symbol.to_string()) {
+                resp.display_name = Some(name.clone());
+            }
+            resp
+        })
+        .collect();
+
     let total = order_responses.len();
 
     Json(OrdersListResponse {
@@ -265,7 +290,11 @@ pub async fn get_order(
     let executor = state.executor.read().await;
 
     match executor.get_order(order_id).await {
-        Some(order) => Ok(Json(OrderResponse::from(&order))),
+        Some(order) => {
+            let mut resp = OrderResponse::from(&order);
+            resp.display_name = Some(state.get_display_name(&order.symbol.to_string(), false).await);
+            Ok(Json(resp))
+        }
         None => Err((
             StatusCode::NOT_FOUND,
             Json(ApiError::new("ORDER_NOT_FOUND", format!("Order not found: {}", id))),

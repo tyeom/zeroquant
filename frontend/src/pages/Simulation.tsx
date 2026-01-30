@@ -495,7 +495,7 @@ export function Simulation() {
                       <div>
                         <div class="flex items-center gap-2">
                           <span class="font-semibold text-[var(--color-text)]">
-                            {position.symbol}
+                            {position.displayName || position.symbol}
                           </span>
                           <span
                             class={`px-2 py-0.5 text-xs rounded ${
@@ -569,7 +569,7 @@ export function Simulation() {
                         >
                           {trade.side === 'Buy' ? '매수' : '매도'}
                         </span>
-                        <span class="text-[var(--color-text)]">{trade.symbol}</span>
+                        <span class="text-[var(--color-text)]">{trade.displayName || trade.symbol}</span>
                       </div>
                       <div class="text-right">
                         <div class="text-sm text-[var(--color-text)]">

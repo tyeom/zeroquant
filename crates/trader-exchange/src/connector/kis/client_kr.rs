@@ -13,7 +13,7 @@
 //! - 매수가능금액 조회
 
 use super::auth::KisOAuth;
-use super::config::KisEnvironment;
+use super::config::{KisAccountType, KisEnvironment};
 use super::tr_id;
 use crate::ExchangeError;
 use reqwest::Client;
@@ -717,7 +717,18 @@ impl KisKrClient {
         ctx_area_fk100: &str,
         ctx_area_nk100: &str,
     ) -> Result<KrOrderHistory, ExchangeError> {
-        let tr_id = self.get_tr_id(tr_id::KR_ORDER_HISTORY_REAL, tr_id::KR_ORDER_HISTORY_PAPER);
+        // ISA 계좌인 경우 CTSC9115R, 일반 계좌인 경우 TTTC0081R 사용
+        let tr_id = match self.oauth.config().account_type {
+            KisAccountType::RealIsa => tr_id::KR_ORDER_HISTORY_ISA_REAL,
+            _ => self.get_tr_id(tr_id::KR_ORDER_HISTORY_REAL, tr_id::KR_ORDER_HISTORY_PAPER),
+        };
+
+        info!(
+            "Using tr_id {} for order history (account_type: {:?})",
+            tr_id,
+            self.oauth.config().account_type
+        );
+
         let url = format!(
             "{}/uapi/domestic-stock/v1/trading/inquire-daily-ccld",
             self.oauth.config().rest_base_url()

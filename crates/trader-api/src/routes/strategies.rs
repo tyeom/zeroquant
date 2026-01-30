@@ -68,6 +68,8 @@ pub struct StrategyListItem {
     pub market: String,
     /// 거래 심볼 목록
     pub symbols: Vec<String>,
+    /// 타임프레임 (1m, 5m, 15m, 30m, 1h, 4h, 1d, 1w, 1M)
+    pub timeframe: String,
     /// 손익
     pub pnl: f64,
     /// 승률
@@ -228,12 +230,66 @@ fn get_strategy_default_name(strategy_type: &str) -> &'static str {
         "haa" => "HAA",
         "xaa" => "XAA",
         "stock_rotation" | "rotation" => "종목 갈아타기",
-        "all_weather" | "all_weather_us" => "올웨더 US",
-        "all_weather_kr" => "올웨더 KR",
-        "snow" | "snow_us" => "스노우 US",
-        "snow_kr" => "스노우 KR",
+        "all_weather" | "all_weather_us" | "all_weather_kr" => "올웨더",
+        "snow" | "snow_us" | "snow_kr" => "스노우",
         "market_cap_top" => "시총 TOP",
         _ => "Unknown Strategy",
+    }
+}
+
+/// 전략 타입에서 기본 타임프레임 가져오기.
+fn get_strategy_default_timeframe(strategy_type: &str) -> &'static str {
+    match strategy_type {
+        // 실시간 전략: 1m
+        "grid" | "grid_trading" => "1m",
+        "magic_split" | "split" => "1m",
+        "infinity_bot" => "1m",
+        "trailing_stop" => "1m",
+        // 분봉 전략: 15m
+        "rsi" | "rsi_mean_reversion" => "15m",
+        "bollinger" | "bollinger_bands" => "15m",
+        "sma" | "sma_crossover" | "ma_crossover" => "15m",
+        "candle_pattern" => "15m",
+        // 일봉 전략: 1d
+        "volatility_breakout" | "volatility" => "1d",
+        "snow" | "snow_us" | "snow_kr" => "1d",
+        "stock_rotation" | "rotation" => "1d",
+        "market_interest_day" => "1d",
+        // 자산배분 전략 (월 리밸런싱이지만 일봉 데이터 사용): 1d
+        "simple_power" => "1d",
+        "haa" => "1d",
+        "xaa" => "1d",
+        "all_weather" | "all_weather_us" | "all_weather_kr" => "1d",
+        "market_cap_top" => "1d",
+        _ => "1d",
+    }
+}
+
+/// 전략 타입에서 권장 심볼 가져오기.
+fn get_strategy_default_symbols(strategy_type: &str) -> Vec<String> {
+    match strategy_type {
+        // 단일 종목 전략: 빈 배열 (사용자가 지정)
+        "rsi" | "rsi_mean_reversion" => vec![],
+        "grid" | "grid_trading" => vec![],
+        "bollinger" | "bollinger_bands" => vec![],
+        "volatility_breakout" | "volatility" => vec![],
+        "magic_split" | "split" => vec![],
+        "sma" | "sma_crossover" | "ma_crossover" => vec![],
+        "candle_pattern" => vec![],
+        "infinity_bot" => vec![],
+        "trailing_stop" => vec![],
+        "market_interest_day" => vec![],
+        // 자산배분 전략: 권장 심볼 목록
+        "simple_power" => vec!["TQQQ", "SCHD", "PFIX", "TMF"].iter().map(|s| s.to_string()).collect(),
+        "haa" => vec!["TIP", "SPY", "IWM", "VEA", "VWO", "TLT", "IEF", "PDBC", "VNQ", "BIL"].iter().map(|s| s.to_string()).collect(),
+        "xaa" => vec!["VWO", "BND", "SPY", "EFA", "EEM", "TLT", "IEF", "LQD", "BIL"].iter().map(|s| s.to_string()).collect(),
+        "stock_rotation" | "rotation" => vec!["005930", "000660", "035420", "051910", "006400"].iter().map(|s| s.to_string()).collect(),
+        "all_weather" | "all_weather_us" => vec!["SPY", "TLT", "IEF", "GLD", "PDBC", "IYK"].iter().map(|s| s.to_string()).collect(),
+        "all_weather_kr" => vec!["069500", "148070", "139260", "132030", "130730", "143850"].iter().map(|s| s.to_string()).collect(),
+        "snow" | "snow_us" => vec!["TIP", "UPRO", "TLT", "BIL"].iter().map(|s| s.to_string()).collect(),
+        "snow_kr" => vec!["140700", "122630", "148070", "272580"].iter().map(|s| s.to_string()).collect(),
+        "market_cap_top" => vec!["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "BRK.B", "JPM", "V"].iter().map(|s| s.to_string()).collect(),
+        _ => vec![],
     }
 }
 
@@ -280,7 +336,7 @@ pub async fn create_strategy(
         .clone()
         .unwrap_or_else(|| get_strategy_default_name(&request.strategy_type).to_string());
 
-    // 파라미터에서 symbols 추출
+    // 파라미터에서 symbols 추출 (없으면 권장 심볼 사용)
     let symbols: Vec<String> = request
         .parameters
         .get("symbols")
@@ -290,7 +346,15 @@ pub async fn create_strategy(
                 .filter_map(|v| v.as_str().map(String::from))
                 .collect()
         })
-        .unwrap_or_default();
+        .unwrap_or_else(|| get_strategy_default_symbols(&request.strategy_type));
+
+    // 파라미터에서 timeframe 추출 (없으면 기본 타임프레임 사용)
+    let timeframe = request
+        .parameters
+        .get("timeframe")
+        .and_then(|v| v.as_str())
+        .map(String::from)
+        .unwrap_or_else(|| get_strategy_default_timeframe(&request.strategy_type).to_string());
 
     // 마켓 타입 추론 (심볼 기반)
     let market = if symbols.first().map(|s| s.chars().all(|c| c.is_numeric())).unwrap_or(false) {
@@ -310,6 +374,7 @@ pub async fn create_strategy(
             strategy_type: request.strategy_type.clone(),
             symbols: symbols.clone(),
             market: market.clone(),
+            timeframe: timeframe.clone(),
             config: request.parameters.clone(),
         };
 
@@ -430,8 +495,16 @@ pub async fn list_strategies(
             "KR".to_string() // 기본값
         };
 
-        // 심볼 목록 (향후 설정에서 가져오도록 개선 필요)
-        let symbols = vec!["005930".to_string()]; // 기본값
+        // 심볼 목록 (권장 심볼 사용)
+        let symbols = get_strategy_default_symbols(&strategy_type);
+        let symbols = if symbols.is_empty() {
+            vec!["005930".to_string()] // 기본값
+        } else {
+            symbols
+        };
+
+        // 타임프레임 (기본값 사용)
+        let timeframe = get_strategy_default_timeframe(&strategy_type).to_string();
 
         strategies.push(StrategyListItem {
             id,
@@ -440,6 +513,7 @@ pub async fn list_strategies(
             status: status_str,
             market,
             symbols,
+            timeframe,
             pnl: 0.0, // 향후 실제 PnL 계산 연동
             win_rate: 0.0,
             trades_count: status.stats.signals_generated, // 신호 수를 거래 수로 사용
