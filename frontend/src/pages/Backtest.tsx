@@ -231,34 +231,75 @@ function BacktestResultCard(props: BacktestResultCardProps) {
   // 차트 동기화 state
   const [chartSyncState, setChartSyncState] = createSignal<ChartSyncState | null>(null)
 
-  // 가격 차트 데이터
-  const [candleData, setCandleData] = createSignal<CandlestickDataPoint[]>([])
+  // 다중 심볼 목록 파싱
+  const symbols = createMemo(() =>
+    props.result.symbol.split(',').map(s => s.trim()).filter(s => s)
+  )
+  // 선택된 심볼 (기본값: 첫 번째)
+  const [selectedSymbol, setSelectedSymbol] = createSignal<string>('')
+
+  // 선택된 심볼 초기화
+  createEffect(() => {
+    const syms = symbols()
+    if (syms.length > 0 && !selectedSymbol()) {
+      setSelectedSymbol(syms[0])
+    }
+  })
+
+  // 가격 차트 데이터 (심볼별로 캐시)
+  const [candleDataCache, setCandleDataCache] = createSignal<Record<string, CandlestickDataPoint[]>>({})
   const [isLoadingCandles, setIsLoadingCandles] = createSignal(false)
   const [showPriceChart, setShowPriceChart] = createSignal(false)
 
-  // 매매 마커
-  const tradeMarkers = createMemo(() => convertTradesToMarkers(props.result.trades))
+  // 현재 선택된 심볼의 캔들 데이터
+  const candleData = createMemo(() => candleDataCache()[selectedSymbol()] || [])
 
-  // 가격 차트 데이터 로드
-  const loadCandleData = async () => {
-    if (candleData().length > 0 || isLoadingCandles()) return
+  // 매매 마커 (선택된 심볼만 필터링)
+  const tradeMarkers = createMemo(() => {
+    const selected = selectedSymbol()
+    // 심볼 필터링: 심볼명이 정확히 일치하거나 base 부분이 일치
+    const filteredTrades = props.result.trades.filter(t => {
+      const tradeSymbol = t.symbol.split('/')[0] // "122630/KRW" → "122630"
+      return tradeSymbol === selected || t.symbol === selected
+    })
+    return convertTradesToMarkers(filteredTrades)
+  })
+
+  // 가격 차트 데이터 로드 (선택된 심볼)
+  const loadCandleData = async (symbol?: string) => {
+    const targetSymbol = symbol || selectedSymbol()
+    if (!targetSymbol) return
+
+    // 이미 캐시에 있으면 스킵
+    if (candleDataCache()[targetSymbol]?.length > 0) return
+    if (isLoadingCandles()) return
 
     setIsLoadingCandles(true)
     try {
-      // 첫 번째 심볼만 사용 (다중 심볼인 경우)
-      const symbol = props.result.symbol.split(',')[0].trim()
       const data = await fetchCandlesForBacktest(
-        symbol,
+        targetSymbol,
         props.result.start_date,
         props.result.end_date
       )
       if (data) {
-        setCandleData(convertCandlesToChartData(data.candles))
+        setCandleDataCache(prev => ({
+          ...prev,
+          [targetSymbol]: convertCandlesToChartData(data.candles)
+        }))
       }
     } catch (err) {
       console.error('캔들 데이터 로드 실패:', err)
     } finally {
       setIsLoadingCandles(false)
+    }
+  }
+
+  // 심볼 선택 핸들러
+  const handleSymbolSelect = (symbol: string) => {
+    setSelectedSymbol(symbol)
+    // 선택된 심볼의 캔들 데이터 로드
+    if (showPriceChart()) {
+      loadCandleData(symbol)
     }
   }
 
@@ -547,6 +588,28 @@ function BacktestResultCard(props: BacktestResultCardProps) {
                 가격 차트 + 매매 태그
               </summary>
               <div class="mt-3">
+                {/* 다중 심볼인 경우 심볼 선택 탭 표시 */}
+                <Show when={symbols().length > 1}>
+                  <div class="flex flex-wrap gap-1 mb-3 p-1 bg-[var(--color-surface-light)]/30 rounded-lg">
+                    <For each={symbols()}>
+                      {(symbol) => (
+                        <button
+                          class={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                            selectedSymbol() === symbol
+                              ? 'bg-[var(--color-primary)] text-white shadow-sm'
+                              : 'text-[var(--color-text-muted)] hover:bg-[var(--color-surface-light)] hover:text-[var(--color-text)]'
+                          }`}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleSymbolSelect(symbol)
+                          }}
+                        >
+                          {symbol}
+                        </button>
+                      )}
+                    </For>
+                  </div>
+                </Show>
                 <Show
                   when={!isLoadingCandles() && candleData().length > 0}
                   fallback={

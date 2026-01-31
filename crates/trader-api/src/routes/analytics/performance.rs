@@ -47,29 +47,47 @@ pub(crate) fn parse_period_duration(period: &str) -> Duration {
 // ==================== 포지션 지표 계산 ====================
 
 /// 포지션 기반 지표 계산 (총 투자금, 포지션 손익)
-/// 가장 최근 체결 데이터가 있는 자격증명을 사용
+/// credential_id가 주어지면 해당 계좌만, 없으면 가장 최근 체결 기록이 있는 자격증명 사용
 /// 순 포지션(매수-매도) 기준으로 현재 보유 중인 포지션만 계산
 pub(crate) async fn get_position_metrics(
     pool: &sqlx::PgPool,
+    credential_id: Option<uuid::Uuid>,
 ) -> Result<(Option<String>, Option<String>, Option<String>), sqlx::Error> {
-    // 가장 최근 체결 기록이 있는 자격증명 ID 조회
-    // 순 포지션이 양수인 자격증명만 대상
-    let active_cred_id = sqlx::query_scalar::<_, uuid::Uuid>(
-        r#"
-        SELECT credential_id
-        FROM execution_cache
-        GROUP BY credential_id
-        HAVING SUM(CASE WHEN side = 'buy' THEN quantity ELSE -quantity END) > 0
-        ORDER BY MAX(executed_at) DESC
-        LIMIT 1
-        "#,
-    )
-    .fetch_optional(pool)
-    .await?;
+    // credential_id가 주어지면 해당 계좌 사용, 없으면 가장 최근 체결 기록 있는 계좌
+    let cred_id = if let Some(id) = credential_id {
+        // 해당 계좌에 체결 기록이 있는지 확인
+        let has_executions = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM execution_cache WHERE credential_id = $1",
+        )
+        .bind(id)
+        .fetch_one(pool)
+        .await?;
 
-    let cred_id = match active_cred_id {
-        Some(id) => id,
-        None => return Ok((None, None, None)),
+        if has_executions > 0 {
+            id
+        } else {
+            // 체결 기록이 없으면 포지션 지표 없음
+            return Ok((None, None, None));
+        }
+    } else {
+        // 가장 최근 체결 기록이 있는 자격증명 ID 조회 (순 포지션이 양수인 것만)
+        let active_cred_id = sqlx::query_scalar::<_, uuid::Uuid>(
+            r#"
+            SELECT credential_id
+            FROM execution_cache
+            GROUP BY credential_id
+            HAVING SUM(CASE WHEN side = 'buy' THEN quantity ELSE -quantity END) > 0
+            ORDER BY MAX(executed_at) DESC
+            LIMIT 1
+            "#,
+        )
+        .fetch_optional(pool)
+        .await?;
+
+        match active_cred_id {
+            Some(id) => id,
+            None => return Ok((None, None, None)),
+        }
     };
 
     // 해당 자격증명의 순 보유 포지션 총 투자금(평균단가 기준) 조회
@@ -149,6 +167,10 @@ pub(crate) async fn get_position_metrics(
 /// 성과 요약 조회.
 ///
 /// GET /api/v1/analytics/performance
+///
+/// # Query Parameters
+/// - `period`: 기간 (1w, 1m, 3m, 6m, 1y, ytd, all)
+/// - `credential_id`: 자격증명 ID (선택적, 특정 계좌만 조회)
 pub async fn get_performance(
     State(state): State<Arc<AppState>>,
     Query(query): Query<PeriodQuery>,
@@ -159,8 +181,21 @@ pub async fn get_performance(
         let start_time = Utc::now() - duration;
         let end_time = Utc::now();
 
-        // 통합 자산 곡선 데이터 조회
-        match EquityHistoryRepository::get_aggregated_equity_curve(db_pool, start_time, end_time).await {
+        // credential_id 파싱
+        let credential_id = query.credential_id.as_ref().and_then(|id| {
+            uuid::Uuid::parse_str(id).ok()
+        });
+
+        // credential_id가 있으면 특정 계좌만 조회, 없으면 전체 합산
+        let data_result = if let Some(cred_id) = credential_id {
+            debug!(credential_id = %cred_id, "특정 계좌 성과 조회");
+            EquityHistoryRepository::get_equity_curve(db_pool, cred_id, start_time, end_time).await
+        } else {
+            debug!("전체 계좌 통합 성과 조회");
+            EquityHistoryRepository::get_aggregated_equity_curve(db_pool, start_time, end_time).await
+        };
+
+        match data_result {
             Ok(data) if !data.is_empty() => {
                 debug!("DB에서 {} 개의 자산 곡선 포인트 로드됨", data.len());
 
@@ -217,7 +252,7 @@ pub async fn get_performance(
 
                 // 포지션 기반 지표 계산 (실제 투자 원금 대비)
                 let (total_cost_basis, position_pnl, position_pnl_pct) =
-                    match get_position_metrics(db_pool).await {
+                    match get_position_metrics(db_pool, credential_id).await {
                         Ok(metrics) => metrics,
                         Err(e) => {
                             warn!("포지션 지표 조회 실패: {}", e);

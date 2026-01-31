@@ -18,6 +18,7 @@
 //! - `/api/v1/credentials` - 자격증명 관리 (API 키, 텔레그램 설정)
 //! - `/api/v1/ml` - ML 훈련 관리
 //! - `/api/v1/journal` - 매매일지 (체결 내역, 포지션 현황, 손익 분석)
+//! - `/api/v1/screening` - 종목 스크리닝 (Fundamental + 기술적 필터)
 
 pub mod analytics;
 pub mod backtest;
@@ -35,6 +36,7 @@ pub mod orders;
 pub mod patterns;
 pub mod portfolio;
 pub mod positions;
+pub mod screening;
 pub mod simulation;
 pub mod strategies;
 
@@ -53,6 +55,7 @@ pub use orders::{orders_router, OrdersListResponse, OrderResponse, CancelOrderRe
 pub use patterns::{patterns_router, PatternTypesResponse, CandlestickPatternsResponse, ChartPatternsResponse};
 pub use portfolio::{portfolio_router, PortfolioSummaryResponse, BalanceResponse, HoldingsResponse};
 pub use positions::{positions_router, PositionsListResponse, PositionResponse, PositionSummaryResponse};
+pub use screening::{screening_router, ScreeningRequest, ScreeningResponse, MomentumResponse};
 pub use simulation::{simulation_router, SimulationStartRequest, SimulationStatusResponse, SimulationOrderRequest};
 pub use strategies::{strategies_router, ApiError, StrategiesListResponse, StrategyDetailResponse};
 
@@ -85,7 +88,8 @@ pub fn create_api_router() -> Router<Arc<AppState>> {
         .nest("/api/v1/credentials", credentials_router())
         .nest("/api/v1/ml", ml_router())
         .nest("/api/v1/dataset", dataset_router())
-        .nest("/api/v1/journal", journal_router());
+        .nest("/api/v1/journal", journal_router())
+        .nest("/api/v1/screening", screening_router());
 
     // Feature: notifications - 텔레그램/이메일 알림
     #[cfg(feature = "notifications")]

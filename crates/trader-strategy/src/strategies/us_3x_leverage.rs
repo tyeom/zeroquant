@@ -372,7 +372,7 @@ impl Us3xLeverageStrategy {
                 continue; // 1% 미만 차이는 무시
             }
 
-            let symbol = match self.symbols.iter().find(|s| s.to_string() == *ticker) {
+            let symbol = match self.symbols.iter().find(|s| s.base == *ticker) {
                 Some(s) => s.clone(),
                 None => continue,
             };
@@ -431,7 +431,7 @@ impl Us3xLeverageStrategy {
                 continue;
             }
 
-            let symbol = match self.symbols.iter().find(|s| s.to_string() == *ticker) {
+            let symbol = match self.symbols.iter().find(|s| s.base == *ticker) {
                 Some(s) => s.clone(),
                 None => continue,
             };
@@ -480,7 +480,7 @@ impl Us3xLeverageStrategy {
                 }
 
                 if data.etf_type == EtfType::Leverage {
-                    let symbol = match self.symbols.iter().find(|s| s.to_string() == *ticker) {
+                    let symbol = match self.symbols.iter().find(|s| s.base == *ticker) {
                         Some(s) => s.clone(),
                         None => continue,
                     };

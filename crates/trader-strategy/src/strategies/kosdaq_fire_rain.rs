@@ -528,7 +528,8 @@ impl KosdaqFireRainStrategy {
                 None => continue,
             };
 
-            let symbol = match self.symbols.iter().find(|s| s.to_string() == ticker) {
+            // Symbol.base와 ticker 비교 (Symbol.to_string()은 "base/quote" 형식이므로 base만 비교)
+            let symbol = match self.symbols.iter().find(|s| s.base == ticker) {
                 Some(s) => s.clone(),
                 None => continue,
             };

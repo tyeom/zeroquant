@@ -5,6 +5,61 @@
 형식은 [Keep a Changelog](https://keepachangelog.com/ko/1.0.0/)를 따르며,
 [Semantic Versioning](https://semver.org/lang/ko/)을 준수합니다.
 
+## [0.5.1] - 2026-01-31
+
+### Added
+
+#### 🔍 종목 스크리닝 (Symbol Screening) - 백엔드 API
+- **ScreeningRepository** (`repository/screening.rs`, 592줄)
+  - Fundamental + OHLCV 기반 종목 필터링
+  - 다양한 조건 조합 지원 (시가총액, PER, PBR, ROE, 배당수익률 등)
+- **스크리닝 API** (`routes/screening.rs`, 574줄)
+  - `POST /api/v1/screening` - 커스텀 스크리닝 실행
+  - `GET /api/v1/screening/presets` - 프리셋 목록 조회
+  - `GET /api/v1/screening/presets/{preset}` - 프리셋 스크리닝 실행
+  - `GET /api/v1/screening/momentum` - 모멘텀 기반 스크리닝
+- **사전 정의 프리셋 6종**
+  - `value`: 저PER + 저PBR 가치주
+  - `dividend`: 고배당주 (배당수익률 3%+)
+  - `growth`: 고ROE 성장주 (ROE 15%+)
+  - `snowball`: 스노우볼 전략 (저PBR + 고배당)
+  - `large_cap`: 대형주 (시가총액 상위)
+  - `near_52w_low`: 52주 신저가 근접 종목
+
+#### Symbol Fundamental 확장
+- **SymbolFundamentalRepository** (`repository/symbol_fundamental.rs`, 459줄)
+  - 종목 기본정보 CRUD
+  - 섹터별/시장별 조회
+- **SymbolInfoRepository 확장** (439줄 추가)
+  - 시장 정보, 섹터 정보 조회
+  - 종목 검색 기능 강화
+
+### Changed
+
+#### 전략 개선
+- `kosdaq_fire_rain.rs`: 조건 로직 개선
+- `kospi_bothside.rs`: 양방향 매매 조건 정밀화
+- `sector_vb.rs`: 섹터별 변동성 돌파 조건 개선
+- `us_3x_leverage.rs`: 레버리지 조건 최적화
+
+#### 백테스트/분석 개선
+- `analytics/charts.rs`: 차트 데이터 생성 개선
+- `analytics/performance.rs`: 성과 지표 계산 확장
+- `backtest/loader.rs`, `backtest/mod.rs`: 데이터 로딩 최적화
+
+#### 프론트엔드 개선
+- `Backtest.tsx`: 백테스트 UI 개선
+- `PortfolioEquityChart.tsx`: 차트 렌더링 최적화
+- `Dashboard.tsx`: 대시보드 개선
+
+#### 코드 품질
+- `.rustfmt.toml`: Rust 코드 포맷팅 규칙 추가
+  - `max_width = 100`
+  - `use_small_heuristics = "Max"`
+  - `imports_granularity = "Crate"`
+
+---
+
 ## [0.5.0] - 2026-01-31
 
 ### Added

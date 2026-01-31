@@ -437,6 +437,7 @@ export function Dashboard() {
         showControls={true}
         defaultPeriod="3m"
         defaultSource="portfolio"
+        credentialId={activeAccount()?.credential_id || undefined}
       />
 
       {/* Main Content Grid */}

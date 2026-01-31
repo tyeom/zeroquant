@@ -66,7 +66,34 @@ cd frontend && npm run dev
 - [ ] Rotation Savings (KR)
 - [ ] Dual KrStock UsBond (KR+US)
 
-### 4. ML 예측 활용 (선택적)
+### 4. 종목 스크리닝 (Symbol Screening) ⭐ 진행중
+
+**백엔드**
+- [x] ScreeningRepository 구현
+- [x] ScreeningFilter 조건 모델 정의
+- [x] 프리셋 스크리닝 (value, dividend, growth, snowball, large_cap, near_52w_low)
+- [x] 스크리닝 API 라우트 구현
+  - `POST /api/v1/screening` - 커스텀 스크리닝 ✅
+  - `GET /api/v1/screening/presets` - 프리셋 목록 ✅
+  - `GET /api/v1/screening/presets/{preset}` - 프리셋 실행 ✅
+  - `GET /api/v1/screening/momentum` - 모멘텀 스크리닝 ✅
+- [x] 모멘텀 스크리닝 최적화 (OHLCV 기반 가격/거래량 분석)
+- [ ] Fundamental 데이터 수집 (symbol_info → symbol_fundamental)
+
+**전략 연계**
+- [ ] 전략에서 스크리닝 결과 활용 인터페이스 정의
+- [ ] 코스닥 급등주 전략: 스크리닝 연동
+- [ ] 스노우볼 전략: 저PBR+고배당 스크리닝 연동
+- [ ] 섹터 모멘텀 전략: 섹터별 상위 종목 스크리닝
+
+**프론트엔드**
+- [ ] Screening.tsx 페이지
+- [ ] 필터 조건 입력 폼
+- [ ] 프리셋 선택 UI
+- [ ] 스크리닝 결과 테이블 (정렬, 페이지네이션)
+- [ ] 종목 상세 모달 (Fundamental + 차트)
+
+### 5. ML 예측 활용 (선택적)
 
 - [ ] 전략에서 ML 예측 결과 사용
 - [ ] Docker ML 훈련 End-to-End 테스트

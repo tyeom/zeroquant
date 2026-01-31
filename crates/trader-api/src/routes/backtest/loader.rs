@@ -211,6 +211,10 @@ pub fn expand_strategy_symbols(strategy_id: &str, user_symbols: &[String]) -> Ve
         "market_cap_top" => &[
             "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "BRK-B", "UNH", "JPM",
         ],
+        // 코스피 양방향: 레버리지 + 인버스
+        "kospi_bothside" => &["122630", "252670"],
+        // 코스닥 피레인: 레버리지 ETF
+        "kosdaq_fire_rain" => &["122630", "233740", "252670", "251340"],
         _ => &[],
     };
 

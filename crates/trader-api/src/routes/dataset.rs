@@ -856,6 +856,7 @@ pub struct SymbolSearchResponse {
 /// 심볼 검색 API.
 ///
 /// 티커 코드와 회사명으로 검색합니다.
+/// DB에 없는 종목은 KRX/Yahoo Finance에서 자동으로 조회하여 저장합니다.
 ///
 /// # Query Parameters
 ///
@@ -892,7 +893,8 @@ pub async fn search_symbols(
         )
     })?;
 
-    let results = SymbolInfoRepository::search(pool, &params.q, params.limit)
+    // DB에서 먼저 검색
+    let mut results = SymbolInfoRepository::search(pool, &params.q, params.limit)
         .await
         .map_err(|e| {
             error!("심볼 검색 실패: {}", e);
@@ -904,6 +906,30 @@ pub async fn search_symbols(
                 }),
             )
         })?;
+
+    // DB에서 결과가 없고, 검색어가 티커 형식인 경우 외부 API에서 조회
+    if results.is_empty() {
+        let query_trimmed = params.q.trim();
+        let looks_like_ticker = query_trimmed.len() <= 10
+            && query_trimmed.chars().all(|c| c.is_alphanumeric() || c == '.' || c == '-');
+
+        if looks_like_ticker {
+            info!(ticker = query_trimmed, "DB에 없는 티커, 외부 API에서 조회 시도");
+
+            match SymbolInfoRepository::get_or_fetch(pool, query_trimmed).await {
+                Ok(Some(result)) => {
+                    results.push(result);
+                }
+                Ok(None) => {
+                    // 외부 API에서도 찾지 못함
+                }
+                Err(e) => {
+                    // 외부 조회 실패 로그만 남기고 빈 결과 반환
+                    error!("외부 API 조회 실패: {}", e);
+                }
+            }
+        }
+    }
 
     let total = results.len();
 

@@ -832,14 +832,18 @@ export interface MonthlyReturnsResponse {
   yearRange: [number, number];
 }
 
-export const getPerformance = async (period?: string): Promise<PerformanceResponse> => {
-  const params = period ? { period } : {};
+export const getPerformance = async (period?: string, credentialId?: string): Promise<PerformanceResponse> => {
+  const params: Record<string, string> = {};
+  if (period) params.period = period;
+  if (credentialId) params.credential_id = credentialId;
   const response = await api.get('/analytics/performance', { params });
   return response.data;
 };
 
-export const getEquityCurve = async (period?: string): Promise<EquityCurveResponse> => {
-  const params = period ? { period } : {};
+export const getEquityCurve = async (period?: string, credentialId?: string): Promise<EquityCurveResponse> => {
+  const params: Record<string, string> = {};
+  if (period) params.period = period;
+  if (credentialId) params.credential_id = credentialId;
   const response = await api.get('/analytics/equity-curve', { params });
   return response.data;
 };

@@ -214,7 +214,96 @@ pub async fn run_backtest(
     let commission_rate = request.commission_rate.unwrap_or(Decimal::new(1, 3)); // 0.1%
     let slippage_rate = request.slippage_rate.unwrap_or(Decimal::new(5, 4)); // 0.05%
 
-    // 데이터베이스 연결 확인 및 Kline 로드 시도
+    // 전략별로 필요한 심볼을 동적으로 확장 (하드코딩 없이 expand_strategy_symbols에 위임)
+    let user_symbols = vec![request.symbol.clone()];
+    let expanded_symbols = expand_strategy_symbols(&request.strategy_id, &user_symbols);
+
+    // 확장된 심볼이 1개 초과이면 다중 심볼 전략으로 처리
+    let is_multi_symbol_strategy = expanded_symbols.len() > 1;
+
+    if is_multi_symbol_strategy {
+        info!(
+            "다중 심볼 전략 {} 심볼 확장: {:?} -> {:?}",
+            request.strategy_id, user_symbols, expanded_symbols
+        );
+
+        // 다중 심볼 데이터 로드
+        let multi_klines = if let Some(pool) = &state.db_pool {
+            match load_multi_klines_from_db(pool, &expanded_symbols, start_date, end_date).await {
+                Ok(data) if !data.is_empty() => {
+                    info!("DB에서 {} 심볼의 데이터 로드 완료", data.len());
+                    for (sym, klines) in &data {
+                        info!("  - {} 심볼: {} 개 캔들", sym, klines.len());
+                    }
+                    data
+                }
+                Ok(_) => {
+                    warn!("DB에 데이터가 없어 샘플 데이터로 백테스트 실행");
+                    generate_multi_sample_klines(&expanded_symbols, start_date, end_date)
+                }
+                Err(e) => {
+                    warn!("DB 로드 실패, 샘플 데이터 사용: {}", e);
+                    generate_multi_sample_klines(&expanded_symbols, start_date, end_date)
+                }
+            }
+        } else {
+            debug!("DB 연결 없음, 샘플 데이터로 백테스트 실행");
+            generate_multi_sample_klines(&expanded_symbols, start_date, end_date)
+        };
+
+        // 모든 심볼의 캔들 데이터를 시간순으로 병합
+        let merged_klines = merge_multi_klines(&multi_klines);
+
+        if merged_klines.is_empty() {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(BacktestApiError::new(
+                    "NO_DATA",
+                    "백테스트를 위한 데이터가 없습니다",
+                )),
+            ));
+        }
+
+        // 백테스트 설정
+        let config = BacktestConfig::new(request.initial_capital)
+            .with_commission_rate(commission_rate)
+            .with_slippage_rate(slippage_rate);
+
+        // 모든 전략은 동일한 run_strategy_backtest 함수로 처리 (하드코딩 방지)
+        // 병합된 캔들 데이터를 전달하여 전략이 필요한 심볼 데이터를 자체적으로 처리
+        let report = run_strategy_backtest(
+            &request.strategy_id,
+            config,
+            &merged_klines,
+            &request.parameters,
+        )
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(BacktestApiError::new("BACKTEST_ERROR", e.to_string())),
+            )
+        })?;
+
+        // BacktestReport를 API 응답으로 변환 (다중 심볼 표시)
+        let symbols_str = expanded_symbols.join(",");
+        let response = convert_report_to_response(
+            &report,
+            &request.strategy_id,
+            &symbols_str,
+            &request.start_date,
+            &request.end_date,
+        );
+
+        info!(
+            "다중 심볼 백테스트 완료: total_return={:.2}%",
+            report.metrics.total_return_pct
+        );
+
+        return Ok(Json(response));
+    }
+
+    // 단일 심볼 전략 (기존 로직)
     let klines = if let Some(pool) = &state.db_pool {
         match load_klines_from_db(pool, &request.symbol, start_date, end_date).await {
             Ok(data) if !data.is_empty() => {

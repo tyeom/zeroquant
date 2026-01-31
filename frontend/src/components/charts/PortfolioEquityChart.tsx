@@ -25,6 +25,8 @@ interface PortfolioEquityChartProps {
   defaultPeriod?: string
   defaultSource?: DataSource
   backtestId?: string
+  /** 활성 계정 ID - 계좌별 자산곡선 조회에 사용 */
+  credentialId?: string
 }
 
 function formatCurrency(value: number | string): string {
@@ -55,13 +57,13 @@ export function PortfolioEquityChart(props: PortfolioEquityChartProps) {
   const [syncLoading, setSyncLoading] = createSignal(false)
   const [syncResult, setSyncResult] = createSignal<{ success: boolean; message: string } | null>(null)
 
-  // 포트폴리오 데이터 조회
+  // 포트폴리오 데이터 조회 (credentialId가 변경되면 자동으로 다시 조회)
   const [equityCurveData, { refetch: refetchEquity }] = createResource(
-    () => ({ period: period(), source: dataSource() }),
-    async ({ period, source }) => {
+    () => ({ period: period(), source: dataSource(), credentialId: props.credentialId }),
+    async ({ period, source, credentialId }) => {
       if (source !== 'portfolio') return null
       try {
-        return await getEquityCurve(period)
+        return await getEquityCurve(period, credentialId)
       } catch (e) {
         console.error('Equity curve fetch error:', e)
         return null
@@ -69,13 +71,13 @@ export function PortfolioEquityChart(props: PortfolioEquityChartProps) {
     }
   )
 
-  // 성과 지표 조회
+  // 성과 지표 조회 (credentialId가 변경되면 자동으로 다시 조회)
   const [performanceData, { refetch: refetchPerformance }] = createResource(
-    () => ({ period: period(), source: dataSource() }),
-    async ({ period, source }) => {
+    () => ({ period: period(), source: dataSource(), credentialId: props.credentialId }),
+    async ({ period, source, credentialId }) => {
       if (source !== 'portfolio') return null
       try {
-        return await getPerformance(period)
+        return await getPerformance(period, credentialId)
       } catch (e) {
         console.error('Performance fetch error:', e)
         return null

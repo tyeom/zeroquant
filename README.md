@@ -226,8 +226,8 @@ zeroquant/
 │   ├── trader-data/         # 데이터 수집/저장 (OHLCV)
 │   ├── trader-analytics/    # ML 추론, 성과 분석, 패턴 인식
 │   ├── trader-api/          # REST/WebSocket API
-│   │   ├── repository/      # 데이터 접근 계층 (10개 Repository)
-│   │   └── routes/          # 모듈화된 라우트 (analytics/, credentials/, backtest/, journal)
+│   │   ├── repository/      # 데이터 접근 계층 (12개 Repository)
+│   │   └── routes/          # 모듈화된 라우트 (analytics/, credentials/, backtest/, journal, screening)
 │   ├── trader-cli/          # CLI 도구
 │   └── trader-notification/ # 알림 (Telegram)
 ├── frontend/                # SolidJS + TypeScript + Vite

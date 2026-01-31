@@ -20,6 +20,9 @@ pub struct PeriodQuery {
 
     /// 종료 날짜 (ISO 8601, 선택적)
     pub end_date: Option<String>,
+
+    /// 자격증명 ID (선택적, 특정 계좌만 조회)
+    pub credential_id: Option<String>,
 }
 
 pub(crate) fn default_period() -> String {

@@ -11,7 +11,9 @@ pub mod klines;
 pub mod orders;
 pub mod portfolio;
 pub mod positions;
+pub mod screening;
 pub mod strategies;
+pub mod symbol_fundamental;
 pub mod symbol_info;
 
 pub use backtest_results::{
@@ -33,7 +35,15 @@ pub use positions::{
     SyncResult as PositionSyncResult,
 };
 pub use strategies::StrategyRepository;
-pub use symbol_info::{NewSymbolInfo, SymbolInfo, SymbolInfoRepository, SymbolSearchResult};
+pub use symbol_fundamental::{
+    NewSymbolFundamental, SymbolFundamental, SymbolFundamentalRepository, SymbolWithFundamental,
+};
+pub use symbol_info::{
+    ExternalFetchError, NewSymbolInfo, SymbolInfo, SymbolInfoRepository, SymbolSearchResult,
+};
+pub use screening::{
+    MomentumScreenResult, ScreeningFilter, ScreeningPreset, ScreeningRepository, ScreeningResult,
+};
 
 pub use journal::{
     CurrentPosition, DailySummary, ExecutionFilter, JournalRepository, PnLSummary,

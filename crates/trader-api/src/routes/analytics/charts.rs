@@ -26,6 +26,10 @@ use super::types::{
 /// 자산 곡선 데이터 조회.
 ///
 /// GET /api/v1/analytics/equity-curve
+///
+/// # Query Parameters
+/// - `period`: 기간 (1w, 1m, 3m, 6m, 1y, ytd, all)
+/// - `credential_id`: 자격증명 ID (선택적, 특정 계좌만 조회)
 pub async fn get_equity_curve(
     State(state): State<Arc<AppState>>,
     Query(query): Query<PeriodQuery>,
@@ -34,9 +38,23 @@ pub async fn get_equity_curve(
     let start_time = Utc::now() - duration;
     let end_time = Utc::now();
 
+    // credential_id 파싱
+    let credential_id = query.credential_id.as_ref().and_then(|id| {
+        uuid::Uuid::parse_str(id).ok()
+    });
+
     // DB에서 실제 데이터 조회 시도
     if let Some(db_pool) = &state.db_pool {
-        match EquityHistoryRepository::get_aggregated_equity_curve(db_pool, start_time, end_time).await {
+        // credential_id가 있으면 특정 계좌만 조회, 없으면 전체 합산
+        let data_result = if let Some(cred_id) = credential_id {
+            debug!(credential_id = %cred_id, "특정 계좌 자산 곡선 조회");
+            EquityHistoryRepository::get_equity_curve(db_pool, cred_id, start_time, end_time).await
+        } else {
+            debug!("전체 계좌 통합 자산 곡선 조회");
+            EquityHistoryRepository::get_aggregated_equity_curve(db_pool, start_time, end_time).await
+        };
+
+        match data_result {
             Ok(data) if !data.is_empty() => {
                 debug!("DB에서 {} 개의 자산 곡선 포인트 로드됨", data.len());
 

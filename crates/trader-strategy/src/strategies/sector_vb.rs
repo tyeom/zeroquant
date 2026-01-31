@@ -311,7 +311,7 @@ impl SectorVbStrategy {
 
             // 손절
             if current_price <= pos.stop_loss {
-                let sym = self.symbols.iter().find(|s| s.to_string() == symbol).cloned();
+                let sym = self.symbols.iter().find(|s| s.base == symbol).cloned();
                 if let Some(sym) = sym {
                     signals.push(
                         Signal::exit("sector_vb", sym, Side::Sell)
@@ -333,7 +333,7 @@ impl SectorVbStrategy {
 
             // 익절
             if current_price >= pos.take_profit {
-                let sym = self.symbols.iter().find(|s| s.to_string() == symbol).cloned();
+                let sym = self.symbols.iter().find(|s| s.base == symbol).cloned();
                 if let Some(sym) = sym {
                     signals.push(
                         Signal::exit("sector_vb", sym, Side::Sell)
@@ -359,7 +359,7 @@ impl SectorVbStrategy {
             let close_hour = 6;
             let close_minute = 30 - config.close_before_minutes as i32;
             if timestamp.hour() == close_hour as u32 && timestamp.minute() >= close_minute as u32 {
-                let sym = self.symbols.iter().find(|s| s.to_string() == symbol).cloned();
+                let sym = self.symbols.iter().find(|s| s.base == symbol).cloned();
                 if let Some(sym) = sym {
                     signals.push(
                         Signal::exit("sector_vb", sym, Side::Sell)
@@ -394,7 +394,7 @@ impl SectorVbStrategy {
             if let Some(target) = data.target_price {
                 if current_price >= target {
                     // 돌파! 매수
-                    let sym = self.symbols.iter().find(|s| s.to_string() == symbol).cloned();
+                    let sym = self.symbols.iter().find(|s| s.base == symbol).cloned();
                     if let Some(sym) = sym {
                         let stop_loss = current_price * (dec!(1) - Decimal::from_f64_retain(config.stop_loss_pct / 100.0).unwrap());
                         let take_profit = current_price * (dec!(1) + Decimal::from_f64_retain(config.take_profit_pct / 100.0).unwrap());

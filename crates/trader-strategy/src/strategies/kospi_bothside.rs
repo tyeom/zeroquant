@@ -490,8 +490,12 @@ impl KospiBothSideStrategy {
 
         // 레버리지 신호
         if let Some(sym) = &self.leverage_symbol {
-            if self.leverage_position.is_none() && self.should_buy_leverage() {
-                let price = self.leverage_indicators.prices.front().copied().unwrap_or(Decimal::ZERO);
+            let price = self.leverage_indicators.prices.front().copied().unwrap_or(Decimal::ZERO);
+
+            // 가격이 0인 경우 신호 생성 방지 (데이터 없음 - Division by zero 방지)
+            if price == Decimal::ZERO {
+                warn!("레버리지 ETF 가격 데이터 없음, 신호 생성 건너뜀");
+            } else if self.leverage_position.is_none() && self.should_buy_leverage() {
                 signals.push(
                     Signal::entry("kospi_bothside", sym.clone(), Side::Buy)
                         .with_strength(config.leverage_ratio)
@@ -501,7 +505,6 @@ impl KospiBothSideStrategy {
                 );
                 info!(price = %price, "레버리지 매수 신호");
             } else if self.leverage_position.is_some() && self.should_sell_leverage() {
-                let price = self.leverage_indicators.prices.front().copied().unwrap_or(Decimal::ZERO);
                 signals.push(
                     Signal::exit("kospi_bothside", sym.clone(), Side::Sell)
                         .with_strength(1.0)
@@ -515,8 +518,12 @@ impl KospiBothSideStrategy {
 
         // 인버스 신호
         if let Some(sym) = &self.inverse_symbol {
-            if self.inverse_position.is_none() && self.should_buy_inverse() {
-                let price = self.inverse_indicators.prices.front().copied().unwrap_or(Decimal::ZERO);
+            let price = self.inverse_indicators.prices.front().copied().unwrap_or(Decimal::ZERO);
+
+            // 가격이 0인 경우 신호 생성 방지 (데이터 없음 - Division by zero 방지)
+            if price == Decimal::ZERO {
+                warn!("인버스 ETF 가격 데이터 없음, 신호 생성 건너뜀");
+            } else if self.inverse_position.is_none() && self.should_buy_inverse() {
                 signals.push(
                     Signal::entry("kospi_bothside", sym.clone(), Side::Buy)
                         .with_strength(config.inverse_ratio)
@@ -526,7 +533,6 @@ impl KospiBothSideStrategy {
                 );
                 info!(price = %price, "인버스 매수 신호");
             } else if self.inverse_position.is_some() && self.should_sell_inverse() {
-                let price = self.inverse_indicators.prices.front().copied().unwrap_or(Decimal::ZERO);
                 signals.push(
                     Signal::exit("kospi_bothside", sym.clone(), Side::Sell)
                         .with_strength(1.0)
@@ -653,7 +659,8 @@ impl Strategy for KospiBothSideStrategy {
             None => return Ok(()),
         };
 
-        let ticker = order.symbol.to_string();
+        // Symbol.base와 ticker 비교 (Symbol.to_string()은 "base/quote" 형식이므로 base만 비교)
+        let ticker = order.symbol.base.clone();
         let price = order.price.unwrap_or(Decimal::ZERO);
 
         if ticker == config.leverage_ticker {
@@ -721,7 +728,8 @@ impl Strategy for KospiBothSideStrategy {
             None => return Ok(()),
         };
 
-        let ticker = position.symbol.to_string();
+        // Symbol.base와 ticker 비교 (Symbol.to_string()은 "base/quote" 형식이므로 base만 비교)
+        let ticker = position.symbol.base.clone();
 
         if ticker == config.leverage_ticker {
             if position.quantity > Decimal::ZERO {
