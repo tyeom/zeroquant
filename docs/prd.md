@@ -1,6 +1,6 @@
 # ZeroQuant Trading Bot - PRD (Product Requirements Document)
 
-> 버전: 5.2 | 마지막 업데이트: 2026-02-01
+> 버전: 6.0 | 마지막 업데이트: 2026-02-01
 
 ---
 
@@ -130,6 +130,45 @@ Rust 기반 고성능 다중 시장 자동화 트레이딩 시스템. 국내/해
 - 백테스트 결과 DB 저장
 - 저장 항목: 전략 ID, 기간, 파라미터 스냅샷, 성과 지표, 거래 내역
 - 히스토리 조회 및 비교 기능
+
+---
+
+### 2.2.5 신호 기록 (SignalMarker)
+
+**목적**: 전략이 생성한 모든 신호를 DB에 저장하여 분석 및 시각화에 활용
+
+**핵심 기능**:
+- 진입/청산 신호, 신호 강도, 지표 값 기록
+- 백테스트와 실거래에서 동일 형식 사용
+- UnifiedTrade trait으로 타입 통합
+
+**저장 정보**:
+- 신호 유형 (Entry, Exit, Alert)
+- 발생 시점 지표 값 (RSI, MACD, BB 등)
+- RouteState, 전략 정보
+- 실행 여부 (체결/미체결)
+
+**예상 구현**: v0.6.0 (TODO Phase 1-5)
+
+#### 2.2.6 신호 시각화 (캔들 차트 오버레이)
+
+**SignalMarker 오버레이**:
+- 매수 신호: 초록색 위 화살표 ▲
+- 매도 신호: 빨간색 아래 화살표 ▼
+- 알림 신호: 노란색 점 ●
+
+**IndicatorFilter 패널**:
+- RSI 범위 슬라이더
+- MACD 크로스 유형 선택
+- RouteState 필터
+- 전략 선택 드롭다운
+
+**통합 화면**:
+- 백테스트 결과 페이지
+- 종목 상세 페이지
+- 전략 디버깅 페이지
+
+**예상 구현**: v0.6.0 (TODO Phase 2-4)
 
 ---
 
@@ -351,6 +390,66 @@ Rust 기반 고성능 다중 시장 자동화 트레이딩 시스템. 국내/해
   - ML 모델 입력 피처로 추가
   - 스크리닝 필터 조건으로 활용
   - RouteState 판정 로직에 반영
+
+#### 2.7.5 TTM Squeeze 지표 (John Carter)
+
+**목적**: Bollinger Band가 Keltner Channel 내부로 들어가면 에너지 응축 상태
+
+**계산 방식**:
+1. **Bollinger Band** (BB): 20일 SMA ± 2σ
+2. **Keltner Channel** (KC): 20일 EMA ± 1.5 × ATR(20)
+3. **Squeeze 판정**: BB_upper < KC_upper AND BB_lower > KC_lower
+4. **Release 판정**: 이전 봉은 Squeeze, 현재 봉은 Squeeze 해제
+
+**출력 형식**:
+```rust
+pub struct TtmSqueeze {
+    pub is_squeeze: bool,        // 현재 스퀴즈 상태
+    pub squeeze_count: u32,      // 연속 스퀴즈 일수
+    pub momentum: Decimal,       // 스퀴즈 모멘텀 (방향)
+    pub released: bool,          // 이번 봉에서 해제되었는가?
+}
+```
+
+**활용**:
+- RouteState ATTACK 판정 (Release + Momentum > 0)
+- TRIGGER 시스템에 +30점 기여
+- 변동성 돌파 전략 필터링
+
+**DB 저장**:
+- `symbol_fundamental` 테이블에 컬럼 추가:
+  - `ttm_squeeze`: BOOLEAN
+  - `ttm_squeeze_cnt`: INTEGER (연속 일수)
+
+**예상 구현**: v0.6.0 (TODO Phase 1-2.3)
+
+#### 2.7.6 추가 기술적 지표
+
+**목적**: 분석 정확도 향상을 위한 고급 지표
+
+**4개 신규 지표**:
+| 지표 | 설명 | 용도 |
+|------|------|------|
+| **HMA** | Hull Moving Average | 빠른 반응, 낮은 휩소 |
+| **OBV** | On-Balance Volume | 스마트 머니 추적 |
+| **SuperTrend** | 추세 추종 지표 | 트렌드 방향 판정 |
+| **CandlePattern** | 캔들 패턴 감지 | 망치형, 장악형 등 |
+
+**구현 위치**:
+```
+trader-analytics/src/indicators/
+├── hma.rs         // Hull Moving Average
+├── obv.rs         // On-Balance Volume
+├── supertrend.rs  // SuperTrend
+└── candle_patterns.rs // 캔들 패턴 감지
+```
+
+**활용**:
+- TRIGGER 시스템에 캔들 패턴 연동
+- 전략 신호 생성에 활용
+- 구조적 피처 확장
+
+**예상 구현**: v0.6.0 (TODO Phase 1-2.6)
 
 #### 2.7.2 모델 관리
 - 모델 등록 API:
@@ -574,6 +673,116 @@ Rust 기반 고성능 다중 시장 자동화 트레이딩 시스템. 국내/해
 
 ---
 
+#### 2.8.8 거시 환경 필터 (MacroFilter)
+
+**목적**: USD/KRW 환율, 나스닥 지수 모니터링으로 시장 위험도 평가 및 동적 진입 기준 조정
+
+**3단계 리스크 레벨**:
+| 레벨 | 조건 | 조치 |
+|------|------|------|
+| **Critical** | 환율 ≥ 1400원 OR 나스닥 -2% 이상 | EBS +1, 추천 3개로 제한 |
+| **High** | 환율 +0.5% 급등 | EBS +1, 추천 5개로 제한 |
+| **Normal** | 기본 상태 | EBS 4, 추천 10개 |
+
+**출력 형식**:
+```rust
+pub struct MacroEnvironment {
+    pub risk_level: MacroRisk,
+    pub usd_krw: Decimal,
+    pub usd_change_pct: f64,
+    pub nasdaq_change_pct: f64,
+    pub adjusted_ebs: u8,          // 조정된 EBS 기준
+    pub recommendation_limit: usize, // 추천 종목 수 제한
+}
+```
+
+**데이터 소스**:
+- USD/KRW: Yahoo Finance `KRW=X`
+- 나스닥: Yahoo Finance `^IXIC`
+- 갱신 주기: 1시간
+
+**활용**:
+- 전략 진입 차단 (Critical 시 신규 진입 중지)
+- Global Score EBS 기준 동적 조정
+- 텔레그램 알림 (리스크 상승 시)
+
+**API 엔드포인트**:
+- `GET /api/v1/market/macro`: 현재 거시 환경 조회
+- 스크리닝 응답에 `macro_risk` 필드 포함
+
+**예상 구현**: v0.6.0 (TODO Phase 1-2.4)
+
+#### 2.8.9 시장 온도 지표 (MarketBreadth)
+
+**목적**: 20일선 상회 종목 비율로 시장 전체 건강 상태 측정
+
+**3단계 온도**:
+| 온도 | Above_MA20 비율 | 의미 |
+|------|----------------|------|
+| Overheat 🔥 | ≥ 65% | 과열 (조정 임박) |
+| Neutral 🌤 | 35~65% | 중립 (정상) |
+| Cold 🧊 | ≤ 35% | 냉각 (반등 대기) |
+
+**출력 형식**:
+```rust
+pub struct MarketBreadth {
+    pub all: f64,
+    pub kospi: f64,
+    pub kosdaq: f64,
+    pub temperature: MarketTemperature,
+}
+```
+
+**계산 방식**:
+- 전체 종목 중 종가 > SMA(20) 비율
+- 시장별 개별 계산 (KOSPI, KOSDAQ)
+
+**활용**:
+- 시장 타이밍 (Overheat 시 신규 진입 신중)
+- 대시보드 위젯 (시장 온도 게이지)
+- 전략 필터링
+
+**API 엔드포인트**:
+- `GET /api/v1/market/breadth`: 현재 시장 온도 조회
+
+**예상 구현**: v0.6.0 (TODO Phase 1-2.5)
+
+#### 2.8.10 섹터 분석 (SectorRS)
+
+**목적**: 시장 대비 초과수익(Relative Strength)으로 진짜 주도 섹터 발굴
+
+**계산 방식**:
+- `rel_20d_%`: 20일 전 대비 수익률
+- `sector_rs`: 섹터 평균 `rel_20d_%`
+- `market_rs`: 전체 시장 평균 `rel_20d_%`
+- `excess_return`: `sector_rs - market_rs`
+
+**종합 섹터 점수**:
+```
+score = RS × 0.6 + 단순수익 × 0.4
+```
+
+**출력 형식**:
+- 스크리닝 응답에 `sector_rs`, `sector_rank` 필드 추가
+- 섹터별 순위 (1~11)
+
+**11개 섹터 분류 (GICS)**:
+- 에너지, 소재, 산업재, 경기소비재
+- 필수소비재, 헬스케어, 금융, IT
+- 커뮤니케이션, 유틸리티, 부동산
+
+**활용**:
+- 섹터 모멘텀 전략 (상위 3개 섹터 집중)
+- 섹터 로테이션 전략
+- 대시보드 섹터 히트맵
+
+**API 엔드포인트**:
+- `GET /api/v1/market/sectors`: 섹터별 RS 조회
+
+**예상 구현**: v0.6.0 (TODO Phase 1-2.7)
+
+---
+
 ### 2.9 종목 랭킹 시스템 (Global Score)
 
 #### 2.9.1 개요
@@ -623,6 +832,99 @@ Rust 기반 고성능 다중 시장 자동화 트레이딩 시스템. 국내/해
 
 ---
 
+#### 2.9.7 추천 검증 (RealityCheck)
+
+**목적**: 전일 추천 종목의 익일 실제 성과 자동 검증
+
+**2개 신규 테이블 (TimescaleDB Hypertable)**:
+
+**price_snapshot 테이블**:
+```sql
+CREATE TABLE price_snapshot (
+    snapshot_date DATE NOT NULL,
+    symbol VARCHAR(20) NOT NULL,
+    close_price DECIMAL(18,4),
+    volume BIGINT,
+    global_score DECIMAL(5,2),
+    route_state VARCHAR(20),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (snapshot_date, symbol)
+);
+SELECT create_hypertable('price_snapshot', 'snapshot_date');
+```
+
+**reality_check 테이블**:
+```sql
+CREATE TABLE reality_check (
+    check_date DATE NOT NULL,
+    recommend_date DATE NOT NULL,
+    symbol VARCHAR(20) NOT NULL,
+    recommend_rank INT,
+    recommend_score DECIMAL(5,2),
+    entry_price DECIMAL(18,4),
+    next_close DECIMAL(18,4),
+    return_pct DECIMAL(8,4),
+    is_win BOOLEAN,
+    holding_days INT DEFAULT 1,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (check_date, symbol)
+);
+SELECT create_hypertable('reality_check', 'check_date');
+```
+
+**워크플로우**:
+1. 매일 종가 시점에 TOP 10 스냅샷 저장 (`price_snapshot`)
+2. 익일 종가에 전일 스냅샷과 비교 (`reality_check`)
+3. 승률, 평균 수익률 계산
+
+**출력 지표**:
+- 추천 종목 승률 (전체, 7일, 30일)
+- 평균 수익률
+- 최고/최저 수익률
+- 레짐별 성과 (MarketRegime 연동)
+
+**활용**:
+- 전략 신뢰도 측정
+- 백테스트 vs 실거래 괴리 분석
+- 파라미터 튜닝 피드백
+- 대시보드 성과 위젯
+
+**API 엔드포인트**:
+- `GET /api/v1/reality-check/stats`: 통계 조회
+- `GET /api/v1/reality-check/history?days=30`: 이력 조회
+
+**예상 구현**: v0.6.0 (TODO Phase 1-2.8)
+
+#### 2.9.8 대시보드 위젯
+
+**시장 심리 지표**:
+- `FearGreedGauge`: RSI + Disparity 기반 0~100 게이지
+- `MarketBreadthWidget`: 20일선 상회 비율 게이지
+- `MacroRiskPanel`: 환율, 나스닥 상태 표시
+
+**팩터 분석 차트**:
+- `RadarChart7Factor`: 7개 팩터 레이더 차트
+- `ScoreWaterfall`: 점수 기여도 워터폴
+- `KellyVisualization`: 켈리 자금관리 바
+
+**포트폴리오 분석**:
+- `CorrelationHeatmap`: TOP 10 상관관계 히트맵
+- `VolumeProfile`: 매물대 가로 막대 오버레이
+- `OpportunityMap`: TOTAL vs TRIGGER 산점도
+
+**상태 관리 UI**:
+- `KanbanBoard`: ATTACK/ARMED/WATCH 3열 칸반
+- `SurvivalBadge`: 생존일 뱃지 (연속 상위권 일수)
+- `RegimeSummaryTable`: 레짐별 평균 성과
+
+**섹터 시각화**:
+- `SectorTreemap`: 거래대금 기반 트리맵
+- `SectorMomentumBar`: 5일 수익률 Top 10
+
+**예상 구현**: v0.6.0 (TODO Phase 2-5)
+
+---
+
 ### 2.10 종목 상태 관리 (RouteState)
 
 #### 2.10.1 상태 정의
@@ -645,6 +947,71 @@ Rust 기반 고성능 다중 시장 자동화 트레이딩 시스템. 국내/해
 - 스크리닝 결과에 상태 표시
 - 전략에서 상태 기반 필터링
 - 알림 시스템 연동 (ATTACK 상태 시 푸시 알림)
+
+---
+
+#### 2.10.4 시장 추세 분류 (MarketRegime)
+
+**목적**: 종목의 추세 단계를 5단계로 분류하여 매매 타이밍 판단
+
+**5단계 레짐**:
+| 레짐 | 조건 | 의미 |
+|------|------|------|
+| StrongUptrend | rel_60d > 10% + slope > 0 + RSI 50~70 | ① 강한 상승 추세 |
+| Correction | rel_60d > 5% + slope ≤ 0 | ② 상승 후 조정 |
+| Sideways | -5% ≤ rel_60d ≤ 5% | ③ 박스 / 중립 |
+| BottomBounce | rel_60d ≤ -5% + slope > 0 | ④ 바닥 반등 시도 |
+| Downtrend | rel_60d < -5% + slope < 0 | ⑤ 하락 / 약세 |
+
+**계산 지표**:
+- `rel_60d_%`: 60일 전 종가 대비 현재 수익률
+- `slope`: 60일 선형 회귀 기울기
+- `RSI`: 14일 RSI
+
+**활용**:
+- RouteState 판정에 활용 (Downtrend → NEUTRAL 고정)
+- 전략 필터링 (Downtrend 종목 진입 차단)
+- 스크리닝 API에 `regime` 필드 추가
+
+**API 엔드포인트**:
+- `GET /api/v1/market/regime/{symbol}`: 종목별 레짐 조회
+- 스크리닝 응답에 `market_regime` 필드 포함
+
+**예상 구현**: v0.6.0 (TODO Phase 1-2.1)
+
+#### 2.10.5 진입 신호 강도 (TRIGGER)
+
+**목적**: 여러 기술적 조건을 종합하여 진입 신호 강도(0~100점) 산출
+
+**6가지 트리거 유형**:
+| 트리거 | 점수 | 조건 |
+|--------|------|------|
+| SqueezeBreak | +30점 | TTM Squeeze 해제 |
+| BoxBreakout | +25점 | 박스권 상단 돌파 (Range_Pos ≥ 0.85) |
+| VolumeSpike | +20점 | 거래량 평균 대비 3배 이상 |
+| MomentumUp | +15점 | MACD 기울기 > 0 |
+| HammerCandle | +10점 | 망치형 캔들 패턴 |
+| Engulfing | +10점 | 장악형 캔들 패턴 |
+
+**출력 형식**:
+```rust
+pub struct TriggerResult {
+    pub score: f64,              // 0~100 (중복 가능)
+    pub triggers: Vec<TriggerType>,
+    pub label: String,           // "🚀급등시동, 📦박스돌파"
+}
+```
+
+**활용**:
+- RouteState ATTACK 판정 (TRIGGER ≥ 50점)
+- Global Score 모멘텀 팩터에 반영
+- 스크리닝 정렬 기준
+- 텔레그램 알림 (고강도 신호 발생 시)
+
+**API 엔드포인트**:
+- 스크리닝 응답에 `trigger_score`, `trigger_label` 필드 포함
+
+**예상 구현**: v0.6.0 (TODO Phase 1-2.2)
 
 ---
 
@@ -729,7 +1096,20 @@ Yahoo Finance / Binance / KIS
 
 ---
 
-*버전 이력: v1.0 → v2.0 → v2.1 → v3.0 → v4.0 → v4.1 → v5.0 → v5.1 → v5.2*
+*버전 이력: v1.0 → v2.0 → v2.1 → v3.0 → v4.0 → v4.1 → v5.0 → v5.1 → v5.2 → v6.0*
+
+**v6.0 변경사항:**
+- SignalMarker (신호 기록) 요구사항 추가 (2.2.5)
+- 신호 시각화 (캔들 차트 오버레이) 요구사항 추가 (2.2.6)
+- TTM Squeeze 지표 요구사항 추가 (2.7.5)
+- 추가 기술적 지표 (HMA, OBV, SuperTrend, CandlePattern) 요구사항 추가 (2.7.6)
+- MacroFilter (거시 환경 필터) 요구사항 추가 (2.8.8)
+- MarketBreadth (시장 온도 지표) 요구사항 추가 (2.8.9)
+- SectorRS (섹터 분석) 요구사항 추가 (2.8.10)
+- RealityCheck (추천 검증) 요구사항 추가 (2.9.7)
+- 대시보드 위젯 요구사항 추가 (2.9.8)
+- MarketRegime (시장 추세 분류) 요구사항 추가 (2.10.4)
+- TRIGGER (진입 신호 강도) 요구사항 추가 (2.10.5)
 
 **v5.2 변경사항:**
 - 종목 랭킹 시스템 (Global Score) 요구사항 추가
