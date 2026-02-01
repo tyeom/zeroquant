@@ -1059,17 +1059,49 @@ pub mod candle_patterns; // 캔들 패턴 감지
 **목적**: 전일 추천 종목의 익일 실제 성과 자동 검증
 
 **구현 항목**
-- [ ] 일일 스냅샷 저장 (`price_snapshot_{date}.csv`)
+- [ ] `price_snapshot` 테이블 (TimescaleDB hypertable)
+  ```sql
+  CREATE TABLE price_snapshot (
+      snapshot_date DATE NOT NULL,
+      symbol VARCHAR(20) NOT NULL,
+      close_price DECIMAL(18,4),
+      volume BIGINT,
+      global_score DECIMAL(5,2),
+      route_state VARCHAR(20),
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (snapshot_date, symbol)
+  );
+  SELECT create_hypertable('price_snapshot', 'snapshot_date');
+  ```
+- [ ] `reality_check` 테이블 (TimescaleDB hypertable)
+  ```sql
+  CREATE TABLE reality_check (
+      check_date DATE NOT NULL,
+      recommend_date DATE NOT NULL,
+      symbol VARCHAR(20) NOT NULL,
+      recommend_rank INT,
+      recommend_score DECIMAL(5,2),
+      entry_price DECIMAL(18,4),
+      next_close DECIMAL(18,4),
+      return_pct DECIMAL(8,4),
+      is_win BOOLEAN,
+      holding_days INT DEFAULT 1,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (check_date, symbol)
+  );
+  SELECT create_hypertable('reality_check', 'check_date');
+  ```
 - [ ] 전일 추천 vs 금일 종가 비교 로직
-- [ ] 검증 결과 저장 (`reality_check_{date}.csv`)
-- [ ] 통계 대시보드 (승률, 평균 수익률)
+- [ ] `RealityCheckRepository` 구현
+- [ ] 통계 대시보드 API (`GET /api/v1/reality-check/stats`)
 
 **활용**:
 - 전략 신뢰도 측정
 - 백테스트 vs 실거래 괴리 분석
 - 파라미터 튜닝 피드백
+- 시계열 쿼리로 기간별 성과 추이 분석
 
-**예상 시간**: 6시간
+**예상 시간**: 8시간
 
 ---
 
