@@ -9,6 +9,7 @@
 use std::time::Duration;
 
 use chrono::{Duration as ChronoDuration, Utc};
+use rust_decimal::Decimal;
 use sqlx::PgPool;
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
@@ -20,6 +21,16 @@ use trader_data::OhlcvCache;
 
 use crate::repository::{NewSymbolFundamental, SymbolFundamentalRepository};
 use super::symbol_sync::{sync_symbols, SymbolSyncConfig};
+
+/// Decimal 값을 소수점 4자리로 반올림 (DB 저장 전 안전 처리).
+fn round_dp4(value: Option<Decimal>) -> Option<Decimal> {
+    value.map(|d| d.round_dp(4))
+}
+
+/// Decimal 값을 소수점 2자리로 반올림 (시가총액, 매출액 등).
+fn round_dp2(value: Option<Decimal>) -> Option<Decimal> {
+    value.map(|d| d.round_dp(2))
+}
 
 /// Fundamental 수집기 설정.
 #[derive(Debug, Clone)]
@@ -260,7 +271,31 @@ async fn run_collection_batch(
                         }
                         Err(e) => {
                             error_count += 1;
-                            warn!(ticker = %ticker, error = %e, "Fundamental 데이터 저장 실패");
+                            // 디버깅용 상세 로그: 어떤 값이 문제인지 파악
+                            warn!(
+                                ticker = %ticker,
+                                error = %e,
+                                market_cap = ?new_fundamental.market_cap,
+                                week_52_high = ?new_fundamental.week_52_high,
+                                week_52_low = ?new_fundamental.week_52_low,
+                                per = ?new_fundamental.per,
+                                forward_per = ?new_fundamental.forward_per,
+                                pbr = ?new_fundamental.pbr,
+                                eps = ?new_fundamental.eps,
+                                bps = ?new_fundamental.bps,
+                                dividend_yield = ?new_fundamental.dividend_yield,
+                                roe = ?new_fundamental.roe,
+                                roa = ?new_fundamental.roa,
+                                operating_margin = ?new_fundamental.operating_margin,
+                                net_profit_margin = ?new_fundamental.net_profit_margin,
+                                gross_margin = ?new_fundamental.gross_margin,
+                                debt_ratio = ?new_fundamental.debt_ratio,
+                                current_ratio = ?new_fundamental.current_ratio,
+                                quick_ratio = ?new_fundamental.quick_ratio,
+                                revenue_growth_yoy = ?new_fundamental.revenue_growth_yoy,
+                                earnings_growth_yoy = ?new_fundamental.earnings_growth_yoy,
+                                "Fundamental 데이터 저장 실패 - 값 상세"
+                            );
                         }
                     }
 
@@ -335,40 +370,52 @@ async fn run_collection_batch(
 }
 
 /// FundamentalData를 NewSymbolFundamental로 변환.
+///
+/// DB 저장 전 모든 Decimal 값을 적절한 소수점 자릿수로 반올림합니다:
+/// - 시가총액, 매출액 등: 2자리 (DECIMAL(20, 2))
+/// - 가격, 비율 등: 4자리 (DECIMAL(12, 4) 또는 DECIMAL(20, 4))
 fn convert_to_new_fundamental(
     symbol_info_id: uuid::Uuid,
     data: &FundamentalData,
 ) -> NewSymbolFundamental {
     NewSymbolFundamental {
         symbol_info_id,
-        market_cap: data.market_cap,
+        // 시가총액 - DECIMAL(20, 2)
+        market_cap: round_dp2(data.market_cap),
         shares_outstanding: data.shares_outstanding,
         float_shares: data.float_shares,
-        week_52_high: data.week_52_high,
-        week_52_low: data.week_52_low,
+        // 가격 관련 - DECIMAL(20, 4)
+        week_52_high: round_dp4(data.week_52_high),
+        week_52_low: round_dp4(data.week_52_low),
         avg_volume_10d: data.avg_volume_10d,
         avg_volume_3m: data.avg_volume_3m,
-        per: data.per,
-        forward_per: data.forward_per,
-        pbr: data.pbr,
-        psr: data.psr,
-        ev_ebitda: data.ev_ebitda,
-        eps: data.eps,
-        bps: data.bps,
-        dps: data.dps,
-        dividend_yield: data.dividend_yield,
-        dividend_payout_ratio: data.dividend_payout_ratio,
+        // 밸류에이션 - DECIMAL(12, 4)
+        per: round_dp4(data.per),
+        forward_per: round_dp4(data.forward_per),
+        pbr: round_dp4(data.pbr),
+        psr: round_dp4(data.psr),
+        ev_ebitda: round_dp4(data.ev_ebitda),
+        // 주당 지표 - DECIMAL(20, 4)
+        eps: round_dp4(data.eps),
+        bps: round_dp4(data.bps),
+        dps: round_dp4(data.dps),
+        // 배당 - DECIMAL(8, 4)
+        dividend_yield: round_dp4(data.dividend_yield),
+        dividend_payout_ratio: round_dp4(data.dividend_payout_ratio),
         ex_dividend_date: data.ex_dividend_date,
-        roe: data.roe,
-        roa: data.roa,
-        operating_margin: data.operating_margin,
-        net_profit_margin: data.net_profit_margin,
-        gross_margin: data.gross_margin,
-        debt_ratio: data.debt_ratio,
-        current_ratio: data.current_ratio,
-        quick_ratio: data.quick_ratio,
-        revenue_growth_yoy: data.revenue_growth_yoy,
-        earnings_growth_yoy: data.earnings_growth_yoy,
+        // 수익성 - DECIMAL(8, 4)
+        roe: round_dp4(data.roe),
+        roa: round_dp4(data.roa),
+        operating_margin: round_dp4(data.operating_margin),
+        net_profit_margin: round_dp4(data.net_profit_margin),
+        gross_margin: round_dp4(data.gross_margin),
+        // 안정성 - DECIMAL(12, 4)
+        debt_ratio: round_dp4(data.debt_ratio),
+        current_ratio: round_dp4(data.current_ratio),
+        quick_ratio: round_dp4(data.quick_ratio),
+        // 성장성 - DECIMAL(8, 4)
+        revenue_growth_yoy: round_dp4(data.revenue_growth_yoy),
+        earnings_growth_yoy: round_dp4(data.earnings_growth_yoy),
         currency: data.currency.clone(),
         data_source: Some("yahoo_finance".to_string()),
         // 기본값 사용하는 필드들

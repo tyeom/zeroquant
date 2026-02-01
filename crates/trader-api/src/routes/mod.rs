@@ -19,6 +19,7 @@
 //! - `/api/v1/ml` - ML 훈련 관리
 //! - `/api/v1/journal` - 매매일지 (체결 내역, 포지션 현황, 손익 분석)
 //! - `/api/v1/screening` - 종목 스크리닝 (Fundamental + 기술적 필터)
+//! - `/api/v1/monitoring` - 모니터링 (에러 추적, 통계)
 
 pub mod analytics;
 pub mod backtest;
@@ -30,6 +31,7 @@ pub mod health;
 pub mod journal;
 pub mod market;
 pub mod ml;
+pub mod monitoring;
 #[cfg(feature = "notifications")]
 pub mod notifications;
 pub mod orders;
@@ -49,6 +51,7 @@ pub use health::{health_router, HealthResponse, ComponentHealth, ComponentStatus
 pub use journal::{journal_router, JournalPositionsResponse, ExecutionsListResponse, PnLSummaryResponse, SyncResponse};
 pub use market::{market_router, MarketStatusResponse};
 pub use ml::{ml_router, TrainingJob, TrainedModel, ModelType, TrainingStatus};
+pub use monitoring::{monitoring_router, ErrorsResponse, ErrorRecordDto, StatsResponse};
 #[cfg(feature = "notifications")]
 pub use notifications::{notifications_router, TelegramTestRequest, TelegramTestResponse};
 pub use orders::{orders_router, OrdersListResponse, OrderResponse, CancelOrderResponse};
@@ -89,7 +92,8 @@ pub fn create_api_router() -> Router<Arc<AppState>> {
         .nest("/api/v1/ml", ml_router())
         .nest("/api/v1/dataset", dataset_router())
         .nest("/api/v1/journal", journal_router())
-        .nest("/api/v1/screening", screening_router());
+        .nest("/api/v1/screening", screening_router())
+        .nest("/api/v1/monitoring", monitoring_router());
 
     // Feature: notifications - 텔레그램/이메일 알림
     #[cfg(feature = "notifications")]

@@ -23,6 +23,7 @@ pub mod auth;
 pub mod error;
 pub mod metrics;
 pub mod middleware;
+pub mod monitoring;
 pub mod openapi;
 pub mod repository;
 pub mod routes;
@@ -34,6 +35,10 @@ pub mod websocket;
 
 pub use auth::{Claims, Role, Permission, JwtAuth, JwtAuthError, hash_password, verify_password};
 pub use error::{ApiErrorResponse, ApiResult};
+pub use monitoring::{
+    global_tracker, init_global_tracker, ErrorTracker, ErrorTrackerConfig,
+    ErrorRecord, ErrorRecordBuilder, ErrorSeverity, ErrorCategory, ErrorStats, SourceLocation,
+};
 pub use routes::*;
 pub use state::AppState;
 pub use tasks::{start_fundamental_collector, FundamentalCollectorConfig};

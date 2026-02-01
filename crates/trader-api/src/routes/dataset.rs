@@ -26,6 +26,8 @@ use trader_data::cache::CachedHistoricalDataProvider;
 use crate::repository::{SymbolInfoRepository, SymbolSearchResult};
 use crate::routes::strategies::ApiError;
 use crate::state::AppState;
+use crate::tasks::eod_csv_sync::{sync_eod_all, sync_eod_exchange, EodSyncResult};
+use crate::tasks::krx_csv_sync::{sync_krx_from_csv, sync_krx_full, update_sectors_from_csv, CsvSyncResult};
 
 // ==================== 응답 타입 ====================
 
@@ -936,6 +938,312 @@ pub async fn search_symbols(
     Ok(Json(SymbolSearchResponse { results, total }))
 }
 
+// ==================== KRX CSV 동기화 ====================
+
+/// KRX CSV 동기화 응답.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KrxSyncResponse {
+    /// 성공 여부
+    pub success: bool,
+    /// 심볼 동기화 결과
+    pub symbols: Option<SyncResultDto>,
+    /// 섹터 업데이트 결과
+    pub sectors: Option<SyncResultDto>,
+    /// 메시지
+    pub message: String,
+}
+
+/// 동기화 결과 DTO.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncResultDto {
+    /// 처리된 총 레코드 수
+    pub total_processed: usize,
+    /// 성공적으로 upsert된 수
+    pub upserted: usize,
+    /// 실패한 수
+    pub failed: usize,
+    /// 스킵된 수
+    pub skipped: usize,
+}
+
+impl From<CsvSyncResult> for SyncResultDto {
+    fn from(r: CsvSyncResult) -> Self {
+        Self {
+            total_processed: r.total_processed,
+            upserted: r.upserted,
+            failed: r.failed,
+            skipped: r.skipped,
+        }
+    }
+}
+
+/// KRX CSV에서 전체 심볼 및 섹터 동기화.
+///
+/// POST /api/v1/dataset/sync/krx
+///
+/// `data/krx_codes.csv`와 `data/krx_sector_map.csv` 파일을 읽어
+/// symbol_info 테이블을 업데이트합니다.
+pub async fn sync_krx_csv(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<KrxSyncResponse>, (StatusCode, Json<ApiError>)> {
+    let pool = state.db_pool.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ApiError::new("DB_NOT_AVAILABLE", "데이터베이스 연결이 없습니다")),
+        )
+    })?;
+
+    info!("KRX CSV 전체 동기화 시작");
+
+    // CSV 파일 경로
+    let codes_csv = "data/krx_codes.csv";
+    let sector_csv = "data/krx_sector_map.csv";
+
+    // 전체 동기화 실행
+    match sync_krx_full(pool, codes_csv, sector_csv).await {
+        Ok((symbol_result, sector_result)) => {
+            let message = format!(
+                "심볼 {}개 동기화, 섹터 {}개 업데이트 완료",
+                symbol_result.upserted, sector_result.upserted
+            );
+
+            info!(%message, "KRX CSV 동기화 완료");
+
+            Ok(Json(KrxSyncResponse {
+                success: true,
+                symbols: Some(symbol_result.into()),
+                sectors: Some(sector_result.into()),
+                message,
+            }))
+        }
+        Err(e) => {
+            error!(error = %e, "KRX CSV 동기화 실패");
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiError::new("SYNC_ERROR", &format!("동기화 실패: {}", e))),
+            ))
+        }
+    }
+}
+
+/// KRX 섹터 정보만 업데이트.
+///
+/// POST /api/v1/dataset/sync/sectors
+///
+/// `data/krx_sector_map.csv` 파일을 읽어 섹터 정보만 업데이트합니다.
+pub async fn sync_sectors_csv(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<KrxSyncResponse>, (StatusCode, Json<ApiError>)> {
+    let pool = state.db_pool.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ApiError::new("DB_NOT_AVAILABLE", "데이터베이스 연결이 없습니다")),
+        )
+    })?;
+
+    info!("KRX 섹터 CSV 동기화 시작");
+
+    let sector_csv = "data/krx_sector_map.csv";
+
+    match update_sectors_from_csv(pool, sector_csv).await {
+        Ok(result) => {
+            let message = format!("섹터 {}개 업데이트 완료", result.upserted);
+
+            info!(%message, "섹터 동기화 완료");
+
+            Ok(Json(KrxSyncResponse {
+                success: true,
+                symbols: None,
+                sectors: Some(result.into()),
+                message,
+            }))
+        }
+        Err(e) => {
+            error!(error = %e, "섹터 동기화 실패");
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiError::new("SYNC_ERROR", &format!("섹터 동기화 실패: {}", e))),
+            ))
+        }
+    }
+}
+
+/// KRX 심볼 목록만 동기화.
+///
+/// POST /api/v1/dataset/sync/symbols
+///
+/// `data/krx_codes.csv` 파일을 읽어 심볼 목록을 동기화합니다.
+pub async fn sync_symbols_csv(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<KrxSyncResponse>, (StatusCode, Json<ApiError>)> {
+    let pool = state.db_pool.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ApiError::new("DB_NOT_AVAILABLE", "데이터베이스 연결이 없습니다")),
+        )
+    })?;
+
+    info!("KRX 심볼 CSV 동기화 시작");
+
+    let codes_csv = "data/krx_codes.csv";
+
+    match sync_krx_from_csv(pool, codes_csv).await {
+        Ok(result) => {
+            let message = format!("심볼 {}개 동기화 완료", result.upserted);
+
+            info!(%message, "심볼 동기화 완료");
+
+            Ok(Json(KrxSyncResponse {
+                success: true,
+                symbols: Some(result.into()),
+                sectors: None,
+                message,
+            }))
+        }
+        Err(e) => {
+            error!(error = %e, "심볼 동기화 실패");
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiError::new("SYNC_ERROR", &format!("심볼 동기화 실패: {}", e))),
+            ))
+        }
+    }
+}
+
+// ==================== EODData CSV 동기화 ====================
+
+/// EODData 동기화 요청.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EodSyncRequest {
+    /// 거래소 코드 (예: NYSE, NASDAQ). 없으면 전체 동기화
+    pub exchange: Option<String>,
+}
+
+/// EODData 동기화 응답.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EodSyncResponse {
+    /// 성공 여부
+    pub success: bool,
+    /// 거래소별 동기화 결과
+    pub exchanges: Vec<EodExchangeResultDto>,
+    /// 메시지
+    pub message: String,
+}
+
+/// 거래소별 동기화 결과 DTO.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EodExchangeResultDto {
+    /// 거래소 코드
+    pub exchange: String,
+    /// 처리된 총 레코드 수
+    pub total_processed: usize,
+    /// 성공적으로 upsert된 수
+    pub upserted: usize,
+    /// 스킵된 수
+    pub skipped: usize,
+}
+
+impl From<EodSyncResult> for EodExchangeResultDto {
+    fn from(r: EodSyncResult) -> Self {
+        Self {
+            exchange: r.exchange,
+            total_processed: r.total_processed,
+            upserted: r.upserted,
+            skipped: r.skipped,
+        }
+    }
+}
+
+/// EODData CSV에서 해외 거래소 심볼 동기화.
+///
+/// POST /api/v1/dataset/sync/eod
+///
+/// `data/eod_*.csv` 파일들을 읽어 해외 거래소 심볼을 업데이트합니다.
+/// exchange 파라미터가 있으면 해당 거래소만, 없으면 전체 동기화.
+pub async fn sync_eod_csv(
+    State(state): State<Arc<AppState>>,
+    Query(req): Query<EodSyncRequest>,
+) -> Result<Json<EodSyncResponse>, (StatusCode, Json<ApiError>)> {
+    let pool = state.db_pool.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ApiError::new("DB_NOT_AVAILABLE", "데이터베이스 연결이 없습니다")),
+        )
+    })?;
+
+    let data_dir = "data";
+
+    match &req.exchange {
+        Some(exchange_code) => {
+            // 특정 거래소만 동기화
+            let csv_path = format!("{}/eod_{}.csv", data_dir, exchange_code.to_lowercase());
+            info!(exchange = %exchange_code, path = %csv_path, "EODData 거래소 동기화 시작");
+
+            match sync_eod_exchange(pool, exchange_code, &csv_path).await {
+                Ok(result) => {
+                    let message = format!(
+                        "[{}] 심볼 {}개 동기화 완료",
+                        exchange_code, result.upserted
+                    );
+                    info!(%message);
+
+                    Ok(Json(EodSyncResponse {
+                        success: true,
+                        exchanges: vec![result.into()],
+                        message,
+                    }))
+                }
+                Err(e) => {
+                    error!(exchange = %exchange_code, error = %e, "EODData 동기화 실패");
+                    Err((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ApiError::new("SYNC_ERROR", &format!("동기화 실패: {}", e))),
+                    ))
+                }
+            }
+        }
+        None => {
+            // 전체 거래소 동기화
+            info!("EODData 전체 동기화 시작");
+
+            match sync_eod_all(pool, data_dir).await {
+                Ok(results) => {
+                    let total_upserted: usize = results.values().map(|r| r.upserted).sum();
+                    let exchanges: Vec<EodExchangeResultDto> = results
+                        .into_values()
+                        .map(|r| r.into())
+                        .collect();
+
+                    let message = format!(
+                        "{}개 거래소에서 총 {}개 심볼 동기화 완료",
+                        exchanges.len(),
+                        total_upserted
+                    );
+                    info!(%message);
+
+                    Ok(Json(EodSyncResponse {
+                        success: true,
+                        exchanges,
+                        message,
+                    }))
+                }
+                Err(e) => {
+                    error!(error = %e, "EODData 전체 동기화 실패");
+                    Err((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ApiError::new("SYNC_ERROR", &format!("동기화 실패: {}", e))),
+                    ))
+                }
+            }
+        }
+    }
+}
+
 // ==================== 라우터 ====================
 
 /// Dataset 라우터 생성.
@@ -944,6 +1252,13 @@ pub fn dataset_router() -> Router<Arc<AppState>> {
         .route("/", get(list_datasets))
         .route("/fetch", post(fetch_dataset))
         .route("/search", get(search_symbols))
+        // KRX CSV 동기화
+        .route("/sync/krx", post(sync_krx_csv))
+        .route("/sync/symbols", post(sync_symbols_csv))
+        .route("/sync/sectors", post(sync_sectors_csv))
+        // EODData CSV 동기화 (해외 거래소)
+        .route("/sync/eod", post(sync_eod_csv))
+        // 심볼별 조회/삭제
         .route("/{symbol}", get(get_candles))
         .route("/{symbol}", delete(delete_dataset))
 }

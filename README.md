@@ -242,7 +242,7 @@ zeroquant/
 │   │   ├── TradingJournal.tsx # 매매일지
 │   │   └── Settings.tsx     # 설정 (API 키, 알림)
 │   └── src/components/      # 재사용 컴포넌트 (15개+)
-├── migrations/              # DB 마이그레이션 (20개)
+├── migrations/              # DB 마이그레이션 (21개)
 ├── scripts/                 # ML 훈련 파이프라인
 └── docs/                    # 프로젝트 문서
 ```

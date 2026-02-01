@@ -5,6 +5,67 @@
 형식은 [Keep a Changelog](https://keepachangelog.com/ko/1.0.0/)를 따르며,
 [Semantic Versioning](https://semver.org/lang/ko/)을 준수합니다.
 
+## [0.5.3] - 2026-02-01
+
+### Added
+
+#### 🔍 모니터링 및 에러 추적 시스템
+- **ErrorTracker** (`monitoring/error_tracker.rs`)
+  - AI 디버깅을 위한 구조화된 에러 로그 수집
+  - 에러 심각도별 분류 (Warning, Error, Critical)
+  - 에러 카테고리별 분류 (Database, ExternalApi, DataConversion, Authentication, Network, BusinessLogic, System)
+  - 메모리 기반 에러 히스토리 보관 (최대 1000개)
+  - 에러 발생 위치, 컨텍스트, 스택 트레이스 자동 수집
+  - Critical 에러 발생 시 Telegram 알림 지원
+
+- **모니터링 API** (`routes/monitoring.rs`)
+  - `GET /api/v1/monitoring/errors` - 에러 목록 조회 (심각도/카테고리 필터)
+  - `GET /api/v1/monitoring/errors/critical` - Critical 에러 조회
+  - `GET /api/v1/monitoring/errors/:id` - 특정 에러 상세
+  - `GET /api/v1/monitoring/stats` - 에러 통계 (심각도별/카테고리별 집계)
+  - `GET /api/v1/monitoring/summary` - 시스템 모니터링 요약
+  - `POST /api/v1/monitoring/stats/reset` - 통계 초기화
+  - `DELETE /api/v1/monitoring/errors` - 에러 히스토리 삭제
+
+#### 📊 CSV 기반 심볼 동기화
+- **KRX CSV 동기화** (`tasks/krx_csv_sync.rs`)
+  - `data/krx_codes.csv`에서 종목 코드 동기화
+  - `data/krx_sector_map.csv`에서 업종 정보 업데이트
+  - KOSPI/KOSDAQ 자동 판별 (0으로 시작: KOSPI, 1~4로 시작: KOSDAQ)
+  - Yahoo Finance 심볼 자동 생성 (.KS/.KQ 접미사)
+
+- **EODData CSV 동기화** (`tasks/eod_csv_sync.rs`)
+  - NYSE, NASDAQ, AMEX, LSE, TSX, ASX, HKEX, SGX 등 해외 거래소 지원
+  - 거래소별 Market 코드 자동 매핑 (US, GB, CA, AU, HK, SG 등)
+  - 배치 upsert로 대량 심볼 동기화
+
+- **데이터 파일**
+  - `data/krx_codes.csv` - KRX 종목 코드 (KOSPI/KOSDAQ)
+  - `data/krx_sector_map.csv` - KRX 업종 매핑
+
+#### 🛠️ Python 스크래퍼
+- `scripts/scrape_eoddata_symbols.py` - EODData 심볼 스크래핑 도구
+- `scripts/requirements-scraper.txt` - 스크래퍼 의존성
+
+#### 📄 문서
+- `docs/fulltest_workflow.md` - 전체 테스트 워크플로우 가이드
+- `docs/improvement_roadmap.md` - 코드베이스 개선 로드맵
+- `docs/improvement_todo.md` - 개선사항 TODO 목록
+
+### Changed
+
+#### Fundamental 캐시 개선
+- `cache/fundamental.rs`: 데이터 변환 로직 개선
+
+### Database
+
+- `migrations/021_fix_fundamental_decimal_precision.sql`
+  - Decimal 정밀도 확장: `DECIMAL(8,4)` → `DECIMAL(12,4)`
+  - 극단적 성장률 지원 (스타트업/바이오텍: 21,000%+ 성장률)
+  - 영향 컬럼: ROE, ROA, 영업이익률, 순이익률, 매출/이익 성장률, 배당 관련
+
+---
+
 ## [0.5.2] - 2026-01-31
 
 ### Added

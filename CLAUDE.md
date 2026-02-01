@@ -1,7 +1,7 @@
 # ZeroQuant - Claude 세션 컨텍스트
 
 > 이 문서를 세션 시작 시 복사하여 Claude에게 컨텍스트를 제공하세요.
-> 마지막 업데이트: 2026-01-31 | 버전: v0.4.5
+> 마지막 업데이트: 2026-02-01 | 버전: v0.5.3
 
 ---
 
@@ -24,11 +24,11 @@
 
 | 항목 | 수치 |
 |------|------|
-| Rust 파일 | 170+ |
+| Rust 파일 | 180+ |
 | Crate 수 | 10개 |
-| 전략 수 | 25개 |
-| API 라우트 | 17개 |
-| 마이그레이션 | 14개 |
+| 전략 수 | 26개 |
+| API 라우트 | 24개 |
+| 마이그레이션 | 21개 |
 
 ### 기술 스택
 - **Backend**: Rust, Tokio, Axum
@@ -148,31 +148,90 @@ zeroquant/
 ├── crates/
 │   ├── trader-core/         # 도메인 모델, 공통 유틸리티
 │   ├── trader-exchange/     # 거래소 연동 (Binance, KIS)
-│   ├── trader-strategy/     # 전략 엔진, 25개 전략
+│   ├── trader-strategy/     # 전략 엔진, 26개 전략
 │   ├── trader-risk/         # 리스크 관리
 │   ├── trader-execution/    # 주문 실행 엔진
 │   ├── trader-data/         # 데이터 수집/저장 (OHLCV)
 │   ├── trader-analytics/    # ML 추론, 성과 분석
 │   ├── trader-api/          # REST/WebSocket API
-│   │   └── repository/      # 데이터 접근 계층 (Repository 패턴)
+│   │   ├── monitoring/      # 에러 추적 및 시스템 모니터링
+│   │   ├── repository/      # 데이터 접근 계층 (Repository 패턴)
+│   │   └── tasks/           # 백그라운드 작업 (심볼 동기화, 데이터 수집)
 │   ├── trader-cli/          # CLI 도구
 │   └── trader-notification/ # 알림 (Telegram)
+├── data/                    # 정적 데이터 (KRX 종목코드, 섹터 매핑)
 ├── frontend/                # SolidJS + TypeScript + Vite
-├── migrations/              # DB 마이그레이션 (14개)
-└── scripts/ml/              # ML 훈련 파이프라인
+├── migrations/              # DB 마이그레이션 (21개)
+└── scripts/                 # ML 훈련 파이프라인, 스크래퍼
 ```
 
 ---
 
-## 🔄 최근 완료된 개선사항 (v0.4.5)
+## 🔄 최근 완료된 개선사항 (v0.5.3)
 
-- ✅ OpenAPI/Swagger 문서화 추가 (utoipa)
-- ✅ StrategyType enum 26개 정의
-- ✅ Repository 패턴 9개 완료 (klines 추가)
-- ✅ 핵심 모듈 unwrap() 39개 제거
+- ✅ **모니터링 에러 추적 시스템**: AI 디버깅용 구조화된 에러 로깅
+- ✅ **CSV 심볼 동기화**: KRX/EOD 해외 거래소 종목 자동 동기화
+- ✅ 매매일지 (Trading Journal) 기능
+- ✅ 종목 스크리닝 API 및 프론트엔드
+- ✅ OpenAPI/Swagger 문서화 (utoipa)
+- ✅ Repository 패턴 12개 완료
 - ✅ Graceful Shutdown (CancellationToken)
-- ✅ 입력 검증 강화 (validator)
-- ✅ rustfmt/clippy 설정 추가
+
+---
+
+## 🔧 주요 시스템 사용 가이드
+
+### 🔍 모니터링 에러 추적 시스템
+
+에러 발생 시 구조화된 로그를 수집하고 AI 디버깅에 활용합니다.
+
+```rust
+use trader_api::monitoring::{global_tracker, ErrorRecordBuilder, ErrorSeverity, ErrorCategory};
+
+// 에러 기록
+let record = ErrorRecordBuilder::new("데이터베이스 쿼리 실패")
+    .severity(ErrorSeverity::Error)
+    .category(ErrorCategory::Database)
+    .entity("AAPL")  // 관련 티커/ID
+    .with_context("query", "SELECT * FROM ...")
+    .raw_error(&e)
+    .build();
+
+global_tracker().record(record);
+
+// 최근 에러 조회
+let recent_errors = global_tracker().get_recent(10);
+let stats = global_tracker().get_stats();
+```
+
+**모니터링 API 엔드포인트:**
+| 엔드포인트 | 설명 |
+|------------|------|
+| `GET /api/v1/monitoring/errors` | 에러 목록 (필터: severity, category) |
+| `GET /api/v1/monitoring/errors/critical` | Critical 에러만 조회 |
+| `GET /api/v1/monitoring/stats` | 에러 통계 (심각도별/카테고리별) |
+| `GET /api/v1/monitoring/summary` | 시스템 요약 (디버깅용) |
+
+### 📊 CSV 심볼 동기화
+
+정적 CSV 파일에서 종목 정보를 DB에 동기화합니다.
+
+```rust
+use trader_api::tasks::{krx_csv_sync, eod_csv_sync};
+
+// KRX 종목 동기화
+let result = krx_csv_sync::sync_krx_from_csv(pool, "data/krx_codes.csv").await?;
+let sector_result = krx_csv_sync::update_sectors_from_csv(pool, "data/krx_sector_map.csv").await?;
+
+// 해외 거래소 동기화 (EODData)
+let result = eod_csv_sync::sync_eod_exchange(pool, "NYSE", "data/eod_nyse.csv").await?;
+let all_results = eod_csv_sync::sync_eod_all(pool, "data/").await?;
+```
+
+**데이터 파일 위치:**
+- `data/krx_codes.csv` - KRX 종목코드 (KOSPI/KOSDAQ)
+- `data/krx_sector_map.csv` - KRX 업종 매핑
+- `data/eod_*.csv` - 해외 거래소별 종목 (NYSE, NASDAQ 등)
 
 ---
 

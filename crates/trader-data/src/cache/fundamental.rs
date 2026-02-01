@@ -10,6 +10,21 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 
 use crate::error::{DataError, Result};
+
+/// f64를 Decimal로 변환 후 소수점 4자리로 반올림.
+///
+/// PostgreSQL DECIMAL(20, 4) 컬럼에 저장 가능하도록 정밀도를 제한합니다.
+/// 부동소수점 변환 시 발생하는 무한 소수점 문제를 방지합니다.
+fn round_decimal_from_f64(value: f64) -> Option<Decimal> {
+    Decimal::from_f64(value).map(|d| d.round_dp(4))
+}
+
+/// f64를 Decimal로 변환 후 소수점 2자리로 반올림.
+///
+/// 퍼센트(%) 값 등 소수점 2자리가 적절한 경우 사용합니다.
+fn round_decimal_from_f64_dp2(value: f64) -> Option<Decimal> {
+    Decimal::from_f64(value).map(|d| d.round_dp(2))
+}
 use trader_core::{Kline, Symbol, MarketType, Timeframe};
 
 /// Yahoo Finance에서 가져온 Fundamental 데이터.
@@ -159,16 +174,16 @@ impl FundamentalFetcher {
             return Ok((None, None, None, None));
         }
 
-        // 52주 고저가 계산
+        // 52주 고저가 계산 (소수점 4자리로 반올림)
         let high_52w = quotes.iter()
             .map(|q| q.high)
             .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-            .and_then(|v| Decimal::from_f64(v));
+            .and_then(round_decimal_from_f64);
 
         let low_52w = quotes.iter()
             .map(|q| q.low)
             .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-            .and_then(|v| Decimal::from_f64(v));
+            .and_then(round_decimal_from_f64);
 
         // 평균 거래량 계산
         let recent_10 = quotes.iter().rev().take(10);
@@ -222,13 +237,13 @@ impl FundamentalFetcher {
             // 시가총액 (장 마감 시세 * 발행주식수)
             // yahoo_finance_api 4.1에서는 메타데이터에 제한적 정보만 제공
             // 대략적인 계산 시도
-            quote.current_price = Decimal::from_f64(latest.close);
+            quote.current_price = round_decimal_from_f64(latest.close);
 
             // 통화 정보
             quote.currency = meta.currency.clone();
         } else {
             warn!(symbol = symbol, "메타데이터 조회 실패, 기본값 사용");
-            quote.current_price = Decimal::from_f64(latest.close);
+            quote.current_price = round_decimal_from_f64(latest.close);
         }
 
         Ok(quote)
@@ -295,16 +310,16 @@ impl FundamentalFetcher {
             .and_then(|v| Decimal::from_u64(v));
         let trailing_pe = summary_detail
             .and_then(|sd| sd.trailing_pe)
-            .and_then(Decimal::from_f64);
+            .and_then(round_decimal_from_f64);
         let forward_pe_from_sd = summary_detail
             .and_then(|sd| sd.forward_pe)
-            .and_then(Decimal::from_f64);
+            .and_then(round_decimal_from_f64);
         let dividend_yield = summary_detail
             .and_then(|sd| sd.trailing_annual_dividend_yield)
-            .and_then(|v| Decimal::from_f64(v * 100.0)); // % 변환
+            .and_then(|v| round_decimal_from_f64_dp2(v * 100.0)); // % 변환
         let payout_ratio = summary_detail
             .and_then(|sd| sd.payout_ratio)
-            .and_then(|v| Decimal::from_f64(v * 100.0)); // % 변환
+            .and_then(|v| round_decimal_from_f64_dp2(v * 100.0)); // % 변환
         let ex_dividend_date = summary_detail
             .and_then(|sd| sd.ex_dividend_date)
             .and_then(|ts| {
@@ -316,16 +331,16 @@ impl FundamentalFetcher {
         let key_stats = result_data.default_key_statistics.as_ref();
         let price_to_book = key_stats
             .and_then(|ks| ks.price_to_book)
-            .and_then(Decimal::from_f64);
+            .and_then(round_decimal_from_f64);
         let trailing_eps = key_stats
             .and_then(|ks| ks.trailing_eps)
-            .and_then(Decimal::from_f64);
+            .and_then(round_decimal_from_f64);
         let book_value = key_stats
             .and_then(|ks| ks.book_value)
-            .and_then(Decimal::from_f64);
+            .and_then(round_decimal_from_f64);
         let forward_pe = key_stats
             .and_then(|ks| ks.forward_pe)
-            .and_then(Decimal::from_f64)
+            .and_then(round_decimal_from_f64)
             .or(forward_pe_from_sd); // SummaryDetail fallback
         let shares_outstanding = key_stats
             .and_then(|ks| ks.shares_outstanding)
@@ -334,41 +349,41 @@ impl FundamentalFetcher {
             .and_then(|ks| ks.float_shares)
             .map(|v| v as i64);
 
-        // FinancialData에서 ROE, ROA, 마진율 추출
+        // FinancialData에서 ROE, ROA, 마진율 추출 (퍼센트는 소수점 2자리로 반올림)
         let financial_data = result_data.financial_data.as_ref();
         let roe = financial_data
             .and_then(|fd| fd.return_on_equity)
-            .and_then(|v| Decimal::from_f64(v * 100.0)); // % 변환
+            .and_then(|v| round_decimal_from_f64_dp2(v * 100.0)); // % 변환
         let roa = financial_data
             .and_then(|fd| fd.return_on_assets)
-            .and_then(|v| Decimal::from_f64(v * 100.0)); // % 변환
+            .and_then(|v| round_decimal_from_f64_dp2(v * 100.0)); // % 변환
         let operating_margin = financial_data
             .and_then(|fd| fd.operating_margins)
-            .and_then(|v| Decimal::from_f64(v * 100.0)); // % 변환
+            .and_then(|v| round_decimal_from_f64_dp2(v * 100.0)); // % 변환
         let profit_margin = financial_data
             .and_then(|fd| fd.profit_margins)
-            .and_then(|v| Decimal::from_f64(v * 100.0)); // % 변환
+            .and_then(|v| round_decimal_from_f64_dp2(v * 100.0)); // % 변환
         let gross_margin = financial_data
             .and_then(|fd| fd.gross_margins)
-            .and_then(|v| Decimal::from_f64(v * 100.0)); // % 변환
+            .and_then(|v| round_decimal_from_f64_dp2(v * 100.0)); // % 변환
         let current_ratio = financial_data
             .and_then(|fd| fd.current_ratio)
-            .and_then(Decimal::from_f64);
+            .and_then(round_decimal_from_f64);
         let quick_ratio = financial_data
             .and_then(|fd| fd.quick_ratio)
-            .and_then(Decimal::from_f64);
+            .and_then(round_decimal_from_f64);
         let debt_to_equity = financial_data
             .and_then(|fd| fd.debt_to_equity)
-            .and_then(Decimal::from_f64);
+            .and_then(round_decimal_from_f64);
         let total_revenue = financial_data
             .and_then(|fd| fd.total_revenue)
             .and_then(Decimal::from_i64);
         let revenue_growth = financial_data
             .and_then(|fd| fd.revenue_growth)
-            .and_then(|v| Decimal::from_f64(v * 100.0)); // % 변환
+            .and_then(|v| round_decimal_from_f64_dp2(v * 100.0)); // % 변환
         let earnings_growth = financial_data
             .and_then(|fd| fd.earnings_growth)
-            .and_then(|v| Decimal::from_f64(v * 100.0)); // % 변환
+            .and_then(|v| round_decimal_from_f64_dp2(v * 100.0)); // % 변환
         let currency = financial_data
             .and_then(|fd| fd.financial_currency.clone());
 
@@ -549,11 +564,11 @@ impl FundamentalFetcher {
                     },
                     timeframe: Timeframe::D1,
                     open_time,
-                    open: Decimal::from_f64(q.open)?,
-                    high: Decimal::from_f64(q.high)?,
-                    low: Decimal::from_f64(q.low)?,
-                    close: Decimal::from_f64(q.close)?,
-                    volume: Decimal::from_f64(q.volume as f64).unwrap_or_default(),
+                    open: round_decimal_from_f64(q.open)?,
+                    high: round_decimal_from_f64(q.high)?,
+                    low: round_decimal_from_f64(q.low)?,
+                    close: round_decimal_from_f64(q.close)?,
+                    volume: round_decimal_from_f64(q.volume as f64).unwrap_or_default(),
                     close_time,
                     quote_volume: None,
                     num_trades: None,
@@ -561,16 +576,16 @@ impl FundamentalFetcher {
             })
             .collect();
 
-        // 3. Fundamental 지표 계산
+        // 3. Fundamental 지표 계산 (소수점 4자리로 반올림)
         let high_52w = quotes.iter()
             .map(|q| q.high)
             .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-            .and_then(Decimal::from_f64);
+            .and_then(round_decimal_from_f64);
 
         let low_52w = quotes.iter()
             .map(|q| q.low)
             .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-            .and_then(Decimal::from_f64);
+            .and_then(round_decimal_from_f64);
 
         // 평균 거래량 계산
         let recent_10: Vec<u64> = quotes.iter().rev().take(10).map(|q| q.volume).collect();
