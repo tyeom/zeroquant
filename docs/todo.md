@@ -859,7 +859,7 @@ fn check_overheat_exit(&self, ctx: &StrategyContext) -> Vec<Signal> {
 
 ### Phase 1-A: 분석 엔진(1.5주, 선형 의존)
 
-#### 1.1 구조적 피처 (Structural Features)
+#### 1.1.1 구조적 피처 (Structural Features)
 **[의존성: P0.3 공통 로직]**
 
 **목적**: "살아있는 횡보"와 "죽은 횡보"를 구분하여 돌파 가능성 예측
@@ -884,7 +884,7 @@ fn check_overheat_exit(&self, ctx: &StrategyContext) -> Vec<Signal> {
 
 ---
 
-#### 1.2. RouteState 상태 관리
+#### 1.1.2 RouteState 상태 관리
 **[의존성: P1-A.1.1 완료 후]**
 
 **목적**: 종목의 현재 매매 단계를 5단계로 분류
