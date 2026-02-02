@@ -308,22 +308,70 @@ mod tests {
 
     fn sample_ohlc() -> (Vec<Decimal>, Vec<Decimal>, Vec<Decimal>) {
         let high = vec![
-            dec!(102), dec!(104), dec!(103), dec!(105), dec!(107),
-            dec!(106), dec!(108), dec!(110), dec!(109), dec!(111),
-            dec!(113), dec!(112), dec!(114), dec!(116), dec!(115),
-            dec!(117), dec!(119), dec!(118), dec!(120), dec!(122),
+            dec!(102),
+            dec!(104),
+            dec!(103),
+            dec!(105),
+            dec!(107),
+            dec!(106),
+            dec!(108),
+            dec!(110),
+            dec!(109),
+            dec!(111),
+            dec!(113),
+            dec!(112),
+            dec!(114),
+            dec!(116),
+            dec!(115),
+            dec!(117),
+            dec!(119),
+            dec!(118),
+            dec!(120),
+            dec!(122),
         ];
         let low = vec![
-            dec!(98), dec!(100), dec!(99), dec!(101), dec!(103),
-            dec!(102), dec!(104), dec!(106), dec!(105), dec!(107),
-            dec!(109), dec!(108), dec!(110), dec!(112), dec!(111),
-            dec!(113), dec!(115), dec!(114), dec!(116), dec!(118),
+            dec!(98),
+            dec!(100),
+            dec!(99),
+            dec!(101),
+            dec!(103),
+            dec!(102),
+            dec!(104),
+            dec!(106),
+            dec!(105),
+            dec!(107),
+            dec!(109),
+            dec!(108),
+            dec!(110),
+            dec!(112),
+            dec!(111),
+            dec!(113),
+            dec!(115),
+            dec!(114),
+            dec!(116),
+            dec!(118),
         ];
         let close = vec![
-            dec!(100), dec!(102), dec!(101), dec!(103), dec!(105),
-            dec!(104), dec!(106), dec!(108), dec!(107), dec!(109),
-            dec!(111), dec!(110), dec!(112), dec!(114), dec!(113),
-            dec!(115), dec!(117), dec!(116), dec!(118), dec!(120),
+            dec!(100),
+            dec!(102),
+            dec!(101),
+            dec!(103),
+            dec!(105),
+            dec!(104),
+            dec!(106),
+            dec!(108),
+            dec!(107),
+            dec!(109),
+            dec!(111),
+            dec!(110),
+            dec!(112),
+            dec!(114),
+            dec!(113),
+            dec!(115),
+            dec!(117),
+            dec!(116),
+            dec!(118),
+            dec!(120),
         ];
 
         (high, low, close)
@@ -335,7 +383,13 @@ mod tests {
         let (_, _, close) = sample_ohlc();
 
         let bb = volatility
-            .bollinger_bands(&close, BollingerBandsParams { period: 10, ..Default::default() })
+            .bollinger_bands(
+                &close,
+                BollingerBandsParams {
+                    period: 10,
+                    ..Default::default()
+                },
+            )
             .unwrap();
 
         assert_eq!(bb.len(), close.len());
@@ -361,7 +415,13 @@ mod tests {
         let (_, _, close) = sample_ohlc();
 
         let bb = volatility
-            .bollinger_bands(&close, BollingerBandsParams { period: 10, ..Default::default() })
+            .bollinger_bands(
+                &close,
+                BollingerBandsParams {
+                    period: 10,
+                    ..Default::default()
+                },
+            )
             .unwrap();
 
         // %B가 0-1 범위 근처인지 확인

@@ -130,8 +130,14 @@ impl PositionSummaryResponse {
             total_unrealized_pnl: open_positions.iter().map(|p| p.unrealized_pnl).sum(),
             total_realized_pnl: positions.iter().map(|p| p.realized_pnl).sum(),
             total_notional_value: open_positions.iter().map(|p| p.notional_value()).sum(),
-            long_count: open_positions.iter().filter(|p| p.side == Side::Buy).count(),
-            short_count: open_positions.iter().filter(|p| p.side == Side::Sell).count(),
+            long_count: open_positions
+                .iter()
+                .filter(|p| p.side == Side::Buy)
+                .count(),
+            short_count: open_positions
+                .iter()
+                .filter(|p| p.side == Side::Sell)
+                .count(),
         }
     }
 }
@@ -141,9 +147,7 @@ impl PositionSummaryResponse {
 /// 열린 포지션 목록 조회.
 ///
 /// GET /api/v1/positions
-pub async fn list_positions(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+pub async fn list_positions(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let executor = state.executor.read().await;
     let positions = executor.get_open_positions().await;
 
@@ -178,9 +182,7 @@ pub async fn list_positions(
 /// 포지션 요약 통계 조회.
 ///
 /// GET /api/v1/positions/summary
-pub async fn get_positions_summary(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+pub async fn get_positions_summary(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let executor = state.executor.read().await;
     let positions = executor.get_open_positions().await;
 
@@ -205,7 +207,10 @@ pub async fn get_position(
         }
         None => Err((
             StatusCode::NOT_FOUND,
-            Json(ApiError::new("POSITION_NOT_FOUND", format!("No open position for symbol: {}", symbol))),
+            Json(ApiError::new(
+                "POSITION_NOT_FOUND",
+                format!("No open position for symbol: {}", symbol),
+            )),
         )),
     }
 }
@@ -328,15 +333,33 @@ mod tests {
         use trader_core::Symbol;
 
         let mut positions = vec![
-            Position::new("binance", Symbol::crypto("BTC", "USDT"), Side::Buy, dec!(1.0), dec!(50000)),
-            Position::new("binance", Symbol::crypto("ETH", "USDT"), Side::Buy, dec!(10.0), dec!(3000)),
-            Position::new("binance", Symbol::crypto("SOL", "USDT"), Side::Sell, dec!(100.0), dec!(100)),
+            Position::new(
+                "binance",
+                Symbol::crypto("BTC", "USDT"),
+                Side::Buy,
+                dec!(1.0),
+                dec!(50000),
+            ),
+            Position::new(
+                "binance",
+                Symbol::crypto("ETH", "USDT"),
+                Side::Buy,
+                dec!(10.0),
+                dec!(3000),
+            ),
+            Position::new(
+                "binance",
+                Symbol::crypto("SOL", "USDT"),
+                Side::Sell,
+                dec!(100.0),
+                dec!(100),
+            ),
         ];
 
         // 가격 업데이트하여 PnL 계산
         positions[0].update_price(dec!(55000)); // +5000
-        positions[1].update_price(dec!(3200));  // +2000
-        positions[2].update_price(dec!(90));    // +1000 (숏이므로 하락이 이익)
+        positions[1].update_price(dec!(3200)); // +2000
+        positions[2].update_price(dec!(90)); // +1000 (숏이므로 하락이 이익)
 
         let summary = PositionSummaryResponse::from_positions(&positions);
 

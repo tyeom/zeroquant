@@ -205,39 +205,87 @@ mod tests {
     #[test]
     fn test_determine_kr_exchange() {
         // KOSPI (0으로 시작)
-        assert_eq!(YahooSymbolConverter::determine_kr_exchange("005930"), ("KOSPI", ".KS"));
-        assert_eq!(YahooSymbolConverter::determine_kr_exchange("000660"), ("KOSPI", ".KS"));
-        assert_eq!(YahooSymbolConverter::determine_kr_exchange("03473K"), ("KOSPI", ".KS"));
+        assert_eq!(
+            YahooSymbolConverter::determine_kr_exchange("005930"),
+            ("KOSPI", ".KS")
+        );
+        assert_eq!(
+            YahooSymbolConverter::determine_kr_exchange("000660"),
+            ("KOSPI", ".KS")
+        );
+        assert_eq!(
+            YahooSymbolConverter::determine_kr_exchange("03473K"),
+            ("KOSPI", ".KS")
+        );
 
         // KOSDAQ (1~4로 시작)
-        assert_eq!(YahooSymbolConverter::determine_kr_exchange("124560"), ("KOSDAQ", ".KQ"));
-        assert_eq!(YahooSymbolConverter::determine_kr_exchange("209640"), ("KOSDAQ", ".KQ"));
-        assert_eq!(YahooSymbolConverter::determine_kr_exchange("340930"), ("KOSDAQ", ".KQ"));
-        assert_eq!(YahooSymbolConverter::determine_kr_exchange("413390"), ("KOSDAQ", ".KQ"));
+        assert_eq!(
+            YahooSymbolConverter::determine_kr_exchange("124560"),
+            ("KOSDAQ", ".KQ")
+        );
+        assert_eq!(
+            YahooSymbolConverter::determine_kr_exchange("209640"),
+            ("KOSDAQ", ".KQ")
+        );
+        assert_eq!(
+            YahooSymbolConverter::determine_kr_exchange("340930"),
+            ("KOSDAQ", ".KQ")
+        );
+        assert_eq!(
+            YahooSymbolConverter::determine_kr_exchange("413390"),
+            ("KOSDAQ", ".KQ")
+        );
 
         // 빈 문자열 (기본값: KOSPI)
-        assert_eq!(YahooSymbolConverter::determine_kr_exchange(""), ("KOSPI", ".KS"));
+        assert_eq!(
+            YahooSymbolConverter::determine_kr_exchange(""),
+            ("KOSPI", ".KS")
+        );
     }
 
     #[test]
     fn test_to_yahoo_symbol() {
         // KR 시장 - KOSPI
-        assert_eq!(YahooSymbolConverter::to_yahoo_symbol("005930", "KR"), "005930.KS");
-        assert_eq!(YahooSymbolConverter::to_yahoo_symbol("03473K", "KR"), "03473K.KS");
+        assert_eq!(
+            YahooSymbolConverter::to_yahoo_symbol("005930", "KR"),
+            "005930.KS"
+        );
+        assert_eq!(
+            YahooSymbolConverter::to_yahoo_symbol("03473K", "KR"),
+            "03473K.KS"
+        );
 
         // KR 시장 - KOSDAQ
-        assert_eq!(YahooSymbolConverter::to_yahoo_symbol("124560", "KR"), "124560.KQ");
-        assert_eq!(YahooSymbolConverter::to_yahoo_symbol("209640", "KR"), "209640.KQ");
+        assert_eq!(
+            YahooSymbolConverter::to_yahoo_symbol("124560", "KR"),
+            "124560.KQ"
+        );
+        assert_eq!(
+            YahooSymbolConverter::to_yahoo_symbol("209640", "KR"),
+            "209640.KQ"
+        );
 
         // 이미 접미사가 있는 경우 (그대로 반환)
-        assert_eq!(YahooSymbolConverter::to_yahoo_symbol("005930.KS", "KR"), "005930.KS");
-        assert_eq!(YahooSymbolConverter::to_yahoo_symbol("124560.KQ", "KR"), "124560.KQ");
+        assert_eq!(
+            YahooSymbolConverter::to_yahoo_symbol("005930.KS", "KR"),
+            "005930.KS"
+        );
+        assert_eq!(
+            YahooSymbolConverter::to_yahoo_symbol("124560.KQ", "KR"),
+            "124560.KQ"
+        );
 
         // US 시장 (그대로 반환)
         assert_eq!(YahooSymbolConverter::to_yahoo_symbol("AAPL", "US"), "AAPL");
-        assert_eq!(YahooSymbolConverter::to_yahoo_symbol("GOOGL", "US"), "GOOGL");
+        assert_eq!(
+            YahooSymbolConverter::to_yahoo_symbol("GOOGL", "US"),
+            "GOOGL"
+        );
 
         // CRYPTO 시장 (그대로 반환)
-        assert_eq!(YahooSymbolConverter::to_yahoo_symbol("BTC/USDT", "CRYPTO"), "BTC/USDT");
+        assert_eq!(
+            YahooSymbolConverter::to_yahoo_symbol("BTC/USDT", "CRYPTO"),
+            "BTC/USDT"
+        );
     }
 }

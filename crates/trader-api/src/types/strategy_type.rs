@@ -93,34 +93,73 @@ impl StrategyType {
         use StrategyType::*;
         &[
             // 단일 종목
-            Rsi, Grid, Bollinger, VolatilityBreakout, MagicSplit, Sma,
-            CandlePattern, InfinityBot, MarketInterestDay, StockGugan, SectorVb,
+            Rsi,
+            Grid,
+            Bollinger,
+            VolatilityBreakout,
+            MagicSplit,
+            Sma,
+            CandlePattern,
+            InfinityBot,
+            MarketInterestDay,
+            StockGugan,
+            SectorVb,
             // 자산배분
-            SimplePower, Haa, Xaa, Baa, AllWeather, Snow, StockRotation,
-            MarketCapTop, Us3xLeverage, SectorMomentum, DualMomentum,
-            SmallCapQuant, PensionBot,
+            SimplePower,
+            Haa,
+            Xaa,
+            Baa,
+            AllWeather,
+            Snow,
+            StockRotation,
+            MarketCapTop,
+            Us3xLeverage,
+            SectorMomentum,
+            DualMomentum,
+            SmallCapQuant,
+            PensionBot,
             // 한국 지수
-            KospiBothside, KosdaqFireRain,
+            KospiBothside,
+            KosdaqFireRain,
         ]
     }
 
     /// 단일 종목 전략 여부.
     pub fn is_single_asset(&self) -> bool {
         use StrategyType::*;
-        matches!(self,
-            Rsi | Grid | Bollinger | VolatilityBreakout | MagicSplit |
-            Sma | CandlePattern | InfinityBot | MarketInterestDay |
-            StockGugan | SectorVb
+        matches!(
+            self,
+            Rsi | Grid
+                | Bollinger
+                | VolatilityBreakout
+                | MagicSplit
+                | Sma
+                | CandlePattern
+                | InfinityBot
+                | MarketInterestDay
+                | StockGugan
+                | SectorVb
         )
     }
 
     /// 자산배분 전략 여부.
     pub fn is_asset_allocation(&self) -> bool {
         use StrategyType::*;
-        matches!(self,
-            SimplePower | Haa | Xaa | Baa | AllWeather | Snow |
-            StockRotation | MarketCapTop | Us3xLeverage | SectorMomentum |
-            DualMomentum | SmallCapQuant | PensionBot
+        matches!(
+            self,
+            SimplePower
+                | Haa
+                | Xaa
+                | Baa
+                | AllWeather
+                | Snow
+                | StockRotation
+                | MarketCapTop
+                | Us3xLeverage
+                | SectorMomentum
+                | DualMomentum
+                | SmallCapQuant
+                | PensionBot
         )
     }
 
@@ -253,7 +292,9 @@ impl FromStr for StrategyType {
             // 한국 지수 전략
             "kospi_bothside" | "kospi_both" => Ok(KospiBothside),
             "kosdaq_fire_rain" | "kosdaq_surge" => Ok(KosdaqFireRain),
-            _ => Err(ParseStrategyTypeError { input: s.to_string() }),
+            _ => Err(ParseStrategyTypeError {
+                input: s.to_string(),
+            }),
         }
     }
 }
@@ -265,15 +306,27 @@ mod tests {
     #[test]
     fn test_parse_strategy_type() {
         assert_eq!("rsi".parse::<StrategyType>().unwrap(), StrategyType::Rsi);
-        assert_eq!("grid_trading".parse::<StrategyType>().unwrap(), StrategyType::Grid);
+        assert_eq!(
+            "grid_trading".parse::<StrategyType>().unwrap(),
+            StrategyType::Grid
+        );
         assert_eq!("haa".parse::<StrategyType>().unwrap(), StrategyType::Haa);
     }
 
     #[test]
     fn test_parse_with_aliases() {
-        assert_eq!("rsi_mean_reversion".parse::<StrategyType>().unwrap(), StrategyType::Rsi);
-        assert_eq!("volatility".parse::<StrategyType>().unwrap(), StrategyType::VolatilityBreakout);
-        assert_eq!("gugan".parse::<StrategyType>().unwrap(), StrategyType::StockGugan);
+        assert_eq!(
+            "rsi_mean_reversion".parse::<StrategyType>().unwrap(),
+            StrategyType::Rsi
+        );
+        assert_eq!(
+            "volatility".parse::<StrategyType>().unwrap(),
+            StrategyType::VolatilityBreakout
+        );
+        assert_eq!(
+            "gugan".parse::<StrategyType>().unwrap(),
+            StrategyType::StockGugan
+        );
     }
 
     #[test]

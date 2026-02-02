@@ -13,20 +13,15 @@ use tracing_subscriber::{
 };
 
 /// 로그 출력 형식.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LogFormat {
     /// 색상이 포함된 사람이 읽기 쉬운 형식 (개발용)
+    #[default]
     Pretty,
     /// 로그 집계용 JSON 형식 (운영용)
     Json,
     /// 간결한 한 줄 형식
     Compact,
-}
-
-impl Default for LogFormat {
-    fn default() -> Self {
-        Self::Pretty
-    }
 }
 
 impl std::str::FromStr for LogFormat {
@@ -125,8 +120,8 @@ impl LogConfig {
 /// init_logging(config).unwrap();
 /// ```
 pub fn init_logging(config: LogConfig) -> Result<(), Box<dyn std::error::Error>> {
-    let env_filter = EnvFilter::try_from_default_env()
-        .or_else(|_| EnvFilter::try_new(&config.level))?;
+    let env_filter =
+        EnvFilter::try_from_default_env().or_else(|_| EnvFilter::try_new(&config.level))?;
 
     let span_events = if config.with_span_events {
         FmtSpan::NEW | FmtSpan::CLOSE

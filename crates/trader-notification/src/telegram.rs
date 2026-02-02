@@ -132,7 +132,11 @@ impl TelegramSender {
                 pnl,
                 pnl_percent,
             } => {
-                let pnl_emoji = if *pnl >= Decimal::ZERO { "💰" } else { "📉" };
+                let pnl_emoji = if *pnl >= Decimal::ZERO {
+                    "💰"
+                } else {
+                    "📉"
+                };
                 let pnl_sign = if *pnl >= Decimal::ZERO { "+" } else { "" };
                 format!(
                     "{pnl_emoji} <b>포지션 청산</b>\n\n\
@@ -236,7 +240,10 @@ impl TelegramSender {
                 )
             }
 
-            NotificationEvent::SystemError { error_code, message } => {
+            NotificationEvent::SystemError {
+                error_code,
+                message,
+            } => {
                 format!(
                     "🚨 <b>시스템 오류</b>\n\n\
                      코드: <code>{error_code}</code>\n\
@@ -267,7 +274,10 @@ impl TelegramSender {
             "disable_web_page_preview": true,
         });
 
-        debug!("Sending Telegram message to chat_id: {}", self.config.chat_id);
+        debug!(
+            "Sending Telegram message to chat_id: {}",
+            self.config.chat_id
+        );
 
         let response = self
             .client
@@ -431,7 +441,11 @@ impl NotificationManager {
     }
 
     /// 시스템 오류 알림을 전송합니다.
-    pub async fn notify_system_error(&self, error_code: &str, message: &str) -> NotificationResult<()> {
+    pub async fn notify_system_error(
+        &self,
+        error_code: &str,
+        message: &str,
+    ) -> NotificationResult<()> {
         let notification = Notification::new(NotificationEvent::SystemError {
             error_code: error_code.to_string(),
             message: message.to_string(),

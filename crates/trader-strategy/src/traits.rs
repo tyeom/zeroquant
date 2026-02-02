@@ -2,7 +2,9 @@
 
 use async_trait::async_trait;
 use serde_json::Value;
-use trader_core::{MarketData, Order, Position, Signal};
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use trader_core::{MarketData, Order, Position, Signal, StrategyContext};
 
 /// 트레이딩 전략 구현을 위한 Strategy trait.
 ///
@@ -19,7 +21,10 @@ pub trait Strategy: Send + Sync {
     fn description(&self) -> &str;
 
     /// 설정으로 전략 초기화.
-    async fn initialize(&mut self, config: Value) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    async fn initialize(
+        &mut self,
+        config: Value,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
     /// 새 시장 데이터 수신 시 호출.
     /// 트레이딩 신호가 있으면 반환.
@@ -42,6 +47,17 @@ pub trait Strategy: Send + Sync {
 
     /// 전략 종료 및 리소스 정리.
     async fn shutdown(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+
+    /// 컨텍스트 주입 (엔진에서 호출).
+    ///
+    /// 전략이 실시간 거래소 정보와 분석 결과에 접근할 수 있도록 합니다.
+    ///
+    /// # 기본 구현
+    ///
+    /// Phase 1의 스코어링 작업에서 각 전략이 명시적으로 구현할 예정입니다.
+    fn set_context(&mut self, _context: Arc<RwLock<StrategyContext>>) {
+        // TODO: Phase 1에서 각 전략이 명시적으로 구현
+    }
 
     /// 현재 전략 상태를 JSON으로 반환 (디버깅/모니터링용).
     fn get_state(&self) -> Value;

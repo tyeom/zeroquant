@@ -44,6 +44,7 @@ pub struct Kline {
 
 impl Kline {
     /// 새 캔들을 생성합니다.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         symbol: Symbol,
         timeframe: Timeframe,
@@ -345,12 +346,24 @@ mod tests {
         let ob = OrderBook {
             symbol,
             bids: vec![
-                OrderBookLevel { price: dec!(2000), quantity: dec!(10) },
-                OrderBookLevel { price: dec!(1999), quantity: dec!(20) },
+                OrderBookLevel {
+                    price: dec!(2000),
+                    quantity: dec!(10),
+                },
+                OrderBookLevel {
+                    price: dec!(1999),
+                    quantity: dec!(20),
+                },
             ],
             asks: vec![
-                OrderBookLevel { price: dec!(2001), quantity: dec!(15) },
-                OrderBookLevel { price: dec!(2002), quantity: dec!(25) },
+                OrderBookLevel {
+                    price: dec!(2001),
+                    quantity: dec!(15),
+                },
+                OrderBookLevel {
+                    price: dec!(2002),
+                    quantity: dec!(25),
+                },
             ],
             timestamp: Utc::now(),
         };

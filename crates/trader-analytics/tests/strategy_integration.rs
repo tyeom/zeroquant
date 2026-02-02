@@ -37,8 +37,7 @@ use trader_strategy::Strategy;
 // =============================================================================
 use trader_strategy::strategies::{
     BollingerStrategy, CandlePatternStrategy, GridStrategy, InfinityBotStrategy,
-    MagicSplitStrategy, RsiStrategy, SmaStrategy, TrailingStopStrategy,
-    VolatilityBreakoutStrategy,
+    MagicSplitStrategy, RsiStrategy, SmaStrategy, VolatilityBreakoutStrategy,
 };
 
 // =============================================================================
@@ -529,7 +528,10 @@ async fn test_volatility_breakout_strategy() {
         }
     };
 
-    println!("Volatility Breakout 테스트 데이터 로드: {} 캔들", klines.len());
+    println!(
+        "Volatility Breakout 테스트 데이터 로드: {} 캔들",
+        klines.len()
+    );
 
     let mut strategy = VolatilityBreakoutStrategy::new();
     let config = json!({
@@ -578,7 +580,10 @@ async fn test_market_interest_day_strategy() {
         }
     };
 
-    println!("Market Interest Day 테스트 데이터 로드: {} 캔들", klines.len());
+    println!(
+        "Market Interest Day 테스트 데이터 로드: {} 캔들",
+        klines.len()
+    );
 
     let mut strategy = MarketInterestDayStrategy::new();
     let config = json!({
@@ -1485,7 +1490,11 @@ async fn test_cache_consistency() {
         .expect("두 번째 조회 실패");
 
     // 검증: 두 결과가 동일해야 함
-    assert_eq!(klines1.len(), klines2.len(), "캐시 일관성: 길이가 같아야 함");
+    assert_eq!(
+        klines1.len(),
+        klines2.len(),
+        "캐시 일관성: 길이가 같아야 함"
+    );
 
     for (k1, k2) in klines1.iter().zip(klines2.iter()) {
         assert_eq!(
@@ -1550,12 +1559,12 @@ fn create_multi_symbol_test_klines() -> Vec<Kline> {
 
     // 심볼별로 명확히 다른 가격 설정 (절대 겹치지 않도록)
     let symbols_with_prices = vec![
-        ("SPY", "USD", 450.0),   // SPY: $450
-        ("TLT", "USD", 95.0),    // TLT: $95
-        ("IEF", "USD", 100.0),   // IEF: $100
-        ("GLD", "USD", 180.0),   // GLD: $180
-        ("PDBC", "USD", 15.0),   // PDBC: $15
-        ("IYK", "USD", 60.0),    // IYK: $60
+        ("SPY", "USD", 450.0), // SPY: $450
+        ("TLT", "USD", 95.0),  // TLT: $95
+        ("IEF", "USD", 100.0), // IEF: $100
+        ("GLD", "USD", 180.0), // GLD: $180
+        ("PDBC", "USD", 15.0), // PDBC: $15
+        ("IYK", "USD", 60.0),  // IYK: $60
     ];
 
     let mut all_klines = Vec::new();
@@ -1642,7 +1651,7 @@ async fn test_multi_asset_price_matching() {
     // 백테스트 실행
     let backtest_config = BacktestConfig::new(dec!(100_000))
         .with_commission_rate(dec!(0.0))  // 수수료 제거 (가격 검증 용이)
-        .with_slippage_rate(dec!(0.0));   // 슬리피지 제거
+        .with_slippage_rate(dec!(0.0)); // 슬리피지 제거
 
     let mut engine = BacktestEngine::new(backtest_config);
     let report = engine
@@ -1663,10 +1672,18 @@ async fn test_multi_asset_price_matching() {
 
         // 거래 시점의 날짜 키 생성
         let entry_date = trade.entry_time.date_naive();
-        let entry_day_ts = entry_date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp();
+        let entry_day_ts = entry_date
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+            .and_utc()
+            .timestamp();
 
         let exit_date = trade.exit_time.date_naive();
-        let exit_day_ts = exit_date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp();
+        let exit_day_ts = exit_date
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+            .and_utc()
+            .timestamp();
 
         // 해당 시점의 해당 심볼 예상 가격 조회
         let expected_entry = price_index.get(&(entry_day_ts, symbol_base.to_string()));

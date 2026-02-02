@@ -19,8 +19,8 @@ use crate::state::AppState;
 use super::manager::AnalyticsManager;
 use super::performance::parse_period_duration;
 use super::types::{
-    ChartPointResponse, ChartQuery, ChartResponse, EquityCurveResponse,
-    MonthlyReturnCellResponse, MonthlyReturnsResponse, PeriodQuery,
+    ChartPointResponse, ChartQuery, ChartResponse, EquityCurveResponse, MonthlyReturnCellResponse,
+    MonthlyReturnsResponse, PeriodQuery,
 };
 
 /// 자산 곡선 데이터 조회.
@@ -39,9 +39,10 @@ pub async fn get_equity_curve(
     let end_time = Utc::now();
 
     // credential_id 파싱
-    let credential_id = query.credential_id.as_ref().and_then(|id| {
-        uuid::Uuid::parse_str(id).ok()
-    });
+    let credential_id = query
+        .credential_id
+        .as_ref()
+        .and_then(|id| uuid::Uuid::parse_str(id).ok());
 
     // DB에서 실제 데이터 조회 시도
     if let Some(db_pool) = &state.db_pool {
@@ -51,7 +52,8 @@ pub async fn get_equity_curve(
             EquityHistoryRepository::get_equity_curve(db_pool, cred_id, start_time, end_time).await
         } else {
             debug!("전체 계좌 통합 자산 곡선 조회");
-            EquityHistoryRepository::get_aggregated_equity_curve(db_pool, start_time, end_time).await
+            EquityHistoryRepository::get_aggregated_equity_curve(db_pool, start_time, end_time)
+                .await
         };
 
         match data_result {
@@ -69,8 +71,7 @@ pub async fn get_equity_curve(
 
                 let (start_str, end_str) = match (filtered.first(), filtered.last()) {
                     (Some(first), Some(last)) => {
-                        let start =
-                            DateTime::from_timestamp_millis(first.x).unwrap_or(Utc::now());
+                        let start = DateTime::from_timestamp_millis(first.x).unwrap_or(Utc::now());
                         let end = DateTime::from_timestamp_millis(last.x).unwrap_or(Utc::now());
                         (start.to_rfc3339(), end.to_rfc3339())
                     }

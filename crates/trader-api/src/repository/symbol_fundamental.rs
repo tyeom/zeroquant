@@ -224,10 +224,7 @@ impl SymbolFundamentalRepository {
     }
 
     /// Fundamental 정보 삽입/업데이트 (upsert).
-    pub async fn upsert(
-        pool: &PgPool,
-        data: &NewSymbolFundamental,
-    ) -> Result<Uuid, sqlx::Error> {
+    pub async fn upsert(pool: &PgPool, data: &NewSymbolFundamental) -> Result<Uuid, sqlx::Error> {
         let row = sqlx::query_scalar::<_, Uuid>(
             r#"
             INSERT INTO symbol_fundamental (
@@ -422,7 +419,7 @@ impl SymbolFundamentalRepository {
     ///
     /// fetched_at이 지정된 시간보다 오래된 경우.
     /// CRYPTO 심볼은 Yahoo Finance에서 지원하지 않으므로 제외.
-    /// 
+    ///
     /// 반환 값: (symbol_info_id, ticker, market, yahoo_symbol)
     pub async fn get_stale_symbols(
         pool: &PgPool,

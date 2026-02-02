@@ -1,0 +1,203 @@
+//! 전략 컨텍스트 동기화 서비스.
+//!
+//! ExchangeProvider와 AnalyticsProvider를 주기적으로 호출하여
+//! StrategyContext를 실시간으로 업데이트합니다.
+
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::RwLock;
+use tokio_util::sync::CancellationToken;
+use trader_core::{
+    AnalyticsProvider, ExchangeProvider, MarketType, ScreeningPreset, StrategyContext, Symbol,
+};
+
+/// 전략 컨텍스트 동기화 서비스.
+///
+/// 두 가지 독립적인 동기화 주기를 사용합니다:
+/// - 거래소 정보: 5초마다 (계좌, 포지션, 주문)
+/// - 분석 결과: 1분마다 (Global Score, RouteState, 스크리닝, 피처)
+pub struct ContextSyncService {
+    exchange_provider: Arc<dyn ExchangeProvider>,
+    analytics_provider: Arc<dyn AnalyticsProvider>,
+    context: Arc<RwLock<StrategyContext>>,
+    exchange_sync_interval: Duration,
+    analytics_sync_interval: Duration,
+}
+
+impl ContextSyncService {
+    /// 새 서비스 인스턴스 생성.
+    ///
+    /// # Arguments
+    ///
+    /// * `exchange_provider` - 거래소 정보 제공자
+    /// * `analytics_provider` - 분석 결과 제공자
+    /// * `context` - 공유 컨텍스트
+    /// * `exchange_sync_interval` - 거래소 동기화 주기
+    /// * `analytics_sync_interval` - 분석 결과 동기화 주기
+    pub fn new(
+        exchange_provider: Arc<dyn ExchangeProvider>,
+        analytics_provider: Arc<dyn AnalyticsProvider>,
+        context: Arc<RwLock<StrategyContext>>,
+        exchange_sync_interval: Duration,
+        analytics_sync_interval: Duration,
+    ) -> Self {
+        Self {
+            exchange_provider,
+            analytics_provider,
+            context,
+            exchange_sync_interval,
+            analytics_sync_interval,
+        }
+    }
+
+    /// 서비스 시작 (메인 루프).
+    ///
+    /// 두 개의 독립적인 타이머로 거래소 정보와 분석 결과를 주기적으로 동기화합니다.
+    /// CancellationToken을 통해 graceful shutdown을 지원합니다.
+    pub async fn run(self, shutdown: CancellationToken) {
+        let mut exchange_ticker = tokio::time::interval(self.exchange_sync_interval);
+        let mut analytics_ticker = tokio::time::interval(self.analytics_sync_interval);
+
+        loop {
+            tokio::select! {
+                _ = exchange_ticker.tick() => {
+                    if let Err(e) = self.sync_exchange().await {
+                        tracing::error!("거래소 동기화 실패: {}", e);
+                    }
+                }
+
+                _ = analytics_ticker.tick() => {
+                    if let Err(e) = self.sync_analytics().await {
+                        tracing::error!("분석 결과 동기화 실패: {}", e);
+                    }
+                }
+
+                _ = shutdown.cancelled() => {
+                    tracing::info!("ContextSyncService 종료");
+                    break;
+                }
+            }
+        }
+    }
+
+    /// 거래소 정보 동기화.
+    ///
+    /// 계좌 정보, 포지션, 미체결 주문을 조회하여 컨텍스트를 업데이트합니다.
+    async fn sync_exchange(&self) -> Result<(), String> {
+        // 1. 계좌 정보 조회
+        let account = self
+            .exchange_provider
+            .fetch_account()
+            .await
+            .map_err(|e| format!("계좌 조회 실패: {}", e))?;
+
+        // 2. 포지션 조회
+        let positions = self
+            .exchange_provider
+            .fetch_positions()
+            .await
+            .map_err(|e| format!("포지션 조회 실패: {}", e))?;
+
+        // 3. 미체결 주문 조회
+        let orders = self
+            .exchange_provider
+            .fetch_pending_orders()
+            .await
+            .map_err(|e| format!("미체결 주문 조회 실패: {}", e))?;
+
+        // 4. 컨텍스트 업데이트
+        let mut ctx = self.context.write().await;
+        ctx.update_account(account);
+        ctx.update_positions(positions);
+        ctx.update_pending_orders(orders);
+
+        Ok(())
+    }
+
+    /// 분석 결과 동기화.
+    ///
+    /// Global Score, RouteState, 스크리닝 결과, 구조적 피처를 조회하여 컨텍스트를 업데이트합니다.
+    async fn sync_analytics(&self) -> Result<(), String> {
+        // 1. Global Score 조회 (시장별 - 예: KR Stock)
+        let scores = self
+            .analytics_provider
+            .fetch_global_scores(MarketType::KrStock)
+            .await
+            .map_err(|e| format!("Global Score 조회 실패: {}", e))?;
+
+        // 2. RouteState 조회 (현재 보유 종목 + 스크리닝 종목)
+        let ctx_read = self.context.read().await;
+        let symbols: Vec<_> = ctx_read
+            .positions
+            .keys()
+            .filter_map(|s| Symbol::from_string(s, MarketType::KrStock))
+            .collect();
+        drop(ctx_read);
+
+        let states = self
+            .analytics_provider
+            .fetch_route_states(&symbols)
+            .await
+            .map_err(|e| format!("RouteState 조회 실패: {}", e))?;
+
+        // 3. 스크리닝 결과 조회 (프리셋 예: "default")
+        let preset = ScreeningPreset::default_preset();
+        let preset_name = preset.name.clone();
+        let screening = self
+            .analytics_provider
+            .fetch_screening(preset)
+            .await
+            .map_err(|e| format!("스크리닝 조회 실패: {}", e))?;
+
+        // 4. 구조적 피처 조회
+        let features = self
+            .analytics_provider
+            .fetch_features(&symbols)
+            .await
+            .map_err(|e| format!("Features 조회 실패: {}", e))?;
+
+        // 5. 컨텍스트 업데이트
+        let mut ctx = self.context.write().await;
+        ctx.update_global_scores(scores);
+        ctx.update_route_states(states);
+        ctx.update_screening(preset_name, screening);
+        ctx.update_features(features);
+
+        Ok(())
+    }
+}
+
+/// ContextSyncService를 백그라운드 task로 시작.
+///
+/// 기본 동기화 주기:
+/// - 거래소: 5초
+/// - 분석: 1분
+///
+/// # Arguments
+///
+/// * `exchange_provider` - 거래소 정보 제공자
+/// * `analytics_provider` - 분석 결과 제공자
+/// * `context` - 공유 컨텍스트
+/// * `shutdown` - Graceful shutdown을 위한 CancellationToken
+///
+/// # Returns
+///
+/// 백그라운드 task의 JoinHandle
+pub fn start_context_sync_service(
+    exchange_provider: Arc<dyn ExchangeProvider>,
+    analytics_provider: Arc<dyn AnalyticsProvider>,
+    context: Arc<RwLock<StrategyContext>>,
+    shutdown: CancellationToken,
+) -> tokio::task::JoinHandle<()> {
+    let service = ContextSyncService::new(
+        exchange_provider,
+        analytics_provider,
+        context,
+        Duration::from_secs(5),  // 거래소: 5초
+        Duration::from_secs(60), // 분석: 1분
+    );
+
+    tokio::spawn(async move {
+        service.run(shutdown).await;
+    })
+}

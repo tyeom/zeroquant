@@ -8,6 +8,7 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{FromRow, PgPool};
+use trader_core::{unrealized_pnl, Side};
 use uuid::Uuid;
 
 /// 포지션 레코드.
@@ -21,7 +22,7 @@ pub struct PositionRecord {
     pub symbol_id: Uuid,
     pub symbol: Option<String>,
     pub symbol_name: Option<String>,
-    pub side: String,
+    pub side: Side,
     pub quantity: Decimal,
     pub entry_price: Decimal,
     pub current_price: Option<Decimal>,
@@ -42,7 +43,7 @@ pub struct PositionInput {
     pub symbol_id: Uuid,
     pub symbol: Option<String>,
     pub symbol_name: Option<String>,
-    pub side: String,
+    pub side: Side,
     pub quantity: Decimal,
     pub entry_price: Decimal,
     pub strategy_id: Option<String>,
@@ -131,20 +132,17 @@ impl PositionRepository {
         let mut tx = pool.begin().await?;
 
         // 먼저 현재 포지션 정보 조회
-        let current: PositionRecord = sqlx::query_as(
-            "SELECT * FROM positions WHERE id = $1",
-        )
-        .bind(position_id)
-        .fetch_one(&mut *tx)
-        .await?;
+        let current: PositionRecord = sqlx::query_as("SELECT * FROM positions WHERE id = $1")
+            .bind(position_id)
+            .fetch_one(&mut *tx)
+            .await?;
 
         // 실현 손익 계산
         // 롱 포지션: (종가 - 진입가) * 수량
         // 숏 포지션: (진입가 - 종가) * 수량
-        let realized_pnl = if current.side == "buy" {
-            (close_price - current.entry_price) * current.quantity
-        } else {
-            (current.entry_price - close_price) * current.quantity
+        let realized_pnl = match current.side {
+            Side::Buy => (close_price - current.entry_price) * current.quantity,
+            Side::Sell => (current.entry_price - close_price) * current.quantity,
         };
 
         // 기존 실현 손익과 합산
@@ -235,12 +233,10 @@ impl PositionRepository {
         let mut tx = pool.begin().await?;
 
         // 현재 포지션 조회
-        let current: PositionRecord = sqlx::query_as(
-            "SELECT * FROM positions WHERE id = $1",
-        )
-        .bind(position_id)
-        .fetch_one(&mut *tx)
-        .await?;
+        let current: PositionRecord = sqlx::query_as("SELECT * FROM positions WHERE id = $1")
+            .bind(position_id)
+            .fetch_one(&mut *tx)
+            .await?;
 
         // 새로운 평균 진입가 계산
         // (기존수량 * 기존가격 + 추가수량 * 추가가격) / (기존수량 + 추가수량)
@@ -283,18 +279,15 @@ impl PositionRepository {
         let mut tx = pool.begin().await?;
 
         // 현재 포지션 조회
-        let current: PositionRecord = sqlx::query_as(
-            "SELECT * FROM positions WHERE id = $1",
-        )
-        .bind(position_id)
-        .fetch_one(&mut *tx)
-        .await?;
+        let current: PositionRecord = sqlx::query_as("SELECT * FROM positions WHERE id = $1")
+            .bind(position_id)
+            .fetch_one(&mut *tx)
+            .await?;
 
         // 부분 실현 손익 계산
-        let partial_pnl = if current.side == "buy" {
-            (close_price - current.entry_price) * reduce_quantity
-        } else {
-            (current.entry_price - close_price) * reduce_quantity
+        let partial_pnl = match current.side {
+            Side::Buy => (close_price - current.entry_price) * reduce_quantity,
+            Side::Sell => (current.entry_price - close_price) * reduce_quantity,
         };
 
         let new_quantity = current.quantity - reduce_quantity;
@@ -359,19 +352,19 @@ impl PositionRepository {
         let mut tx = pool.begin().await?;
 
         // 먼저 현재 포지션 조회 (트랜잭션 내에서)
-        let current: PositionRecord = sqlx::query_as(
-            "SELECT * FROM positions WHERE id = $1 FOR UPDATE",
-        )
-        .bind(position_id)
-        .fetch_one(&mut *tx)
-        .await?;
+        let current: PositionRecord =
+            sqlx::query_as("SELECT * FROM positions WHERE id = $1 FOR UPDATE")
+                .bind(position_id)
+                .fetch_one(&mut *tx)
+                .await?;
 
         // 미실현 손익 계산
-        let unrealized_pnl = if current.side == "buy" {
-            (current_price - current.entry_price) * current.quantity
-        } else {
-            (current.entry_price - current_price) * current.quantity
-        };
+        let unrealized_pnl_value = unrealized_pnl(
+            current.entry_price,
+            current_price,
+            current.quantity,
+            current.side,
+        );
 
         let record = sqlx::query_as::<_, PositionRecord>(
             r#"
@@ -386,7 +379,7 @@ impl PositionRepository {
         )
         .bind(position_id)
         .bind(current_price)
-        .bind(unrealized_pnl)
+        .bind(unrealized_pnl_value)
         .fetch_one(&mut *tx)
         .await?;
 
@@ -397,12 +390,11 @@ impl PositionRepository {
 
     /// 포지션 존재 여부 확인.
     pub async fn exists(pool: &PgPool, position_id: Uuid) -> Result<bool, sqlx::Error> {
-        let result: (bool,) = sqlx::query_as(
-            "SELECT EXISTS(SELECT 1 FROM positions WHERE id = $1)",
-        )
-        .bind(position_id)
-        .fetch_one(pool)
-        .await?;
+        let result: (bool,) =
+            sqlx::query_as("SELECT EXISTS(SELECT 1 FROM positions WHERE id = $1)")
+                .bind(position_id)
+                .fetch_one(pool)
+                .await?;
 
         Ok(result.0)
     }
@@ -583,9 +575,7 @@ impl PositionRepository {
     }
 
     /// 모든 열린 포지션 조회 (credential_id 무관).
-    pub async fn get_all_open_positions(
-        pool: &PgPool,
-    ) -> Result<Vec<PositionRecord>, sqlx::Error> {
+    pub async fn get_all_open_positions(pool: &PgPool) -> Result<Vec<PositionRecord>, sqlx::Error> {
         let records = sqlx::query_as::<_, PositionRecord>(
             r#"
             SELECT

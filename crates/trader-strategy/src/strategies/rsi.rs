@@ -14,8 +14,10 @@ use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::VecDeque;
-use trader_core::{MarketData, MarketDataType, MarketType, Order, Position, Side, Signal, SignalType, Symbol};
 use tracing::{debug, info, warn};
+use trader_core::{
+    MarketData, MarketDataType, MarketType, Order, Position, Side, Signal, SignalType, Symbol,
+};
 
 /// RSI 전략 설정.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -367,20 +369,32 @@ impl RsiStrategy {
                         .unwrap_or(true);
 
                     if crossing_up {
-                        let mut signal =
-                            Signal::new("rsi_mean_reversion", symbol.clone(), Side::Buy, SignalType::Entry)
-                                .with_strength((config.oversold_threshold - rsi) / config.oversold_threshold)
-                                .with_metadata("rsi", json!(rsi))
-                                .with_metadata("reason", json!("oversold"));
+                        let mut signal = Signal::new(
+                            "rsi_mean_reversion",
+                            symbol.clone(),
+                            Side::Buy,
+                            SignalType::Entry,
+                        )
+                        .with_strength(
+                            (config.oversold_threshold - rsi) / config.oversold_threshold,
+                        )
+                        .with_metadata("rsi", json!(rsi))
+                        .with_metadata("reason", json!("oversold"));
 
                         // 설정된 경우 손절 및 익절 추가
                         if let Some(sl_pct) = config.stop_loss_pct {
-                            let sl_price = current_price * (dec!(1) - Decimal::from_f64_retain(sl_pct / 100.0).unwrap_or(dec!(0.02)));
+                            let sl_price = current_price
+                                * (dec!(1)
+                                    - Decimal::from_f64_retain(sl_pct / 100.0)
+                                        .unwrap_or(dec!(0.02)));
                             signal.stop_loss = Some(sl_price);
                         }
 
                         if let Some(tp_pct) = config.take_profit_pct {
-                            let tp_price = current_price * (dec!(1) + Decimal::from_f64_retain(tp_pct / 100.0).unwrap_or(dec!(0.05)));
+                            let tp_price = current_price
+                                * (dec!(1)
+                                    + Decimal::from_f64_retain(tp_pct / 100.0)
+                                        .unwrap_or(dec!(0.05)));
                             signal.take_profit = Some(tp_price);
                         }
 
@@ -404,11 +418,18 @@ impl RsiStrategy {
                         .unwrap_or(true);
 
                     if crossing_down {
-                        let signal =
-                            Signal::new("rsi_mean_reversion", symbol.clone(), Side::Sell, SignalType::Entry)
-                                .with_strength((rsi - config.overbought_threshold) / (100.0 - config.overbought_threshold))
-                                .with_metadata("rsi", json!(rsi))
-                                .with_metadata("reason", json!("overbought"));
+                        let signal = Signal::new(
+                            "rsi_mean_reversion",
+                            symbol.clone(),
+                            Side::Sell,
+                            SignalType::Entry,
+                        )
+                        .with_strength(
+                            (rsi - config.overbought_threshold)
+                                / (100.0 - config.overbought_threshold),
+                        )
+                        .with_metadata("rsi", json!(rsi))
+                        .with_metadata("reason", json!("overbought"));
 
                         signals.push(signal);
 
@@ -432,20 +453,23 @@ impl RsiStrategy {
                 };
 
                 // 손절 확인
-                let stop_hit = if let (Some(entry), Some(sl_pct)) =
-                    (self.entry_price, config.stop_loss_pct)
-                {
-                    let sl_price = entry * (dec!(1) - Decimal::from_f64_retain(sl_pct / 100.0).unwrap_or(dec!(0.02)));
-                    current_price <= sl_price
-                } else {
-                    false
-                };
+                let stop_hit =
+                    if let (Some(entry), Some(sl_pct)) = (self.entry_price, config.stop_loss_pct) {
+                        let sl_price = entry
+                            * (dec!(1)
+                                - Decimal::from_f64_retain(sl_pct / 100.0).unwrap_or(dec!(0.02)));
+                        current_price <= sl_price
+                    } else {
+                        false
+                    };
 
                 // 익절 확인
                 let tp_hit = if let (Some(entry), Some(tp_pct)) =
                     (self.entry_price, config.take_profit_pct)
                 {
-                    let tp_price = entry * (dec!(1) + Decimal::from_f64_retain(tp_pct / 100.0).unwrap_or(dec!(0.05)));
+                    let tp_price = entry
+                        * (dec!(1)
+                            + Decimal::from_f64_retain(tp_pct / 100.0).unwrap_or(dec!(0.05)));
                     current_price >= tp_price
                 } else {
                     false
@@ -460,11 +484,15 @@ impl RsiStrategy {
                         "rsi_exit"
                     };
 
-                    let signal =
-                        Signal::new("rsi_mean_reversion", symbol.clone(), Side::Sell, SignalType::Exit)
-                            .with_strength(1.0)
-                            .with_metadata("rsi", json!(rsi))
-                            .with_metadata("reason", json!(reason));
+                    let signal = Signal::new(
+                        "rsi_mean_reversion",
+                        symbol.clone(),
+                        Side::Sell,
+                        SignalType::Exit,
+                    )
+                    .with_strength(1.0)
+                    .with_metadata("rsi", json!(rsi))
+                    .with_metadata("reason", json!(reason));
 
                     signals.push(signal);
 
@@ -486,11 +514,15 @@ impl RsiStrategy {
                 };
 
                 if should_exit {
-                    let signal =
-                        Signal::new("rsi_mean_reversion", symbol.clone(), Side::Buy, SignalType::Exit)
-                            .with_strength(1.0)
-                            .with_metadata("rsi", json!(rsi))
-                            .with_metadata("reason", json!("rsi_exit"));
+                    let signal = Signal::new(
+                        "rsi_mean_reversion",
+                        symbol.clone(),
+                        Side::Buy,
+                        SignalType::Exit,
+                    )
+                    .with_strength(1.0)
+                    .with_metadata("rsi", json!(rsi))
+                    .with_metadata("reason", json!("rsi_exit"));
 
                     signals.push(signal);
 
@@ -644,7 +676,8 @@ impl Strategy for RsiStrategy {
             warn!("Order filled but strategy not configured");
             return Ok(());
         };
-        let fill_price = order.average_fill_price
+        let fill_price = order
+            .average_fill_price
             .or(order.price)
             .unwrap_or(Decimal::ZERO);
 
@@ -892,8 +925,8 @@ mod tests {
 
         // Feed 20 data points to calculate RSI
         let prices = vec![
-            50000, 50100, 50050, 49900, 49800, 49850, 49950, 50000, 50100, 50200,
-            50150, 50100, 50000, 49900, 49800, 49750, 49700, 49650, 49600, 49550,
+            50000, 50100, 50050, 49900, 49800, 49850, 49950, 50000, 50100, 50200, 50150, 50100,
+            50000, 49900, 49800, 49750, 49700, 49650, 49600, 49550,
         ];
 
         for price in prices {

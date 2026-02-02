@@ -3,8 +3,8 @@
 //! 이 모듈은 여러 전략에서 공통적으로 사용되는 기술적 지표 계산 함수를 제공합니다.
 //! 모든 함수는 거래소 중립적이며, OHLCV 데이터만을 입력으로 받습니다.
 
-use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 
 /// RSI (Relative Strength Index) 계산.
@@ -44,7 +44,8 @@ pub fn calculate_rsi(prices: &[Decimal], period: usize) -> Option<Decimal> {
             avg_loss = (avg_loss * Decimal::from(period - 1)) / Decimal::from(period);
         } else {
             avg_gain = (avg_gain * Decimal::from(period - 1)) / Decimal::from(period);
-            avg_loss = (avg_loss * Decimal::from(period - 1) + change.abs()) / Decimal::from(period);
+            avg_loss =
+                (avg_loss * Decimal::from(period - 1) + change.abs()) / Decimal::from(period);
         }
     }
 

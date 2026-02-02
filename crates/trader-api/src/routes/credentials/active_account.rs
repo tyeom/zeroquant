@@ -7,19 +7,14 @@
 //! - `GET /api/v1/credentials/active` - 활성 계정 조회
 //! - `PUT /api/v1/credentials/active` - 활성 계정 설정
 
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    Json,
-};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use std::sync::Arc;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use crate::state::AppState;
-use crate::routes::strategies::ApiError;
 use super::types::{ActiveAccountResponse, SetActiveAccountRequest};
+use crate::routes::strategies::ApiError;
+use crate::state::AppState;
 
 /// 활성 계정 조회.
 ///
@@ -33,7 +28,10 @@ pub async fn get_active_account(
     let pool = state.db_pool.as_ref().ok_or_else(|| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("DB_NOT_CONFIGURED", "데이터베이스 연결이 설정되지 않았습니다.")),
+            Json(ApiError::new(
+                "DB_NOT_CONFIGURED",
+                "데이터베이스 연결이 설정되지 않았습니다.",
+            )),
         )
     })?;
 
@@ -41,7 +39,7 @@ pub async fn get_active_account(
     let setting: Option<(String,)> = sqlx::query_as(
         r#"
         SELECT setting_value FROM app_settings WHERE setting_key = 'active_credential_id' LIMIT 1
-        "#
+        "#,
     )
     .fetch_optional(pool)
     .await
@@ -66,7 +64,7 @@ pub async fn get_active_account(
                     SELECT exchange_id, exchange_name, is_testnet
                     FROM exchange_credentials
                     WHERE id = $1
-                    "#
+                    "#,
                 )
                 .bind(cred_id)
                 .fetch_optional(pool)
@@ -97,14 +95,12 @@ pub async fn get_active_account(
                 is_testnet: false,
             }))
         }
-        None => {
-            Ok(Json(ActiveAccountResponse {
-                credential_id: None,
-                exchange_id: None,
-                display_name: None,
-                is_testnet: false,
-            }))
-        }
+        None => Ok(Json(ActiveAccountResponse {
+            credential_id: None,
+            exchange_id: None,
+            display_name: None,
+            is_testnet: false,
+        })),
     }
 }
 
@@ -123,25 +119,27 @@ pub async fn set_active_account(
     let pool = state.db_pool.as_ref().ok_or_else(|| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("DB_NOT_CONFIGURED", "데이터베이스 연결이 설정되지 않았습니다.")),
+            Json(ApiError::new(
+                "DB_NOT_CONFIGURED",
+                "데이터베이스 연결이 설정되지 않았습니다.",
+            )),
         )
     })?;
 
     // credential_id가 있으면 해당 자격증명이 존재하는지 확인
     if let Some(cred_id) = request.credential_id {
-        let exists: Option<(Uuid,)> = sqlx::query_as(
-            "SELECT id FROM exchange_credentials WHERE id = $1"
-        )
-        .bind(cred_id)
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| {
-            error!("자격증명 조회 실패: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("DB_ERROR", &format!("조회 실패: {}", e))),
-            )
-        })?;
+        let exists: Option<(Uuid,)> =
+            sqlx::query_as("SELECT id FROM exchange_credentials WHERE id = $1")
+                .bind(cred_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| {
+                    error!("자격증명 조회 실패: {}", e);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ApiError::new("DB_ERROR", &format!("조회 실패: {}", e))),
+                    )
+                })?;
 
         if exists.is_none() {
             return Err((
@@ -152,7 +150,8 @@ pub async fn set_active_account(
     }
 
     // app_settings에 저장 (UPSERT)
-    let credential_id_str = request.credential_id
+    let credential_id_str = request
+        .credential_id
         .map(|id| id.to_string())
         .unwrap_or_default();
 
@@ -162,7 +161,7 @@ pub async fn set_active_account(
         VALUES ('active_credential_id', $1, NOW())
         ON CONFLICT (setting_key)
         DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = NOW()
-        "#
+        "#,
     )
     .bind(&credential_id_str)
     .execute(pool)

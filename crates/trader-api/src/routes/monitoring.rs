@@ -22,9 +22,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use utoipa::ToSchema;
 
-use crate::monitoring::{
-    global_tracker, ErrorCategory, ErrorRecord, ErrorSeverity, ErrorStats,
-};
+use crate::monitoring::{global_tracker, ErrorCategory, ErrorRecord, ErrorSeverity, ErrorStats};
 use crate::state::AppState;
 
 /// 에러 목록 조회 쿼리 파라미터.
@@ -97,8 +95,7 @@ impl From<ErrorRecord> for ErrorRecordDto {
             message: record.message,
             location: format!(
                 "{}:{}",
-                record.source_location.file,
-                record.source_location.line
+                record.source_location.file, record.source_location.line
             ),
             function: record.source_location.function,
             entity: record.entity,
@@ -164,9 +161,15 @@ pub async fn list_errors(Query(query): Query<ErrorsQuery>) -> impl IntoResponse 
                 "warning" => ErrorSeverity::Warning,
                 "error" => ErrorSeverity::Error,
                 "critical" => ErrorSeverity::Critical,
-                _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
-                    "error": "Invalid severity. Use: warning, error, critical"
-                }))).into_response(),
+                _ => {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(serde_json::json!({
+                            "error": "Invalid severity. Use: warning, error, critical"
+                        })),
+                    )
+                        .into_response()
+                }
             };
             tracker.get_by_severity(severity, limit)
         }
@@ -181,9 +184,15 @@ pub async fn list_errors(Query(query): Query<ErrorsQuery>) -> impl IntoResponse 
                 "business_logic" => ErrorCategory::BusinessLogic,
                 "system" => ErrorCategory::System,
                 "other" => ErrorCategory::Other,
-                _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
-                    "error": "Invalid category"
-                }))).into_response(),
+                _ => {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(serde_json::json!({
+                            "error": "Invalid category"
+                        })),
+                    )
+                        .into_response()
+                }
             };
             tracker.get_by_category(&category, limit)
         }
@@ -255,7 +264,8 @@ pub async fn get_error_by_id(Path(id): Path<u64>) -> impl IntoResponse {
         (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({ "error": "Error not found" })),
-        ).into_response()
+        )
+            .into_response()
     }
 }
 
@@ -335,14 +345,16 @@ pub async fn get_summary(State(state): State<Arc<AppState>>) -> impl IntoRespons
     let recent_errors: Vec<_> = tracker
         .get_recent(5)
         .into_iter()
-        .map(|e| serde_json::json!({
-            "id": e.id,
-            "severity": e.severity.to_string(),
-            "category": e.category.to_string(),
-            "message": e.message,
-            "timestamp": e.timestamp.to_rfc3339(),
-            "entity": e.entity,
-        }))
+        .map(|e| {
+            serde_json::json!({
+                "id": e.id,
+                "severity": e.severity.to_string(),
+                "category": e.category.to_string(),
+                "message": e.message,
+                "timestamp": e.timestamp.to_rfc3339(),
+                "entity": e.entity,
+            })
+        })
         .collect();
 
     Json(serde_json::json!({
@@ -378,7 +390,9 @@ mod tests {
     use axum::{body::Body, http::Request};
     use tower::ServiceExt;
 
-    use crate::monitoring::{ErrorRecordBuilder, ErrorCategory, ErrorSeverity, init_global_tracker, ErrorTrackerConfig};
+    use crate::monitoring::{
+        init_global_tracker, ErrorCategory, ErrorRecordBuilder, ErrorSeverity, ErrorTrackerConfig,
+    };
 
     fn setup_tracker() {
         // 테스트용 트래커 초기화 (이미 초기화된 경우 무시됨)
@@ -397,8 +411,7 @@ mod tests {
             .build();
         global_tracker().record(record);
 
-        let app = Router::new()
-            .route("/errors", get(list_errors));
+        let app = Router::new().route("/errors", get(list_errors));
 
         let response = app
             .oneshot(

@@ -221,9 +221,9 @@ impl PositionSizer {
         }
 
         // 검사 4: 최대 동시 포지션 (새 포지션에만 해당)
-        let is_new_position = !positions.iter().any(|p| {
-            p.is_open() && p.symbol.to_string() == symbol && p.side == order.side
-        });
+        let is_new_position = !positions
+            .iter()
+            .any(|p| p.is_open() && p.symbol.to_string() == symbol && p.side == order.side);
 
         if is_new_position {
             let open_position_count = positions.iter().filter(|p| p.is_open()).count();

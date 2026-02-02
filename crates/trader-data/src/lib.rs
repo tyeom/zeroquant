@@ -25,8 +25,8 @@ pub use storage::timescale::{
 };
 
 // OHLCV 캔들 캐시 재내보내기
-pub use storage::ohlcv::{OhlcvCache, OhlcvRecord, OhlcvMetadataRecord};
-pub use cache::historical::{CachedHistoricalDataProvider, CacheStats as HistoricalCacheStats};
+pub use cache::historical::{CacheStats as HistoricalCacheStats, CachedHistoricalDataProvider};
+pub use storage::ohlcv::{OhlcvCache, OhlcvMetadataRecord, OhlcvRecord};
 
 // Fundamental 데이터 수집 재내보내기
 pub use cache::fundamental::{FetchResult, FundamentalData, FundamentalFetcher};

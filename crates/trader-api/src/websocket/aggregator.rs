@@ -18,7 +18,7 @@ use tracing::{debug, error, info, warn};
 use trader_core::{OrderBook, Ticker};
 use trader_exchange::traits::{MarketEvent, MarketStream};
 
-use super::messages::{ServerMessage, TickerData, TradeData, OrderBookData, OrderBookLevel};
+use super::messages::{OrderBookData, OrderBookLevel, ServerMessage, TickerData, TradeData};
 use super::subscriptions::SharedSubscriptionManager;
 
 /// 거래소 데이터를 WebSocket 클라이언트에게 전달하는 어그리게이터.

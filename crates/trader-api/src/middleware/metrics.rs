@@ -5,7 +5,9 @@
 use axum::{extract::Request, middleware::Next, response::Response};
 use std::time::Instant;
 
-use crate::metrics::{normalize_path, record_http_duration, record_http_request, record_http_response};
+use crate::metrics::{
+    normalize_path, record_http_duration, record_http_request, record_http_response,
+};
 
 /// HTTP 메트릭을 수집하는 미들웨어 레이어.
 ///

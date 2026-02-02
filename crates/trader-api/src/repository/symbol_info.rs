@@ -203,20 +203,16 @@ impl SymbolInfoRepository {
 
     /// 전체 심볼 수 조회.
     pub async fn count_all(pool: &PgPool) -> Result<i64, sqlx::Error> {
-        let row = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM symbol_info WHERE is_active = true",
-        )
-        .fetch_one(pool)
-        .await?;
+        let row =
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM symbol_info WHERE is_active = true")
+                .fetch_one(pool)
+                .await?;
 
         Ok(row)
     }
 
     /// 단일 심볼 정보 삽입 (upsert) 및 ID 반환.
-    pub async fn upsert_single(
-        pool: &PgPool,
-        symbol: &NewSymbolInfo,
-    ) -> Result<Uuid, sqlx::Error> {
+    pub async fn upsert_single(pool: &PgPool, symbol: &NewSymbolInfo) -> Result<Uuid, sqlx::Error> {
         let id = sqlx::query_scalar::<_, Uuid>(
             r#"
             INSERT INTO symbol_info (ticker, name, name_en, market, exchange, sector, yahoo_symbol)
@@ -278,7 +274,9 @@ impl SymbolInfoRepository {
                 let pool_clone = pool.clone();
                 let ticker_clone = ticker_db.clone();
                 tokio::spawn(async move {
-                    if let Err(e) = Self::refresh_fundamental(&pool_clone, symbol_id, &ticker_clone).await {
+                    if let Err(e) =
+                        Self::refresh_fundamental(&pool_clone, symbol_id, &ticker_clone).await
+                    {
                         warn!(ticker = %ticker_clone, error = %e, "Fundamental 갱신 실패");
                     }
                 });
@@ -518,7 +516,9 @@ impl SymbolInfoRepository {
                 "JP"
             } else if quote.symbol.ends_with(".L") {
                 "UK"
-            } else if quote.symbol.contains("-") && quote.quote_type.as_deref() == Some("CRYPTOCURRENCY") {
+            } else if quote.symbol.contains("-")
+                && quote.quote_type.as_deref() == Some("CRYPTOCURRENCY")
+            {
                 "CRYPTO"
             } else {
                 "US"
@@ -537,19 +537,37 @@ impl SymbolInfoRepository {
             // Fundamental 데이터 생성
             let fundamental = NewSymbolFundamental {
                 symbol_info_id: Uuid::nil(), // 나중에 설정됨
-                market_cap: quote.market_cap.map(|v| Decimal::from_f64_retain(v).unwrap_or_default()),
+                market_cap: quote
+                    .market_cap
+                    .map(|v| Decimal::from_f64_retain(v).unwrap_or_default()),
                 shares_outstanding: quote.shares_outstanding,
                 float_shares: quote.float_shares,
-                week_52_high: quote.fifty_two_week_high.map(|v| Decimal::from_f64_retain(v).unwrap_or_default()),
-                week_52_low: quote.fifty_two_week_low.map(|v| Decimal::from_f64_retain(v).unwrap_or_default()),
+                week_52_high: quote
+                    .fifty_two_week_high
+                    .map(|v| Decimal::from_f64_retain(v).unwrap_or_default()),
+                week_52_low: quote
+                    .fifty_two_week_low
+                    .map(|v| Decimal::from_f64_retain(v).unwrap_or_default()),
                 avg_volume_10d: quote.average_daily_volume_10_day,
                 avg_volume_3m: quote.average_daily_volume_3_month,
-                per: quote.trailing_pe.map(|v| Decimal::from_f64_retain(v).unwrap_or_default()),
-                forward_per: quote.forward_pe.map(|v| Decimal::from_f64_retain(v).unwrap_or_default()),
-                pbr: quote.price_to_book.map(|v| Decimal::from_f64_retain(v).unwrap_or_default()),
-                eps: quote.trailing_eps.map(|v| Decimal::from_f64_retain(v).unwrap_or_default()),
-                bps: quote.book_value.map(|v| Decimal::from_f64_retain(v).unwrap_or_default()),
-                dividend_yield: quote.dividend_yield.map(|v| Decimal::from_f64_retain(v * 100.0).unwrap_or_default()), // % 변환
+                per: quote
+                    .trailing_pe
+                    .map(|v| Decimal::from_f64_retain(v).unwrap_or_default()),
+                forward_per: quote
+                    .forward_pe
+                    .map(|v| Decimal::from_f64_retain(v).unwrap_or_default()),
+                pbr: quote
+                    .price_to_book
+                    .map(|v| Decimal::from_f64_retain(v).unwrap_or_default()),
+                eps: quote
+                    .trailing_eps
+                    .map(|v| Decimal::from_f64_retain(v).unwrap_or_default()),
+                bps: quote
+                    .book_value
+                    .map(|v| Decimal::from_f64_retain(v).unwrap_or_default()),
+                dividend_yield: quote
+                    .dividend_yield
+                    .map(|v| Decimal::from_f64_retain(v * 100.0).unwrap_or_default()), // % 변환
                 data_source: Some("Yahoo".to_string()),
                 currency: quote.currency,
                 ..Default::default()

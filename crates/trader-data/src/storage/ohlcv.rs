@@ -24,8 +24,8 @@ use chrono::{DateTime, Duration, Utc};
 use rust_decimal::Decimal;
 use sqlx::postgres::PgPool;
 use sqlx::FromRow;
-use trader_core::{Kline, Symbol, Timeframe};
 use tracing::{debug, info, instrument};
+use trader_core::{Kline, Symbol, Timeframe};
 
 /// OHLCV 캔들 데이터베이스 레코드.
 #[derive(Debug, Clone, FromRow)]
@@ -49,9 +49,9 @@ impl OhlcvRecord {
     /// 중립 심볼(canonical)로 변환이 필요한 경우 `to_kline_with_canonical`을 사용하세요.
     pub fn to_kline(&self) -> Kline {
         let timeframe = self.timeframe.parse().unwrap_or(Timeframe::D1);
-        let close_time = self.close_time.unwrap_or_else(|| {
-            self.open_time + timeframe_to_duration(timeframe)
-        });
+        let close_time = self
+            .close_time
+            .unwrap_or_else(|| self.open_time + timeframe_to_duration(timeframe));
 
         // DB에 저장된 심볼을 그대로 사용 (exchange_symbol에 원본 저장)
         let symbol = Symbol {
@@ -91,9 +91,9 @@ impl OhlcvRecord {
         market_type: trader_core::MarketType,
     ) -> Kline {
         let timeframe = self.timeframe.parse().unwrap_or(Timeframe::D1);
-        let close_time = self.close_time.unwrap_or_else(|| {
-            self.open_time + timeframe_to_duration(timeframe)
-        });
+        let close_time = self
+            .close_time
+            .unwrap_or_else(|| self.open_time + timeframe_to_duration(timeframe));
 
         let symbol = Symbol {
             base: canonical.to_string(),
@@ -172,9 +172,7 @@ impl OhlcvCache {
         .map_err(|e| DataError::QueryError(e.to_string()))?;
 
         // 시간순 정렬 (오래된 것부터)
-        let mut klines: Vec<Kline> = records.into_iter()
-            .map(|r| r.to_kline())
-            .collect();
+        let mut klines: Vec<Kline> = records.into_iter().map(|r| r.to_kline()).collect();
         klines.reverse();
 
         debug!(
@@ -214,9 +212,7 @@ impl OhlcvCache {
         .await
         .map_err(|e| DataError::QueryError(e.to_string()))?;
 
-        let klines: Vec<Kline> = records.into_iter()
-            .map(|r| r.to_kline())
-            .collect();
+        let klines: Vec<Kline> = records.into_iter().map(|r| r.to_kline()).collect();
 
         Ok(klines)
     }
@@ -347,11 +343,7 @@ impl OhlcvCache {
     }
 
     /// 캐시된 데이터 수 조회.
-    pub async fn get_cached_count(
-        &self,
-        symbol: &str,
-        timeframe: Timeframe,
-    ) -> Result<i64> {
+    pub async fn get_cached_count(&self, symbol: &str, timeframe: Timeframe) -> Result<i64> {
         let tf_str = timeframe_to_string(timeframe);
 
         let result: (i64,) = sqlx::query_as(
@@ -377,9 +369,9 @@ impl OhlcvCache {
         let tf_str = timeframe_to_string(timeframe);
 
         let retention_days = if is_intraday(timeframe) {
-            90  // 분봉/시간봉: 90일
+            90 // 분봉/시간봉: 90일
         } else {
-            365 * 5  // 일봉 이상: 5년
+            365 * 5 // 일봉 이상: 5년
         };
 
         let cutoff = Utc::now() - Duration::days(retention_days);
@@ -439,7 +431,11 @@ impl OhlcvCache {
             .await
             .ok();
 
-        info!(symbol = symbol, deleted = result.rows_affected(), "심볼 캐시 삭제");
+        info!(
+            symbol = symbol,
+            deleted = result.rows_affected(),
+            "심볼 캐시 삭제"
+        );
         Ok(result.rows_affected())
     }
 }
@@ -452,7 +448,7 @@ impl OhlcvCache {
 pub fn timeframe_to_string(timeframe: Timeframe) -> String {
     match timeframe {
         Timeframe::M1 => "1m".to_string(),
-        Timeframe::M3 => "5m".to_string(),  // 3분봉은 5분봉으로 대체
+        Timeframe::M3 => "5m".to_string(), // 3분봉은 5분봉으로 대체
         Timeframe::M5 => "5m".to_string(),
         Timeframe::M15 => "15m".to_string(),
         Timeframe::M30 => "30m".to_string(),
@@ -508,7 +504,6 @@ fn is_intraday(timeframe: Timeframe) -> bool {
     )
 }
 
-
 // =============================================================================
 // 테스트
 // =============================================================================
@@ -516,6 +511,7 @@ fn is_intraday(timeframe: Timeframe) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cache::historical::guess_currency;
 
     #[test]
     fn test_timeframe_to_string() {

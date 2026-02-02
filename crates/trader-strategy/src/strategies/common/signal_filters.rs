@@ -278,7 +278,7 @@ mod tests {
         let filter = VolumeFilter::new(dec!(1.5));
         let context = SignalContext {
             current_price: dec!(100),
-            volume: dec!(2500),  // 2.5배 = 1.5 * 1.5보다 큼, Medium 강도
+            volume: dec!(2500), // 2.5배 = 1.5 * 1.5보다 큼, Medium 강도
             avg_volume: Some(dec!(1000)),
             rsi: None,
             macd_histogram: None,

@@ -20,7 +20,7 @@ use tracing::{debug, info, warn};
 
 use trader_core::{Kline, Symbol, Timeframe};
 
-use crate::connector::kis::{KisKrClient, KisUsClient, KrOhlcv, KrMinuteOhlcv, UsOhlcv};
+use crate::connector::kis::{KisKrClient, KisUsClient, KrMinuteOhlcv, KrOhlcv, UsOhlcv};
 use crate::ExchangeError;
 
 /// 거래소 중립적 과거 데이터 제공자 trait.
@@ -250,8 +250,8 @@ impl UnifiedHistoricalProvider {
 
         // KST를 UTC로 변환 (-9시간)
         let datetime = today.and_time(time);
-        let open_time = DateTime::<Utc>::from_naive_utc_and_offset(datetime, Utc)
-            - Duration::hours(9);
+        let open_time =
+            DateTime::<Utc>::from_naive_utc_and_offset(datetime, Utc) - Duration::hours(9);
         let close_time = open_time + Self::timeframe_duration(timeframe);
 
         Kline {
@@ -357,9 +357,18 @@ mod tests {
 
     #[test]
     fn test_timeframe_to_period() {
-        assert_eq!(UnifiedHistoricalProvider::timeframe_to_period(Timeframe::D1), "D");
-        assert_eq!(UnifiedHistoricalProvider::timeframe_to_period(Timeframe::W1), "W");
-        assert_eq!(UnifiedHistoricalProvider::timeframe_to_period(Timeframe::MN1), "M");
+        assert_eq!(
+            UnifiedHistoricalProvider::timeframe_to_period(Timeframe::D1),
+            "D"
+        );
+        assert_eq!(
+            UnifiedHistoricalProvider::timeframe_to_period(Timeframe::W1),
+            "W"
+        );
+        assert_eq!(
+            UnifiedHistoricalProvider::timeframe_to_period(Timeframe::MN1),
+            "M"
+        );
     }
 
     #[test]

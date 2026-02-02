@@ -342,10 +342,9 @@ pub fn get_ui_schema_for_strategy(strategy_id: &str) -> Option<UiSchema> {
     groups.extend(risk_groups);
 
     // 레이아웃
-    let layout = strategy
-        .layout
-        .as_ref()
-        .map(|l| UiLayout { columns: l.columns as usize });
+    let layout = strategy.layout.as_ref().map(|l| UiLayout {
+        columns: l.columns as usize,
+    });
 
     Some(UiSchema {
         fields,

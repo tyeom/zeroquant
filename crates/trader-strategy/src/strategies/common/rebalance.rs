@@ -64,11 +64,11 @@ pub struct RebalanceConfig {
 impl Default for RebalanceConfig {
     fn default() -> Self {
         Self {
-            min_trade_amount: dec!(10000),      // 10,000 KRW or $10
-            fee_rate: dec!(0.00015),            // 0.015% (typical for Korean ETFs)
-            sell_tax_rate: dec!(0.0),           // 0% for ETFs (varies by market)
-            slippage_rate: dec!(0.001),         // 0.1%
-            rebalance_threshold: dec!(0.03),    // 3% deviation threshold
+            min_trade_amount: dec!(10000),   // 10,000 KRW or $10
+            fee_rate: dec!(0.00015),         // 0.015% (typical for Korean ETFs)
+            sell_tax_rate: dec!(0.0),        // 0% for ETFs (varies by market)
+            slippage_rate: dec!(0.001),      // 0.1%
+            rebalance_threshold: dec!(0.03), // 3% deviation threshold
             cash_symbol: "CASH".to_string(),
         }
     }
@@ -78,10 +78,10 @@ impl RebalanceConfig {
     /// 한국 시장용 설정 생성.
     pub fn korean_market() -> Self {
         Self {
-            min_trade_amount: dec!(10000),      // 10,000 KRW
-            fee_rate: dec!(0.00015),            // 0.015%
-            sell_tax_rate: dec!(0.0),           // ETF의 경우 0%
-            slippage_rate: dec!(0.001),         // 0.1%
+            min_trade_amount: dec!(10000), // 10,000 KRW
+            fee_rate: dec!(0.00015),       // 0.015%
+            sell_tax_rate: dec!(0.0),      // ETF의 경우 0%
+            slippage_rate: dec!(0.001),    // 0.1%
             rebalance_threshold: dec!(0.03),
             cash_symbol: "KRW".to_string(),
         }
@@ -90,10 +90,10 @@ impl RebalanceConfig {
     /// 미국 시장용 설정 생성.
     pub fn us_market() -> Self {
         Self {
-            min_trade_amount: dec!(10),         // $10
-            fee_rate: dec!(0.0),                // 대부분의 브로커에서 수수료 무료
-            sell_tax_rate: dec!(0.0),           // 거래세 없음
-            slippage_rate: dec!(0.001),         // 0.1%
+            min_trade_amount: dec!(10), // $10
+            fee_rate: dec!(0.0),        // 대부분의 브로커에서 수수료 무료
+            sell_tax_rate: dec!(0.0),   // 거래세 없음
+            slippage_rate: dec!(0.001), // 0.1%
             rebalance_threshold: dec!(0.03),
             cash_symbol: "USD".to_string(),
         }
@@ -427,7 +427,9 @@ impl RebalanceCalculator {
 
         // Check for positions not in target (should be sold)
         for (symbol, position) in &position_map {
-            if !target_map.contains_key(*symbol) && position.market_value > self.config.min_trade_amount {
+            if !target_map.contains_key(*symbol)
+                && position.market_value > self.config.min_trade_amount
+            {
                 let current_weight = if total_value.is_zero() {
                     dec!(0)
                 } else {
@@ -529,12 +531,20 @@ impl RebalanceCalculator {
         let mut filtered = Vec::new();
 
         // Keep all sell orders
-        for order in result.orders.iter().filter(|o| o.side == RebalanceOrderSide::Sell) {
+        for order in result
+            .orders
+            .iter()
+            .filter(|o| o.side == RebalanceOrderSide::Sell)
+        {
             adjusted_orders.push(order.clone());
         }
 
         // Process buy orders with cash constraint
-        for order in result.orders.iter().filter(|o| o.side == RebalanceOrderSide::Buy) {
+        for order in result
+            .orders
+            .iter()
+            .filter(|o| o.side == RebalanceOrderSide::Buy)
+        {
             let cost = order.amount + order.estimated_fee;
 
             if cost <= remaining_funds {
@@ -616,8 +626,8 @@ mod tests {
         ];
 
         let targets = vec![
-            TargetAllocation::new("SPY", dec!(0.6)),  // 60%
-            TargetAllocation::new("TLT", dec!(0.4)),  // 40%
+            TargetAllocation::new("SPY", dec!(0.6)), // 60%
+            TargetAllocation::new("TLT", dec!(0.4)), // 40%
         ];
 
         let result = calculator.calculate_orders(&positions, &targets);
@@ -702,7 +712,11 @@ mod tests {
 
         // Sell orders should come before buy orders
         if result.orders.len() >= 2 {
-            let first_is_sell = result.orders.first().map(|o| o.side == RebalanceOrderSide::Sell).unwrap_or(false);
+            let first_is_sell = result
+                .orders
+                .first()
+                .map(|o| o.side == RebalanceOrderSide::Sell)
+                .unwrap_or(false);
             assert!(first_is_sell || result.sell_orders().is_empty());
         }
     }

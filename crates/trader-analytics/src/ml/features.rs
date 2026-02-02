@@ -413,8 +413,7 @@ impl FeatureExtractor {
         let window = &closes[start..];
 
         let sma: f64 = window.iter().sum::<f64>() / period as f64;
-        let variance: f64 =
-            window.iter().map(|x| (x - sma).powi(2)).sum::<f64>() / period as f64;
+        let variance: f64 = window.iter().map(|x| (x - sma).powi(2)).sum::<f64>() / period as f64;
         let std_dev = variance.sqrt();
 
         let upper_band = sma + std_dev_mult * std_dev;
@@ -613,7 +612,9 @@ mod tests {
     #[test]
     fn test_bollinger_bands() {
         let extractor = FeatureExtractor::with_defaults();
-        let data: Vec<f64> = (0..30).map(|i| 100.0 + (i as f64 * 0.5).sin() * 5.0).collect();
+        let data: Vec<f64> = (0..30)
+            .map(|i| 100.0 + (i as f64 * 0.5).sin() * 5.0)
+            .collect();
 
         let (percent_b, bandwidth) = extractor.calculate_bollinger(&data, 20, 2.0);
 

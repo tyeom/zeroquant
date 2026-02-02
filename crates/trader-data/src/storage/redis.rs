@@ -8,8 +8,8 @@ use redis::{aio::MultiplexedConnection, AsyncCommands, Client};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use trader_core::{Kline, OrderBook, Ticker, Timeframe};
 use tracing::{info, instrument};
+use trader_core::{Kline, OrderBook, Ticker, Timeframe};
 
 /// Redis 설정.
 #[derive(Debug, Clone, Deserialize)]
@@ -249,20 +249,20 @@ impl RedisCache {
         let key = Self::klines_key(exchange, symbol, timeframe);
         // Kline은 과거 데이터이므로 더 오래 cache할 수 있음
         let ttl = match timeframe {
-            Timeframe::M1 => 60,      // 1분봉은 1분
-            Timeframe::M3 => 180,     // 3분봉은 3분
-            Timeframe::M5 => 300,     // 5분봉은 5분
-            Timeframe::M15 => 900,    // 15분봉은 15분
-            Timeframe::M30 => 1800,   // 30분봉은 30분
-            Timeframe::H1 => 3600,    // 1시간봉은 1시간
-            Timeframe::H2 => 7200,    // 2시간봉은 2시간
-            Timeframe::H4 => 14400,   // 4시간봉은 4시간
-            Timeframe::H6 => 21600,   // 6시간봉은 6시간
-            Timeframe::H8 => 28800,   // 8시간봉은 8시간
-            Timeframe::H12 => 43200,  // 12시간봉은 12시간
-            Timeframe::D1 => 86400,   // 일봉은 1일
-            Timeframe::D3 => 259200,  // 3일봉은 3일
-            Timeframe::W1 => 604800,  // 주봉은 1주
+            Timeframe::M1 => 60,       // 1분봉은 1분
+            Timeframe::M3 => 180,      // 3분봉은 3분
+            Timeframe::M5 => 300,      // 5분봉은 5분
+            Timeframe::M15 => 900,     // 15분봉은 15분
+            Timeframe::M30 => 1800,    // 30분봉은 30분
+            Timeframe::H1 => 3600,     // 1시간봉은 1시간
+            Timeframe::H2 => 7200,     // 2시간봉은 2시간
+            Timeframe::H4 => 14400,    // 4시간봉은 4시간
+            Timeframe::H6 => 21600,    // 6시간봉은 6시간
+            Timeframe::H8 => 28800,    // 8시간봉은 8시간
+            Timeframe::H12 => 43200,   // 12시간봉은 12시간
+            Timeframe::D1 => 86400,    // 일봉은 1일
+            Timeframe::D3 => 259200,   // 3일봉은 3일
+            Timeframe::W1 => 604800,   // 주봉은 1주
             Timeframe::MN1 => 2592000, // 월봉은 30일
         };
         self.set_with_ttl(&key, klines, ttl).await
@@ -514,8 +514,7 @@ impl MetricsCache {
     pub async fn get<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
         let result = self.cache.get(key).await?;
         if result.is_some() {
-            self.hits
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         } else {
             self.misses
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);

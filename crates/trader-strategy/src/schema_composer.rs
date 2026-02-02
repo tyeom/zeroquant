@@ -243,7 +243,8 @@ mod tests {
     #[test]
     fn test_fragments_by_category() {
         let composer = SchemaComposer::with_default_registry();
-        let indicators = composer.get_fragments_by_category(trader_core::FragmentCategory::Indicator);
+        let indicators =
+            composer.get_fragments_by_category(trader_core::FragmentCategory::Indicator);
 
         assert!(indicators["fragments"].is_array());
         let fragments = indicators["fragments"].as_array().unwrap();

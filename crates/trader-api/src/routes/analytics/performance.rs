@@ -182,9 +182,10 @@ pub async fn get_performance(
         let end_time = Utc::now();
 
         // credential_id 파싱
-        let credential_id = query.credential_id.as_ref().and_then(|id| {
-            uuid::Uuid::parse_str(id).ok()
-        });
+        let credential_id = query
+            .credential_id
+            .as_ref()
+            .and_then(|id| uuid::Uuid::parse_str(id).ok());
 
         // credential_id가 있으면 특정 계좌만 조회, 없으면 전체 합산
         let data_result = if let Some(cred_id) = credential_id {
@@ -192,7 +193,8 @@ pub async fn get_performance(
             EquityHistoryRepository::get_equity_curve(db_pool, cred_id, start_time, end_time).await
         } else {
             debug!("전체 계좌 통합 성과 조회");
-            EquityHistoryRepository::get_aggregated_equity_curve(db_pool, start_time, end_time).await
+            EquityHistoryRepository::get_aggregated_equity_curve(db_pool, start_time, end_time)
+                .await
         };
 
         match data_result {

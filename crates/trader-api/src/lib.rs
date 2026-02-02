@@ -6,7 +6,6 @@
 //! - JWT 인증
 //! - 헬스 체크 엔드포인트
 //! - Prometheus 메트릭
-//! - 백그라운드 데이터 수집 태스크
 //!
 //! # 모듈 구성
 //!
@@ -17,7 +16,6 @@
 //! - [`metrics`]: Prometheus 메트릭 수집
 //! - [`middleware`]: HTTP 미들웨어
 //! - [`openapi`]: OpenAPI 문서 및 Swagger UI
-//! - [`tasks`]: 백그라운드 태스크 (Fundamental 데이터 수집 등)
 
 pub mod auth;
 pub mod error;
@@ -27,29 +25,28 @@ pub mod monitoring;
 pub mod openapi;
 pub mod repository;
 pub mod routes;
+pub mod services;
 pub mod state;
-pub mod tasks;
 pub mod types;
 pub mod utils;
 pub mod websocket;
 
-pub use auth::{Claims, Role, Permission, JwtAuth, JwtAuthError, hash_password, verify_password};
+pub use auth::{hash_password, verify_password, Claims, JwtAuth, JwtAuthError, Permission, Role};
 pub use error::{ApiErrorResponse, ApiResult};
-pub use monitoring::{
-    global_tracker, init_global_tracker, ErrorTracker, ErrorTrackerConfig,
-    ErrorRecord, ErrorRecordBuilder, ErrorSeverity, ErrorCategory, ErrorStats, SourceLocation,
-};
-pub use routes::*;
-pub use state::AppState;
-pub use tasks::{start_fundamental_collector, FundamentalCollectorConfig};
-pub use websocket::{
-    websocket_handler, websocket_router, ClientMessage, ServerMessage, WsError,
-    Subscription, SubscriptionManager, subscriptions::create_subscription_manager,
-    handler::WsState,
-};
 pub use metrics::setup_metrics_recorder;
 pub use middleware::metrics_layer;
+pub use monitoring::{
+    global_tracker, init_global_tracker, ErrorCategory, ErrorRecord, ErrorRecordBuilder,
+    ErrorSeverity, ErrorStats, ErrorTracker, ErrorTrackerConfig, SourceLocation,
+};
+pub use routes::*;
+pub use services::start_context_sync_service;
+pub use state::AppState;
 pub use types::StrategyType;
+pub use websocket::{
+    handler::WsState, subscriptions::create_subscription_manager, websocket_handler,
+    websocket_router, ClientMessage, ServerMessage, Subscription, SubscriptionManager, WsError,
+};
 
 #[cfg(any(test, feature = "test-utils"))]
 pub use state::create_test_state;

@@ -133,10 +133,7 @@ pub async fn fetch_symbols(config: FetchSymbolsConfig) -> Result<FetchResult> {
 }
 
 /// 한국 시장 종목 수집.
-async fn fetch_kr_symbols(
-    pool: Option<&PgPool>,
-    config: &FetchSymbolsConfig,
-) -> Result<usize> {
+async fn fetch_kr_symbols(pool: Option<&PgPool>, config: &FetchSymbolsConfig) -> Result<usize> {
     println!("📊 한국 시장 수집 중 (KRX)...");
 
     use trader_data::provider::{KrxSymbolProvider, SymbolInfoProvider};
@@ -170,9 +167,10 @@ async fn fetch_kr_symbols(
             })
             .collect();
 
-        let upserted = trader_api::repository::SymbolInfoRepository::upsert_batch(pool, &new_symbols)
-            .await
-            .context("Failed to upsert KRX symbols")?;
+        let upserted =
+            trader_api::repository::SymbolInfoRepository::upsert_batch(pool, &new_symbols)
+                .await
+                .context("Failed to upsert KRX symbols")?;
 
         println!("   DB 저장: {}개 종목 업데이트", upserted);
         return Ok(upserted);
@@ -182,10 +180,7 @@ async fn fetch_kr_symbols(
 }
 
 /// 미국 시장 종목 수집.
-async fn fetch_us_symbols(
-    pool: Option<&PgPool>,
-    config: &FetchSymbolsConfig,
-) -> Result<usize> {
+async fn fetch_us_symbols(pool: Option<&PgPool>, config: &FetchSymbolsConfig) -> Result<usize> {
     println!("📊 미국 시장 수집 중 (Yahoo Finance)...");
 
     use trader_data::provider::{SymbolInfoProvider, YahooSymbolProvider};
@@ -220,9 +215,10 @@ async fn fetch_us_symbols(
             })
             .collect();
 
-        let upserted = trader_api::repository::SymbolInfoRepository::upsert_batch(pool, &new_symbols)
-            .await
-            .context("Failed to upsert US symbols")?;
+        let upserted =
+            trader_api::repository::SymbolInfoRepository::upsert_batch(pool, &new_symbols)
+                .await
+                .context("Failed to upsert US symbols")?;
 
         println!("   DB 저장: {}개 종목 업데이트", upserted);
         return Ok(upserted);
@@ -232,10 +228,7 @@ async fn fetch_us_symbols(
 }
 
 /// 암호화폐 시장 종목 수집.
-async fn fetch_crypto_symbols(
-    pool: Option<&PgPool>,
-    config: &FetchSymbolsConfig,
-) -> Result<usize> {
+async fn fetch_crypto_symbols(pool: Option<&PgPool>, config: &FetchSymbolsConfig) -> Result<usize> {
     println!("📊 암호화폐 시장 수집 중 (Binance)...");
 
     // Binance API를 통해 USDT 페어 조회
@@ -278,8 +271,7 @@ async fn fetch_crypto_symbols(
     // CSV 저장 (선택적)
     if config.save_csv {
         let csv_path = Path::new(&config.csv_dir).join("crypto_symbols.csv");
-        let mut wtr = csv::Writer::from_path(&csv_path)
-            .context("Failed to create CSV writer")?;
+        let mut wtr = csv::Writer::from_path(&csv_path).context("Failed to create CSV writer")?;
 
         wtr.write_record(&["ticker", "name", "market", "exchange"])
             .context("Failed to write CSV header")?;
@@ -314,9 +306,10 @@ async fn fetch_crypto_symbols(
             .collect();
 
         let count = new_symbols.len();
-        let upserted = trader_api::repository::SymbolInfoRepository::upsert_batch(pool, &new_symbols)
-            .await
-            .context("Failed to upsert crypto symbols")?;
+        let upserted =
+            trader_api::repository::SymbolInfoRepository::upsert_batch(pool, &new_symbols)
+                .await
+                .context("Failed to upsert crypto symbols")?;
 
         println!("   DB 저장: {}개 종목 업데이트", upserted);
         return Ok(upserted);
@@ -330,8 +323,7 @@ fn save_to_csv(
     symbols: &[trader_data::provider::SymbolMetadata],
     path: impl AsRef<Path>,
 ) -> Result<()> {
-    let mut wtr = csv::Writer::from_path(path.as_ref())
-        .context("Failed to create CSV writer")?;
+    let mut wtr = csv::Writer::from_path(path.as_ref()).context("Failed to create CSV writer")?;
 
     // 헤더 작성
     wtr.write_record(&[

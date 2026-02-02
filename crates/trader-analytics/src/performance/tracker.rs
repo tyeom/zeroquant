@@ -174,7 +174,7 @@ impl Default for PerformanceThresholds {
         Self {
             daily_loss_limit: None,
             max_drawdown_alert_pct: Some(Decimal::from(15)), // 15% 낙폭 시 경고
-            consecutive_loss_alert: Some(5),                  // 5연패 시 경고
+            consecutive_loss_alert: Some(5),                 // 5연패 시 경고
             profit_target_pct: None,
         }
     }
@@ -296,10 +296,7 @@ impl PerformanceTracker {
     }
 
     /// 빌더 패턴: 이벤트 채널 설정
-    pub fn with_event_sender(
-        mut self,
-        sender: mpsc::UnboundedSender<PerformanceEvent>,
-    ) -> Self {
+    pub fn with_event_sender(mut self, sender: mpsc::UnboundedSender<PerformanceEvent>) -> Self {
         self.event_sender = Some(sender);
         self
     }
@@ -560,7 +557,11 @@ impl PerformanceTracker {
             .cloned()
             .collect();
 
-        PerformanceMetrics::from_round_trips(&filtered, self.initial_capital, Some(self.risk_free_rate))
+        PerformanceMetrics::from_round_trips(
+            &filtered,
+            self.initial_capital,
+            Some(self.risk_free_rate),
+        )
     }
 
     /// 심볼별 성과를 반환합니다.
@@ -572,7 +573,11 @@ impl PerformanceTracker {
             .cloned()
             .collect();
 
-        PerformanceMetrics::from_round_trips(&filtered, self.initial_capital, Some(self.risk_free_rate))
+        PerformanceMetrics::from_round_trips(
+            &filtered,
+            self.initial_capital,
+            Some(self.risk_free_rate),
+        )
     }
 
     /// 시간 범위별 성과를 반환합니다.
@@ -588,7 +593,11 @@ impl PerformanceTracker {
             .cloned()
             .collect();
 
-        PerformanceMetrics::from_round_trips(&filtered, self.initial_capital, Some(self.risk_free_rate))
+        PerformanceMetrics::from_round_trips(
+            &filtered,
+            self.initial_capital,
+            Some(self.risk_free_rate),
+        )
     }
 
     /// 성과 요약 문자열을 반환합니다.
@@ -631,8 +640,8 @@ impl PerformanceTracker {
     fn close_position(&mut self, exit_trade: &Trade) -> TrackerResult<RoundTrip> {
         // 반대 방향의 진입 거래 찾기
         let entry_side = match exit_trade.side {
-            Side::Buy => Side::Sell,  // 매수로 청산 = 숏 포지션 종료
-            Side::Sell => Side::Buy,  // 매도로 청산 = 롱 포지션 종료
+            Side::Buy => Side::Sell, // 매수로 청산 = 숏 포지션 종료
+            Side::Sell => Side::Buy, // 매도로 청산 = 롱 포지션 종료
         };
 
         let key = Self::position_key(&exit_trade.symbol.to_string(), entry_side);
@@ -821,12 +830,7 @@ mod tests {
     use rust_decimal_macros::dec;
     use trader_core::Symbol;
 
-    fn create_test_trade(
-        side: Side,
-        price: Decimal,
-        quantity: Decimal,
-        fee: Decimal,
-    ) -> Trade {
+    fn create_test_trade(side: Side, price: Decimal, quantity: Decimal, fee: Decimal) -> Trade {
         Trade::new(
             Uuid::new_v4(),
             "binance",
@@ -1020,8 +1024,7 @@ mod tests {
 
     #[test]
     fn test_rolling_metrics() {
-        let mut tracker = PerformanceTracker::new(dec!(10000))
-            .with_rolling_window(3);
+        let mut tracker = PerformanceTracker::new(dec!(10000)).with_rolling_window(3);
 
         // 3개 거래
         for _ in 0..3 {
@@ -1045,7 +1048,9 @@ mod tests {
         // 전략 A
         for _ in 0..3 {
             let entry = create_test_trade(Side::Buy, dec!(100), dec!(1), dec!(0));
-            tracker.record_trade(&entry, true, Some("strategy_a".to_string())).unwrap();
+            tracker
+                .record_trade(&entry, true, Some("strategy_a".to_string()))
+                .unwrap();
 
             let exit = create_test_trade(Side::Sell, dec!(110), dec!(1), dec!(0));
             tracker.record_trade(&exit, false, None).unwrap();
@@ -1054,7 +1059,9 @@ mod tests {
         // 전략 B
         for _ in 0..2 {
             let entry = create_test_trade(Side::Buy, dec!(100), dec!(1), dec!(0));
-            tracker.record_trade(&entry, true, Some("strategy_b".to_string())).unwrap();
+            tracker
+                .record_trade(&entry, true, Some("strategy_b".to_string()))
+                .unwrap();
 
             let exit = create_test_trade(Side::Sell, dec!(90), dec!(1), dec!(0));
             tracker.record_trade(&exit, false, None).unwrap();
@@ -1110,8 +1117,7 @@ mod tests {
     async fn test_event_emission() {
         let (tx, mut rx) = mpsc::unbounded_channel();
 
-        let mut tracker = PerformanceTracker::new(dec!(10000))
-            .with_event_sender(tx);
+        let mut tracker = PerformanceTracker::new(dec!(10000)).with_event_sender(tx);
 
         // 거래 수행
         let entry = create_test_trade(Side::Buy, dec!(100), dec!(1), dec!(0));

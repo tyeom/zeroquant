@@ -28,7 +28,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 use validator::Validate;
 
-use crate::repository::{StrategyRepository, strategies::CreateStrategyInput};
+use crate::repository::{strategies::CreateStrategyInput, StrategyRepository};
 use crate::state::AppState;
 use crate::websocket::{ServerMessage, StrategyUpdateData};
 use trader_strategy::{EngineError, EngineStats, Strategy, StrategyStatus};
@@ -235,7 +235,7 @@ fn validate_risk_profile(profile: &str) -> Result<(), validator::ValidationError
     } else {
         let mut error = validator::ValidationError::new("invalid_risk_profile");
         error.message = Some(std::borrow::Cow::from(
-            "리스크 프로필은 conservative, default, aggressive, custom 중 하나여야 합니다"
+            "리스크 프로필은 conservative, default, aggressive, custom 중 하나여야 합니다",
         ));
         Err(error)
     }
@@ -360,7 +360,11 @@ pub async fn create_strategy(
     })?;
 
     // 전략 ID 생성 (UUID)
-    let strategy_id = format!("{}_{}", request.strategy_type, Uuid::new_v4().to_string()[..8].to_string());
+    let strategy_id = format!(
+        "{}_{}",
+        request.strategy_type,
+        Uuid::new_v4().to_string()[..8].to_string()
+    );
 
     // 전략 이름 (커스텀 이름이 있으면 사용, 없으면 기본 이름)
     let custom_name = request.name.clone();
@@ -389,7 +393,11 @@ pub async fn create_strategy(
         .unwrap_or_else(|| get_strategy_default_timeframe(&request.strategy_type).to_string());
 
     // 마켓 타입 추론 (심볼 기반)
-    let market = if symbols.first().map(|s| s.chars().all(|c| c.is_numeric())).unwrap_or(false) {
+    let market = if symbols
+        .first()
+        .map(|s| s.chars().all(|c| c.is_numeric()))
+        .unwrap_or(false)
+    {
         "KR".to_string()
     } else if symbols.first().map(|s| s.contains('/')).unwrap_or(false) {
         "CRYPTO".to_string()
@@ -398,7 +406,9 @@ pub async fn create_strategy(
     };
 
     // 할당 자본을 Decimal로 변환
-    let allocated_capital = request.allocated_capital.map(|v| Decimal::try_from(v).unwrap_or(Decimal::ZERO));
+    let allocated_capital = request
+        .allocated_capital
+        .map(|v| Decimal::try_from(v).unwrap_or(Decimal::ZERO));
 
     // 데이터베이스에 저장 (DB가 연결된 경우)
     if let Some(ref pool) = state.db_pool {
@@ -420,7 +430,10 @@ pub async fn create_strategy(
             tracing::error!("Failed to save strategy to database: {:?}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("DB_ERROR", format!("Failed to save strategy: {}", e))),
+                Json(ApiError::new(
+                    "DB_ERROR",
+                    format!("Failed to save strategy: {}", e),
+                )),
             )
         })?;
     }
@@ -428,7 +441,12 @@ pub async fn create_strategy(
     // 엔진에 전략 등록 (커스텀 이름 전달)
     let engine = state.strategy_engine.read().await;
     engine
-        .register_strategy(&strategy_id, strategy, request.parameters.clone(), custom_name)
+        .register_strategy(
+            &strategy_id,
+            strategy,
+            request.parameters.clone(),
+            custom_name,
+        )
         .await
         .map_err(engine_error_to_response)?;
 
@@ -510,9 +528,7 @@ pub async fn delete_strategy(
         (status = 200, description = "전략 목록 조회 성공", body = StrategiesListResponse)
     )
 )]
-pub async fn list_strategies(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+pub async fn list_strategies(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let engine = state.strategy_engine.read().await;
     let all_statuses = engine.get_all_statuses().await;
 
@@ -563,8 +579,8 @@ pub async fn list_strategies(
             pnl: 0.0, // 향후 실제 PnL 계산 연동
             win_rate: 0.0,
             trades_count: status.stats.signals_generated, // 신호 수를 거래 수로 사용
-            risk_profile: None, // 향후 DB에서 조회하여 연동
-            allocated_capital: None, // 향후 DB에서 조회하여 연동
+            risk_profile: None,                           // 향후 DB에서 조회하여 연동
+            allocated_capital: None,                      // 향후 DB에서 조회하여 연동
         });
     }
 
@@ -712,11 +728,16 @@ pub async fn update_config(
         .map(|s| (s.name, s.running))
         .unwrap_or_else(|_| (id.clone(), false));
 
-    match engine.update_strategy_config(&id, request.config.clone()).await {
+    match engine
+        .update_strategy_config(&id, request.config.clone())
+        .await
+    {
         Ok(()) => {
             // DB에도 설정 저장 (DB가 연결된 경우)
             if let Some(pool) = state.db_pool.as_ref() {
-                if let Err(e) = StrategyRepository::update_config(pool, &id, request.config.clone()).await {
+                if let Err(e) =
+                    StrategyRepository::update_config(pool, &id, request.config.clone()).await
+                {
                     tracing::warn!(strategy_id = %id, error = %e, "Failed to persist strategy config to DB");
                     // DB 저장 실패해도 메모리 업데이트는 성공했으므로 계속 진행
                 }
@@ -760,7 +781,9 @@ pub async fn update_risk_settings(
     })?;
 
     // 할당 자본을 Decimal로 변환
-    let allocated_capital = request.allocated_capital.map(|v| Decimal::try_from(v).unwrap_or(Decimal::ZERO));
+    let allocated_capital = request
+        .allocated_capital
+        .map(|v| Decimal::try_from(v).unwrap_or(Decimal::ZERO));
 
     // DB에 리스크 설정 업데이트
     StrategyRepository::update_risk_settings(
@@ -775,7 +798,10 @@ pub async fn update_risk_settings(
         tracing::error!("Failed to update risk settings: {:?}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("DB_ERROR", format!("Failed to update risk settings: {}", e))),
+            Json(ApiError::new(
+                "DB_ERROR",
+                format!("Failed to update risk settings: {}", e),
+            )),
         )
     })?;
 
@@ -830,26 +856,41 @@ pub async fn clone_strategy(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("DB_ERROR", format!("Failed to get source strategy: {}", e))),
+                Json(ApiError::new(
+                    "DB_ERROR",
+                    format!("Failed to get source strategy: {}", e),
+                )),
             )
         })?
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(ApiError::new("STRATEGY_NOT_FOUND", format!("Strategy '{}' not found", source_id))),
+                Json(ApiError::new(
+                    "STRATEGY_NOT_FOUND",
+                    format!("Strategy '{}' not found", source_id),
+                )),
             )
         })?;
 
     // 전략 타입 확인
-    let strategy_type = source.strategy_type.clone().unwrap_or_else(|| "unknown".to_string());
+    let strategy_type = source
+        .strategy_type
+        .clone()
+        .unwrap_or_else(|| "unknown".to_string());
 
     // 새 전략 ID 생성
-    let new_id = format!("{}_{}", strategy_type, Uuid::new_v4().to_string()[..8].to_string());
+    let new_id = format!(
+        "{}_{}",
+        strategy_type,
+        Uuid::new_v4().to_string()[..8].to_string()
+    );
 
     // 파라미터 병합 (원본 + 오버라이드)
     let merged_config = if let Some(override_params) = request.override_params {
         let mut base = source.config.clone();
-        if let (Some(base_obj), Some(override_obj)) = (base.as_object_mut(), override_params.as_object()) {
+        if let (Some(base_obj), Some(override_obj)) =
+            (base.as_object_mut(), override_params.as_object())
+        {
             for (key, value) in override_obj {
                 base_obj.insert(key.clone(), value.clone());
             }
@@ -860,7 +901,9 @@ pub async fn clone_strategy(
     };
 
     // 리스크 설정 병합
-    let merged_risk = request.override_risk_config.unwrap_or(source.risk_limits.clone());
+    let merged_risk = request
+        .override_risk_config
+        .unwrap_or(source.risk_limits.clone());
 
     // 할당 자본 설정
     let allocated_capital = request
@@ -873,7 +916,11 @@ pub async fn clone_strategy(
         .symbols
         .as_ref()
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
 
     // 새 전략 생성
@@ -895,7 +942,10 @@ pub async fn clone_strategy(
         tracing::error!("Failed to create cloned strategy: {:?}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("DB_ERROR", format!("Failed to create cloned strategy: {}", e))),
+            Json(ApiError::new(
+                "DB_ERROR",
+                format!("Failed to create cloned strategy: {}", e),
+            )),
         )
     })?;
 
@@ -903,7 +953,12 @@ pub async fn clone_strategy(
     if let Ok(strategy) = create_strategy_instance(&strategy_type) {
         let engine = state.strategy_engine.read().await;
         let _ = engine
-            .register_strategy(&new_id, strategy, merged_config, Some(request.new_name.clone()))
+            .register_strategy(
+                &new_id,
+                strategy,
+                merged_config,
+                Some(request.new_name.clone()),
+            )
             .await;
     }
 
@@ -925,16 +980,17 @@ pub async fn clone_strategy(
         source_id: source_id.clone(),
         new_id: new_id.clone(),
         new_name: request.new_name,
-        message: format!("Strategy '{}' cloned to '{}' successfully", source_id, new_id),
+        message: format!(
+            "Strategy '{}' cloned to '{}' successfully",
+            source_id, new_id
+        ),
     }))
 }
 
 /// 엔진 통계 조회.
 ///
 /// GET /api/v1/strategies/stats
-pub async fn get_engine_stats(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+pub async fn get_engine_stats(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let engine = state.strategy_engine.read().await;
     let stats = engine.get_engine_stats().await;
 

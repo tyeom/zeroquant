@@ -26,8 +26,11 @@ use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use trader_core::{MarketData, MarketDataType, MarketType, Order, Position, Side, Signal, Symbol};
 use tracing::{debug, info};
+use trader_core::{
+    cost_basis, CostMethod, MarketData, MarketDataType, MarketType, Order, Position, Side, Signal,
+    Symbol, TradeEntry,
+};
 
 use crate::strategies::common::deserialize_symbol;
 use crate::traits::Strategy;
@@ -257,7 +260,11 @@ impl MagicSplitStrategy {
             quantity
         };
 
-        let slippage = self.config.as_ref().map(|c| c.slippage_tolerance).unwrap_or(dec!(1.0));
+        let slippage = self
+            .config
+            .as_ref()
+            .map(|c| c.slippage_tolerance)
+            .unwrap_or(dec!(1.0));
         let suggested_price = current_price * (Decimal::ONE + slippage / dec!(100));
 
         Signal::entry(self.name(), symbol.clone(), Side::Buy)
@@ -267,9 +274,14 @@ impl MagicSplitStrategy {
             .with_metadata("target_rate", serde_json::json!(level.target_rate))
             .with_metadata("invest_money", serde_json::json!(level.invest_money))
             .with_metadata("quantity", serde_json::json!(quantity))
-            .with_metadata("reason", serde_json::json!(
-                if level.number == 1 { "initial_entry" } else { "averaging_down" }
-            ))
+            .with_metadata(
+                "reason",
+                serde_json::json!(if level.number == 1 {
+                    "initial_entry"
+                } else {
+                    "averaging_down"
+                }),
+            )
     }
 
     /// 매도 신호 생성
@@ -281,7 +293,11 @@ impl MagicSplitStrategy {
         current_price: Decimal,
         current_rate: Decimal,
     ) -> Signal {
-        let slippage = self.config.as_ref().map(|c| c.slippage_tolerance).unwrap_or(dec!(1.0));
+        let slippage = self
+            .config
+            .as_ref()
+            .map(|c| c.slippage_tolerance)
+            .unwrap_or(dec!(1.0));
         let suggested_price = current_price * (Decimal::ONE - slippage / dec!(100));
 
         Signal::exit(self.name(), symbol.clone(), Side::Sell)
@@ -342,10 +358,7 @@ impl MagicSplitStrategy {
                 self.stats.total_buys += 1;
                 self.stats.max_level_reached = 1;
 
-                info!(
-                    "[MagicSplit] 1차수 진입: {} @ {}",
-                    symbol, current_price
-                );
+                info!("[MagicSplit] 1차수 진입: {} @ {}", symbol, current_price);
             }
         }
 
@@ -364,8 +377,13 @@ impl MagicSplitStrategy {
 
                 // 목표 수익률 달성
                 if current_rate >= level.target_rate {
-                    let signal =
-                        self.create_sell_signal(&symbol, level, &state, current_price, current_rate);
+                    let signal = self.create_sell_signal(
+                        &symbol,
+                        level,
+                        &state,
+                        current_price,
+                        current_rate,
+                    );
                     signals.push(signal);
 
                     // 상태 업데이트 (스코프 분리로 borrow 충돌 방지)
@@ -453,7 +471,10 @@ impl MagicSplitStrategy {
         let all_sold = self.level_states.iter().all(|s| !s.is_bought);
         if all_sold && self.stats.total_sells > 0 {
             self.stats.completed_cycles += 1;
-            info!("[MagicSplit] 사이클 완료! 총 {}회", self.stats.completed_cycles);
+            info!(
+                "[MagicSplit] 사이클 완료! 총 {}회",
+                self.stats.completed_cycles
+            );
         }
 
         signals
@@ -481,25 +502,24 @@ impl MagicSplitStrategy {
 
     /// 현재 평균 단가
     pub fn average_entry_price(&self) -> Option<Decimal> {
-        let total_quantity: Decimal = self
+        let entries: Vec<TradeEntry> = self
             .level_states
             .iter()
             .filter(|s| s.is_bought)
-            .map(|s| s.entry_quantity)
-            .sum();
+            .map(|s| {
+                TradeEntry::new(
+                    s.entry_price,
+                    s.entry_quantity,
+                    s.entry_time.unwrap_or_else(|| Utc::now()),
+                )
+            })
+            .collect();
 
-        if total_quantity.is_zero() {
+        if entries.is_empty() {
             return None;
         }
 
-        let total_cost: Decimal = self
-            .level_states
-            .iter()
-            .filter(|s| s.is_bought)
-            .map(|s| s.entry_price * s.entry_quantity)
-            .sum();
-
-        Some(total_cost / total_quantity)
+        Some(cost_basis(&entries, CostMethod::WeightedAverage))
     }
 
     /// 현재 총 수익률 (평균단가 기준)
@@ -529,7 +549,10 @@ impl Strategy for MagicSplitStrategy {
         "분할 매수/매도 전략. 단계적 물타기와 차수별 익절."
     }
 
-    async fn initialize(&mut self, config: Value) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn initialize(
+        &mut self,
+        config: Value,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let config: MagicSplitConfig = serde_json::from_value(config)?;
         self.init_from_config(config);
         info!("[MagicSplit] 전략 초기화 완료");

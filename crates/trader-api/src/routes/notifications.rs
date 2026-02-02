@@ -15,7 +15,8 @@ use tracing::{error, info};
 use crate::state::AppState;
 use rust_decimal_macros::dec;
 use trader_notification::{
-    Notification, NotificationEvent, NotificationPriority, TelegramConfig, TelegramSender, NotificationSender,
+    Notification, NotificationEvent, NotificationPriority, NotificationSender, TelegramConfig,
+    TelegramSender,
 };
 
 /// 텔레그램 테스트 요청.
@@ -75,10 +76,11 @@ pub struct TemplateInfo {
 /// 텔레그램 연결 테스트.
 ///
 /// `POST /api/v1/notifications/telegram/test`
-pub async fn test_telegram(
-    Json(payload): Json<TelegramTestRequest>,
-) -> impl IntoResponse {
-    info!("Testing Telegram connection for chat_id: {}", payload.chat_id);
+pub async fn test_telegram(Json(payload): Json<TelegramTestRequest>) -> impl IntoResponse {
+    info!(
+        "Testing Telegram connection for chat_id: {}",
+        payload.chat_id
+    );
 
     // 입력 검증
     if payload.bot_token.is_empty() {
@@ -129,9 +131,11 @@ pub async fn test_telegram(
 
             // 에러 유형별 메시지
             let user_message = if error_msg.contains("401") {
-                "Bot Token이 유효하지 않습니다. @BotFather에서 발급받은 토큰을 확인하세요.".to_string()
+                "Bot Token이 유효하지 않습니다. @BotFather에서 발급받은 토큰을 확인하세요."
+                    .to_string()
             } else if error_msg.contains("400") || error_msg.contains("chat not found") {
-                "Chat ID가 유효하지 않습니다. 봇에게 먼저 메시지를 보내거나 그룹에 추가하세요.".to_string()
+                "Chat ID가 유효하지 않습니다. 봇에게 먼저 메시지를 보내거나 그룹에 추가하세요."
+                    .to_string()
             } else if error_msg.contains("403") {
                 "봇이 채팅에 메시지를 보낼 권한이 없습니다.".to_string()
             } else {
@@ -157,8 +161,8 @@ pub async fn get_notification_settings() -> impl IntoResponse {
         .map(|v| v.to_lowercase() == "true")
         .unwrap_or(false);
 
-    let telegram_configured = std::env::var("TELEGRAM_BOT_TOKEN").is_ok()
-        && std::env::var("TELEGRAM_CHAT_ID").is_ok();
+    let telegram_configured =
+        std::env::var("TELEGRAM_BOT_TOKEN").is_ok() && std::env::var("TELEGRAM_CHAT_ID").is_ok();
 
     Json(NotificationSettingsResponse {
         telegram_enabled,
@@ -201,7 +205,11 @@ pub async fn test_telegram_env() -> impl IntoResponse {
         }
     };
 
-    info!("Using Bot Token: {}...{}", &bot_token[..10.min(bot_token.len())], &bot_token[bot_token.len().saturating_sub(4)..]);
+    info!(
+        "Using Bot Token: {}...{}",
+        &bot_token[..10.min(bot_token.len())],
+        &bot_token[bot_token.len().saturating_sub(4)..]
+    );
     info!("Using Chat ID: {}", chat_id);
 
     // 설정 생성
@@ -228,12 +236,17 @@ pub async fn test_telegram_env() -> impl IntoResponse {
         }
         Err(e) => {
             let error_msg = format!("{}", e);
-            error!("Failed to send Telegram test message (env-based): {}", error_msg);
+            error!(
+                "Failed to send Telegram test message (env-based): {}",
+                error_msg
+            );
 
             let user_message = if error_msg.contains("401") {
-                "Bot Token이 유효하지 않습니다. .env 파일의 TELEGRAM_BOT_TOKEN을 확인하세요.".to_string()
+                "Bot Token이 유효하지 않습니다. .env 파일의 TELEGRAM_BOT_TOKEN을 확인하세요."
+                    .to_string()
             } else if error_msg.contains("400") || error_msg.contains("chat not found") {
-                "Chat ID가 유효하지 않습니다. .env 파일의 TELEGRAM_CHAT_ID를 확인하세요.".to_string()
+                "Chat ID가 유효하지 않습니다. .env 파일의 TELEGRAM_CHAT_ID를 확인하세요."
+                    .to_string()
             } else if error_msg.contains("403") {
                 "봇이 채팅에 메시지를 보낼 권한이 없습니다.".to_string()
             } else {
@@ -423,9 +436,7 @@ fn create_sample_event(template_type: &str) -> Option<(NotificationEvent, Notifi
 /// `POST /api/v1/notifications/telegram/test-template`
 ///
 /// 지정된 템플릿 타입으로 샘플 알림을 발송합니다.
-pub async fn test_template(
-    Json(payload): Json<TemplateTestRequest>,
-) -> impl IntoResponse {
+pub async fn test_template(Json(payload): Json<TemplateTestRequest>) -> impl IntoResponse {
     info!("Testing template: {}", payload.template_type);
 
     // 환경 변수에서 설정 읽기
@@ -480,12 +491,18 @@ pub async fn test_template(
 
     match sender.send(&notification).await {
         Ok(_) => {
-            info!("Template test message sent successfully: {}", payload.template_type);
+            info!(
+                "Template test message sent successfully: {}",
+                payload.template_type
+            );
             (
                 StatusCode::OK,
                 Json(TelegramTestResponse {
                     success: true,
-                    message: format!("'{}' 템플릿 테스트 메시지를 전송했습니다.", payload.template_type),
+                    message: format!(
+                        "'{}' 템플릿 테스트 메시지를 전송했습니다.",
+                        payload.template_type
+                    ),
                 }),
             )
         }

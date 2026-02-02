@@ -39,7 +39,7 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use thiserror::Error;
-use trader_core::{Kline, MarketData, Side, Signal, SignalType, Symbol, Trade};
+use trader_core::{unrealized_pnl, Kline, MarketData, Side, Signal, SignalType, Symbol, Trade};
 use uuid::Uuid;
 
 use crate::backtest::slippage::SlippageModel;
@@ -129,13 +129,27 @@ pub struct BacktestConfig {
 }
 
 // 설정 기본값 함수들 (serde default용)
-fn default_initial_capital() -> Decimal { Decimal::new(10_000_000, 0) }
-fn default_commission_rate() -> Decimal { Decimal::new(1, 3) }  // 0.1%
-fn default_slippage_rate() -> Decimal { Decimal::new(5, 4) }    // 0.05%
-fn default_max_positions() -> usize { 10 }
-fn default_max_position_size_pct() -> Decimal { Decimal::new(2, 1) }  // 20%
-fn default_risk_free_rate() -> f64 { 0.05 }  // 5%
-fn default_exchange_name() -> String { "backtest".to_string() }
+fn default_initial_capital() -> Decimal {
+    Decimal::new(10_000_000, 0)
+}
+fn default_commission_rate() -> Decimal {
+    Decimal::new(1, 3)
+} // 0.1%
+fn default_slippage_rate() -> Decimal {
+    Decimal::new(5, 4)
+} // 0.05%
+fn default_max_positions() -> usize {
+    10
+}
+fn default_max_position_size_pct() -> Decimal {
+    Decimal::new(2, 1)
+} // 20%
+fn default_risk_free_rate() -> f64 {
+    0.05
+} // 5%
+fn default_exchange_name() -> String {
+    "backtest".to_string()
+}
 
 impl Default for BacktestConfig {
     fn default() -> Self {
@@ -455,21 +469,23 @@ impl BacktestEngine {
         self.tracker.set_initial_timestamp(start_time);
 
         // 각 캔들에 대해 시뮬레이션
+        // 중요: Look-Ahead Bias 방지를 위해 캔들 완성 후 신호 생성
         for kline in klines {
-            self.current_time = kline.open_time;
+            // 캔들 완성 시점으로 현재 시간 설정 (데이터 누수 방지)
+            self.current_time = kline.close_time;
             self.current_prices
                 .insert(kline.symbol.to_string(), kline.close);
 
-            // 시장 데이터 생성
+            // 시장 데이터 생성 (완성된 캔들 정보 사용)
             let market_data = MarketData::from_kline(&self.config.exchange_name, kline.clone());
 
-            // 전략에 데이터 전달
+            // 전략에 데이터 전달 (캔들 완성 후 신호 생성)
             let signals = strategy
                 .on_market_data(&market_data)
                 .await
                 .map_err(|e| BacktestError::StrategyError(e.to_string()))?;
 
-            // 신호 처리
+            // 신호 처리 (다음 틱에서 체결된다고 가정)
             for signal in signals {
                 self.process_signal(&signal, kline).await?;
             }
@@ -560,7 +576,8 @@ impl BacktestEngine {
 
         // 포지션 크기 계산
         let max_amount = self.balance * self.config.max_position_size_pct;
-        let position_amount = max_amount * Decimal::from_f64(signal.strength).unwrap_or(Decimal::ONE);
+        let position_amount =
+            max_amount * Decimal::from_f64(signal.strength).unwrap_or(Decimal::ONE);
         let quantity = position_amount / execution_price;
 
         // 자금 확인
@@ -578,14 +595,14 @@ impl BacktestEngine {
         self.total_slippage += slippage * quantity;
         self.total_orders += 1;
 
-        // 포지션 생성
+        // 포지션 생성 (체결 시점을 close_time으로 통일)
         let position = SimulatedPosition {
             symbol: signal.symbol.clone(),
             side: signal.side,
             quantity,
             entry_price: execution_price,
             fees: commission,
-            entry_time: kline.open_time,
+            entry_time: kline.close_time,
             strategy_id: signal.strategy_id.clone(),
         };
 
@@ -702,8 +719,13 @@ impl BacktestEngine {
                 Side::Sell => {
                     // 숏 포지션: 원금 + 미실현 손익
                     let entry_value = position.entry_price * position.quantity;
-                    let unrealized_pnl = (position.entry_price - current_price) * position.quantity;
-                    entry_value + unrealized_pnl
+                    let pnl = unrealized_pnl(
+                        position.entry_price,
+                        current_price,
+                        position.quantity,
+                        position.side,
+                    );
+                    entry_value + pnl
                 }
             };
 
@@ -931,7 +953,11 @@ pub mod test_strategies {
         ) -> Result<Vec<Signal>, Box<dyn std::error::Error + Send + Sync>> {
             if !self.bought {
                 self.bought = true;
-                Ok(vec![Signal::entry("AlwaysBuy", data.symbol.clone(), Side::Buy)])
+                Ok(vec![Signal::entry(
+                    "AlwaysBuy",
+                    data.symbol.clone(),
+                    Side::Buy,
+                )])
             } else {
                 Ok(vec![])
             }

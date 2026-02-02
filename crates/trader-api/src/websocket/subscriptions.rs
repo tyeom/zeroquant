@@ -214,12 +214,19 @@ impl SubscriptionManager {
     /// 메시지 브로드캐스트.
     ///
     /// 구독 중인 모든 클라이언트에게 메시지를 전송합니다.
-    pub fn broadcast(&self, message: ServerMessage) -> Result<usize, broadcast::error::SendError<ServerMessage>> {
+    pub fn broadcast(
+        &self,
+        message: ServerMessage,
+    ) -> Result<usize, broadcast::error::SendError<ServerMessage>> {
         self.broadcast_tx.send(message)
     }
 
     /// 특정 구독 채널에만 메시지 브로드캐스트.
-    pub fn broadcast_to_channel(&self, _subscription: &Subscription, message: ServerMessage) -> Result<usize, broadcast::error::SendError<ServerMessage>> {
+    pub fn broadcast_to_channel(
+        &self,
+        _subscription: &Subscription,
+        message: ServerMessage,
+    ) -> Result<usize, broadcast::error::SendError<ServerMessage>> {
         // 브로드캐스트 채널은 모든 수신자에게 전송
         // 각 클라이언트에서 구독 여부를 확인하여 필터링
         self.broadcast_tx.send(message)
@@ -297,10 +304,7 @@ mod tests {
             Subscription::from_channel("positions"),
             Some(Subscription::Positions)
         );
-        assert_eq!(
-            Subscription::from_channel("unknown"),
-            None
-        );
+        assert_eq!(Subscription::from_channel("unknown"), None);
     }
 
     #[test]
@@ -339,15 +343,15 @@ mod tests {
 
         // 구독 추가
         let subscribed = manager
-            .subscribe("session-1", &["market:BTC-USDT".to_string(), "orders".to_string()])
+            .subscribe(
+                "session-1",
+                &["market:BTC-USDT".to_string(), "orders".to_string()],
+            )
             .await;
         assert_eq!(subscribed.len(), 2);
 
         // 구독자 수 확인
-        assert_eq!(
-            manager.subscriber_count(&Subscription::Orders).await,
-            1
-        );
+        assert_eq!(manager.subscriber_count(&Subscription::Orders).await, 1);
 
         // 세션 제거
         manager.unregister("session-1").await;

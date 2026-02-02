@@ -11,7 +11,7 @@ name = "trader-api"
 path = "src/main.rs"
 
 [dependencies]
-trader-core = { path = "../trader-core" }
+trader-core = { path = "../trader-core", features = ["sqlx-support"] }
 trader-exchange = { path = "../trader-exchange" }
 trader-strategy = { path = "../trader-strategy" }
 trader-risk = { path = "../trader-risk" }

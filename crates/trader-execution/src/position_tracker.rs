@@ -173,7 +173,8 @@ impl PositionTracker {
 
         // 포지션 저장
         self.positions.insert(position_id, position.clone());
-        self.positions_by_symbol.insert(symbol_str.clone(), position_id);
+        self.positions_by_symbol
+            .insert(symbol_str.clone(), position_id);
 
         // 전략별 인덱싱
         if let Some(strat_id) = strategy_id {
@@ -521,7 +522,9 @@ impl PositionTracker {
 
         for position in self.positions.values() {
             if let Some(ref strategy_id) = position.strategy_id {
-                let entry = result.entry(strategy_id.clone()).or_insert((Decimal::ZERO, Decimal::ZERO));
+                let entry = result
+                    .entry(strategy_id.clone())
+                    .or_insert((Decimal::ZERO, Decimal::ZERO));
                 entry.0 += position.unrealized_pnl;
                 entry.1 += position.realized_pnl;
             }
@@ -529,7 +532,9 @@ impl PositionTracker {
 
         for position in &self.closed_positions {
             if let Some(ref strategy_id) = position.strategy_id {
-                let entry = result.entry(strategy_id.clone()).or_insert((Decimal::ZERO, Decimal::ZERO));
+                let entry = result
+                    .entry(strategy_id.clone())
+                    .or_insert((Decimal::ZERO, Decimal::ZERO));
                 entry.1 += position.realized_pnl;
             }
         }
@@ -592,7 +597,13 @@ mod tests {
         let symbol = create_test_symbol();
 
         let position = tracker
-            .open_position(symbol, Side::Buy, dec!(0.1), dec!(50000), Some("grid".to_string()))
+            .open_position(
+                symbol,
+                Side::Buy,
+                dec!(0.1),
+                dec!(50000),
+                Some("grid".to_string()),
+            )
             .unwrap();
 
         assert_eq!(position.quantity, dec!(0.1));

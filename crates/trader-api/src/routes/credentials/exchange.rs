@@ -15,15 +15,14 @@ use std::sync::Arc;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use crate::state::AppState;
-use crate::routes::strategies::ApiError;
 use super::types::{
-    CreateExchangeCredentialRequest, CredentialField, EncryptedCredentials,
-    ExchangeCredentialResponse, ExchangeCredentialRow, ExchangeCredentialsListResponse,
-    ExchangeTestResponse, SupportedExchange, SupportedExchangesResponse,
-    TestNewCredentialRequest, UpdateExchangeCredentialRequest,
-    infer_market_type, log_credential_access, mask_api_key,
+    infer_market_type, log_credential_access, mask_api_key, CreateExchangeCredentialRequest,
+    CredentialField, EncryptedCredentials, ExchangeCredentialResponse, ExchangeCredentialRow,
+    ExchangeCredentialsListResponse, ExchangeTestResponse, SupportedExchange,
+    SupportedExchangesResponse, TestNewCredentialRequest, UpdateExchangeCredentialRequest,
 };
+use crate::routes::strategies::ApiError;
+use crate::state::AppState;
 
 // =============================================================================
 // Exchange Credential Handlers
@@ -80,15 +79,13 @@ pub async fn get_supported_exchanges() -> impl IntoResponse {
                     help_text: Some("KIS Developers에서 발급받은 App Secret".to_string()),
                 },
             ],
-            optional_fields: vec![
-                CredentialField {
-                    name: "account_number".to_string(),
-                    label: "계좌번호".to_string(),
-                    field_type: "text".to_string(),
-                    placeholder: Some("00000000-00".to_string()),
-                    help_text: Some("거래에 사용할 계좌번호 (종합계좌번호-상품코드)".to_string()),
-                },
-            ],
+            optional_fields: vec![CredentialField {
+                name: "account_number".to_string(),
+                label: "계좌번호".to_string(),
+                field_type: "text".to_string(),
+                placeholder: Some("00000000-00".to_string()),
+                help_text: Some("거래에 사용할 계좌번호 (종합계좌번호-상품코드)".to_string()),
+            }],
             description: "한국투자증권 KIS Developers API".to_string(),
             docs_url: Some("https://apiportal.koreainvestment.com/".to_string()),
         },
@@ -140,7 +137,10 @@ pub async fn list_exchange_credentials(
         error!("DB 연결이 설정되지 않았습니다.");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("DB_NOT_CONFIGURED", "데이터베이스 연결이 설정되지 않았습니다.")),
+            Json(ApiError::new(
+                "DB_NOT_CONFIGURED",
+                "데이터베이스 연결이 설정되지 않았습니다.",
+            )),
         )
     })?;
 
@@ -149,7 +149,10 @@ pub async fn list_exchange_credentials(
         error!("암호화 관리자가 설정되지 않았습니다.");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("ENCRYPTOR_NOT_CONFIGURED", "암호화 설정이 없습니다. ENCRYPTION_MASTER_KEY를 설정하세요.")),
+            Json(ApiError::new(
+                "ENCRYPTOR_NOT_CONFIGURED",
+                "암호화 설정이 없습니다. ENCRYPTION_MASTER_KEY를 설정하세요.",
+            )),
         )
     })?;
 
@@ -163,7 +166,7 @@ pub async fn list_exchange_credentials(
             last_used_at, last_verified_at, created_at, updated_at
         FROM exchange_credentials
         ORDER BY created_at DESC
-        "#
+        "#,
     )
     .fetch_all(pool)
     .await
@@ -180,10 +183,9 @@ pub async fn list_exchange_credentials(
 
     for row in rows {
         // Decrypt and mask API key
-        let api_key_masked = match encryptor.decrypt_json::<EncryptedCredentials>(
-            &row.encrypted_credentials,
-            &row.encryption_nonce,
-        ) {
+        let api_key_masked = match encryptor
+            .decrypt_json::<EncryptedCredentials>(&row.encrypted_credentials, &row.encryption_nonce)
+        {
             Ok(creds) => mask_api_key(&creds.api_key),
             Err(e) => {
                 warn!("자격증명 복호화 실패 (id: {}): {}", row.id, e);
@@ -192,8 +194,8 @@ pub async fn list_exchange_credentials(
         };
 
         // Convert permissions JSON to Vec<String>
-        let permissions: Option<Vec<String>> = row.permissions
-            .and_then(|v| serde_json::from_value(v).ok());
+        let permissions: Option<Vec<String>> =
+            row.permissions.and_then(|v| serde_json::from_value(v).ok());
 
         credentials.push(ExchangeCredentialResponse {
             id: row.id,
@@ -226,17 +228,17 @@ pub async fn create_exchange_credential(
     State(state): State<Arc<AppState>>,
     Json(request): Json<CreateExchangeCredentialRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ApiError>)> {
-    info!(
-        "거래소 자격증명 등록 요청: {}",
-        request.exchange_id
-    );
+    info!("거래소 자격증명 등록 요청: {}", request.exchange_id);
 
     // DB connection check
     let pool = state.db_pool.as_ref().ok_or_else(|| {
         error!("DB 연결이 설정되지 않았습니다.");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("DB_NOT_CONFIGURED", "데이터베이스 연결이 설정되지 않았습니다.")),
+            Json(ApiError::new(
+                "DB_NOT_CONFIGURED",
+                "데이터베이스 연결이 설정되지 않았습니다.",
+            )),
         )
     })?;
 
@@ -245,25 +247,36 @@ pub async fn create_exchange_credential(
         error!("암호화 관리자가 설정되지 않았습니다.");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("ENCRYPTOR_NOT_CONFIGURED", "암호화 설정이 없습니다. ENCRYPTION_MASTER_KEY를 설정하세요.")),
+            Json(ApiError::new(
+                "ENCRYPTOR_NOT_CONFIGURED",
+                "암호화 설정이 없습니다. ENCRYPTION_MASTER_KEY를 설정하세요.",
+            )),
         )
     })?;
 
     // Input validation - extract api_key, api_secret from fields
     let api_key = request.fields.get("api_key").cloned().unwrap_or_default();
-    let api_secret = request.fields.get("api_secret").cloned().unwrap_or_default();
+    let api_secret = request
+        .fields
+        .get("api_secret")
+        .cloned()
+        .unwrap_or_default();
 
     if api_key.is_empty() || api_secret.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ApiError::new("INVALID_INPUT", "API Key와 Secret은 필수입니다.")),
+            Json(ApiError::new(
+                "INVALID_INPUT",
+                "API Key와 Secret은 필수입니다.",
+            )),
         ));
     }
 
     // Extract passphrase and additional fields
     let passphrase = request.fields.get("passphrase").cloned();
     let additional: Option<std::collections::HashMap<String, String>> = {
-        let mut additional_fields: std::collections::HashMap<String, String> = request.fields.clone();
+        let mut additional_fields: std::collections::HashMap<String, String> =
+            request.fields.clone();
         additional_fields.remove("api_key");
         additional_fields.remove("api_secret");
         additional_fields.remove("passphrase");
@@ -311,7 +324,7 @@ pub async fn create_exchange_credential(
             settings = EXCLUDED.settings,
             updated_at = NOW()
         RETURNING id
-        "#
+        "#,
     )
     .bind(credential_id)
     .bind(&request.exchange_id)
@@ -334,7 +347,10 @@ pub async fn create_exchange_credential(
     // Audit log
     log_credential_access(pool, "exchange", credential_id, "create", true, None).await;
 
-    info!("자격증명 등록 완료: {} (id: {})", request.exchange_id, credential_id);
+    info!(
+        "자격증명 등록 완료: {} (id: {})",
+        request.exchange_id, credential_id
+    );
 
     Ok((
         StatusCode::CREATED,
@@ -370,7 +386,10 @@ pub async fn update_exchange_credential(
     let pool = state.db_pool.as_ref().ok_or_else(|| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("DB_NOT_CONFIGURED", "데이터베이스 연결이 설정되지 않았습니다.")),
+            Json(ApiError::new(
+                "DB_NOT_CONFIGURED",
+                "데이터베이스 연결이 설정되지 않았습니다.",
+            )),
         )
     })?;
 
@@ -378,7 +397,10 @@ pub async fn update_exchange_credential(
     let encryptor = state.encryptor.as_ref().ok_or_else(|| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("ENCRYPTOR_NOT_CONFIGURED", "암호화 설정이 없습니다.")),
+            Json(ApiError::new(
+                "ENCRYPTOR_NOT_CONFIGURED",
+                "암호화 설정이 없습니다.",
+            )),
         )
     })?;
 
@@ -392,7 +414,7 @@ pub async fn update_exchange_credential(
             last_used_at, last_verified_at, created_at, updated_at
         FROM exchange_credentials
         WHERE id = $1
-        "#
+        "#,
     )
     .bind(id)
     .fetch_optional(pool)
@@ -461,7 +483,7 @@ pub async fn update_exchange_credential(
             settings = $5,
             updated_at = NOW()
         WHERE id = $6
-        "#
+        "#,
     )
     .bind(&exchange_name)
     .bind(&encrypted_data)
@@ -503,7 +525,10 @@ pub async fn delete_exchange_credential(
     let pool = state.db_pool.as_ref().ok_or_else(|| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("DB_NOT_CONFIGURED", "데이터베이스 연결이 설정되지 않았습니다.")),
+            Json(ApiError::new(
+                "DB_NOT_CONFIGURED",
+                "데이터베이스 연결이 설정되지 않았습니다.",
+            )),
         )
     })?;
 
@@ -513,7 +538,7 @@ pub async fn delete_exchange_credential(
         DELETE FROM exchange_credentials
         WHERE id = $1
         RETURNING id
-        "#
+        "#,
     )
     .bind(id)
     .fetch_optional(pool)
@@ -557,7 +582,10 @@ pub async fn test_exchange_credential(
     let pool = state.db_pool.as_ref().ok_or_else(|| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("DB_NOT_CONFIGURED", "데이터베이스 연결이 설정되지 않았습니다.")),
+            Json(ApiError::new(
+                "DB_NOT_CONFIGURED",
+                "데이터베이스 연결이 설정되지 않았습니다.",
+            )),
         )
     })?;
 
@@ -565,7 +593,10 @@ pub async fn test_exchange_credential(
     let encryptor = state.encryptor.as_ref().ok_or_else(|| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("ENCRYPTOR_NOT_CONFIGURED", "암호화 설정이 없습니다.")),
+            Json(ApiError::new(
+                "ENCRYPTOR_NOT_CONFIGURED",
+                "암호화 설정이 없습니다.",
+            )),
         )
     })?;
 
@@ -579,7 +610,7 @@ pub async fn test_exchange_credential(
             last_used_at, last_verified_at, created_at, updated_at
         FROM exchange_credentials
         WHERE id = $1
-        "#
+        "#,
     )
     .bind(id)
     .fetch_optional(pool)
@@ -617,8 +648,11 @@ pub async fn test_exchange_credential(
         "binance" => {
             // Binance API key format validation (actual API call needed)
             if credentials.api_key.len() >= 10 && credentials.api_secret.len() >= 10 {
-                (true, "Binance API 키 형식이 유효합니다.".to_string(),
-                 Some(vec!["read".to_string(), "trade".to_string()]))
+                (
+                    true,
+                    "Binance API 키 형식이 유효합니다.".to_string(),
+                    Some(vec!["read".to_string(), "trade".to_string()]),
+                )
             } else {
                 (false, "API 키 형식이 올바르지 않습니다.".to_string(), None)
             }
@@ -626,15 +660,20 @@ pub async fn test_exchange_credential(
         "kis" => {
             // KIS API key format validation
             if credentials.api_key.len() >= 8 && credentials.api_secret.len() >= 8 {
-                (true, "한국투자증권 API 키 형식이 유효합니다.".to_string(),
-                 Some(vec!["read".to_string(), "trade".to_string()]))
+                (
+                    true,
+                    "한국투자증권 API 키 형식이 유효합니다.".to_string(),
+                    Some(vec!["read".to_string(), "trade".to_string()]),
+                )
             } else {
                 (false, "API 키 형식이 올바르지 않습니다.".to_string(), None)
             }
         }
-        _ => {
-            (true, format!("{} API 키가 등록되어 있습니다.", row.exchange_id), None)
-        }
+        _ => (
+            true,
+            format!("{} API 키가 등록되어 있습니다.", row.exchange_id),
+            None,
+        ),
     };
 
     // Update last_verified_at based on test result
@@ -645,7 +684,7 @@ pub async fn test_exchange_credential(
             SET last_verified_at = NOW(),
                 permissions = $1
             WHERE id = $2
-            "#
+            "#,
         )
         .bind(serde_json::to_value(&permissions).ok())
         .bind(id)
@@ -660,8 +699,9 @@ pub async fn test_exchange_credential(
         id,
         "verify",
         success,
-        if success { None } else { Some(&message) }
-    ).await;
+        if success { None } else { Some(&message) },
+    )
+    .await;
 
     Ok(Json(ExchangeTestResponse {
         success,
@@ -684,19 +724,23 @@ pub async fn test_exchange_credential(
 pub async fn test_new_exchange_credential(
     Json(request): Json<TestNewCredentialRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ApiError>)> {
-    info!(
-        "새 자격증명 테스트: {}",
-        request.exchange_id
-    );
+    info!("새 자격증명 테스트: {}", request.exchange_id);
 
     // Input validation - extract api_key, api_secret from fields
     let api_key = request.fields.get("api_key").cloned().unwrap_or_default();
-    let api_secret = request.fields.get("api_secret").cloned().unwrap_or_default();
+    let api_secret = request
+        .fields
+        .get("api_secret")
+        .cloned()
+        .unwrap_or_default();
 
     if api_key.is_empty() || api_secret.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ApiError::new("INVALID_INPUT", "API Key와 Secret은 필수입니다.")),
+            Json(ApiError::new(
+                "INVALID_INPUT",
+                "API Key와 Secret은 필수입니다.",
+            )),
         ));
     }
 
@@ -705,23 +749,31 @@ pub async fn test_new_exchange_credential(
     let (success, message, permissions) = match request.exchange_id.as_str() {
         "binance" => {
             if api_key.len() >= 10 && api_secret.len() >= 10 {
-                (true, "Binance API 키가 유효합니다.".to_string(),
-                 Some(vec!["read".to_string(), "trade".to_string()]))
+                (
+                    true,
+                    "Binance API 키가 유효합니다.".to_string(),
+                    Some(vec!["read".to_string(), "trade".to_string()]),
+                )
             } else {
                 (false, "API 키 형식이 올바르지 않습니다.".to_string(), None)
             }
         }
         "kis" => {
             if api_key.len() >= 8 && api_secret.len() >= 8 {
-                (true, "한국투자증권 API 키가 유효합니다.".to_string(),
-                 Some(vec!["read".to_string(), "trade".to_string()]))
+                (
+                    true,
+                    "한국투자증권 API 키가 유효합니다.".to_string(),
+                    Some(vec!["read".to_string(), "trade".to_string()]),
+                )
             } else {
                 (false, "API 키 형식이 올바르지 않습니다.".to_string(), None)
             }
         }
-        _ => {
-            (true, format!("{} API 키 형식이 유효합니다.", request.exchange_id), None)
-        }
+        _ => (
+            true,
+            format!("{} API 키 형식이 유효합니다.", request.exchange_id),
+            None,
+        ),
     };
 
     Ok(Json(ExchangeTestResponse {

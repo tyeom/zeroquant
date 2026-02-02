@@ -388,7 +388,9 @@ impl PatternRecognizer {
         // Hammer / Hanging Man (긴 아래꼬리, 작은 몸통)
         let shadow_body_threshold =
             Decimal::try_from(self.config.shadow_body_ratio).unwrap_or(dec!(2.0));
-        if !body.is_zero() && lower_shadow / body >= shadow_body_threshold && upper_ratio < dec!(0.2)
+        if !body.is_zero()
+            && lower_shadow / body >= shadow_body_threshold
+            && upper_ratio < dec!(0.2)
         {
             // 이전 추세에 따라 Hammer vs Hanging Man 구분
             let is_downtrend = index >= 3
@@ -414,7 +416,9 @@ impl PatternRecognizer {
         }
 
         // Shooting Star / Inverted Hammer (긴 위꼬리, 작은 몸통)
-        if !body.is_zero() && upper_shadow / body >= shadow_body_threshold && lower_ratio < dec!(0.2)
+        if !body.is_zero()
+            && upper_shadow / body >= shadow_body_threshold
+            && lower_ratio < dec!(0.2)
         {
             let is_uptrend = index >= 3
                 && klines[index - 3..index]
@@ -599,7 +603,8 @@ impl PatternRecognizer {
         }
 
         // Tweezer Bottom (동일 저가)
-        let tolerance = prev.range() * Decimal::try_from(self.config.price_tolerance).unwrap_or(dec!(0.02));
+        let tolerance =
+            prev.range() * Decimal::try_from(self.config.price_tolerance).unwrap_or(dec!(0.02));
         if (prev.low - curr.low).abs() <= tolerance {
             if prev.is_bearish() && curr.is_bullish() {
                 patterns.push(CandlestickPattern {
@@ -848,21 +853,15 @@ impl PatternRecognizer {
     ) -> Vec<ChartPattern> {
         let mut patterns = Vec::new();
 
-        let peaks: Vec<&PatternPoint> = pivots
-            .iter()
-            .filter(|p| p.point_type == "peak")
-            .collect();
-        let valleys: Vec<&PatternPoint> = pivots
-            .iter()
-            .filter(|p| p.point_type == "valley")
-            .collect();
+        let peaks: Vec<&PatternPoint> = pivots.iter().filter(|p| p.point_type == "peak").collect();
+        let valleys: Vec<&PatternPoint> =
+            pivots.iter().filter(|p| p.point_type == "valley").collect();
 
         if peaks.len() < 3 || valleys.len() < 2 {
             return patterns;
         }
 
-        let tolerance =
-            Decimal::try_from(self.config.price_tolerance).unwrap_or(dec!(0.02));
+        let tolerance = Decimal::try_from(self.config.price_tolerance).unwrap_or(dec!(0.02));
 
         // 연속된 3개의 피크 검사
         for i in 0..peaks.len().saturating_sub(2) {
@@ -894,9 +893,9 @@ impl PatternRecognizer {
             }
 
             // 목표가 계산 (머리 - 넥라인)
-            let neckline_price =
-                (neckline_points[0].price + neckline_points[neckline_points.len() - 1].price)
-                    / dec!(2);
+            let neckline_price = (neckline_points[0].price
+                + neckline_points[neckline_points.len() - 1].price)
+                / dec!(2);
             let height = head.price - neckline_price;
             let price_target = neckline_price - height;
 
@@ -904,11 +903,7 @@ impl PatternRecognizer {
                 pattern_type: ChartPatternType::HeadAndShoulders,
                 start_index: left_shoulder.index,
                 end_index: right_shoulder.index,
-                key_points: vec![
-                    left_shoulder.clone(),
-                    head.clone(),
-                    right_shoulder.clone(),
-                ],
+                key_points: vec![left_shoulder.clone(), head.clone(), right_shoulder.clone()],
                 trendlines: vec![Trendline {
                     start: neckline_points[0].clone(),
                     end: neckline_points[neckline_points.len() - 1].clone(),
@@ -950,9 +945,9 @@ impl PatternRecognizer {
                 continue;
             }
 
-            let neckline_price =
-                (neckline_points[0].price + neckline_points[neckline_points.len() - 1].price)
-                    / dec!(2);
+            let neckline_price = (neckline_points[0].price
+                + neckline_points[neckline_points.len() - 1].price)
+                / dec!(2);
             let height = neckline_price - head.price;
             let price_target = neckline_price + height;
 
@@ -960,11 +955,7 @@ impl PatternRecognizer {
                 pattern_type: ChartPatternType::InverseHeadAndShoulders,
                 start_index: left_shoulder.index,
                 end_index: right_shoulder.index,
-                key_points: vec![
-                    left_shoulder.clone(),
-                    head.clone(),
-                    right_shoulder.clone(),
-                ],
+                key_points: vec![left_shoulder.clone(), head.clone(), right_shoulder.clone()],
                 trendlines: vec![Trendline {
                     start: neckline_points[0].clone(),
                     end: neckline_points[neckline_points.len() - 1].clone(),
@@ -990,17 +981,11 @@ impl PatternRecognizer {
     ) -> Vec<ChartPattern> {
         let mut patterns = Vec::new();
 
-        let peaks: Vec<&PatternPoint> = pivots
-            .iter()
-            .filter(|p| p.point_type == "peak")
-            .collect();
-        let valleys: Vec<&PatternPoint> = pivots
-            .iter()
-            .filter(|p| p.point_type == "valley")
-            .collect();
+        let peaks: Vec<&PatternPoint> = pivots.iter().filter(|p| p.point_type == "peak").collect();
+        let valleys: Vec<&PatternPoint> =
+            pivots.iter().filter(|p| p.point_type == "valley").collect();
 
-        let tolerance =
-            Decimal::try_from(self.config.price_tolerance).unwrap_or(dec!(0.02));
+        let tolerance = Decimal::try_from(self.config.price_tolerance).unwrap_or(dec!(0.02));
 
         // Double Top
         for i in 0..peaks.len().saturating_sub(1) {
@@ -1063,11 +1048,7 @@ impl PatternRecognizer {
                     pattern_type: ChartPatternType::DoubleBottom,
                     start_index: first_valley.index,
                     end_index: second_valley.index,
-                    key_points: vec![
-                        first_valley.clone(),
-                        (*peak).clone(),
-                        second_valley.clone(),
-                    ],
+                    key_points: vec![first_valley.clone(), (*peak).clone(), second_valley.clone()],
                     trendlines: vec![],
                     price_target: Some(price_target),
                     confidence: 0.75,
@@ -1089,21 +1070,15 @@ impl PatternRecognizer {
     ) -> Vec<ChartPattern> {
         let mut patterns = Vec::new();
 
-        let peaks: Vec<&PatternPoint> = pivots
-            .iter()
-            .filter(|p| p.point_type == "peak")
-            .collect();
-        let valleys: Vec<&PatternPoint> = pivots
-            .iter()
-            .filter(|p| p.point_type == "valley")
-            .collect();
+        let peaks: Vec<&PatternPoint> = pivots.iter().filter(|p| p.point_type == "peak").collect();
+        let valleys: Vec<&PatternPoint> =
+            pivots.iter().filter(|p| p.point_type == "valley").collect();
 
         if peaks.len() < 3 || valleys.len() < 2 {
             return patterns;
         }
 
-        let tolerance =
-            Decimal::try_from(self.config.price_tolerance).unwrap_or(dec!(0.02));
+        let tolerance = Decimal::try_from(self.config.price_tolerance).unwrap_or(dec!(0.02));
 
         // Triple Top
         for i in 0..peaks.len().saturating_sub(2) {
@@ -1197,21 +1172,12 @@ impl PatternRecognizer {
     }
 
     /// Triangle 패턴 감지.
-    fn detect_triangles(
-        &self,
-        klines: &[Kline],
-        pivots: &[PatternPoint],
-    ) -> Vec<ChartPattern> {
+    fn detect_triangles(&self, klines: &[Kline], pivots: &[PatternPoint]) -> Vec<ChartPattern> {
         let mut patterns = Vec::new();
 
-        let peaks: Vec<&PatternPoint> = pivots
-            .iter()
-            .filter(|p| p.point_type == "peak")
-            .collect();
-        let valleys: Vec<&PatternPoint> = pivots
-            .iter()
-            .filter(|p| p.point_type == "valley")
-            .collect();
+        let peaks: Vec<&PatternPoint> = pivots.iter().filter(|p| p.point_type == "peak").collect();
+        let valleys: Vec<&PatternPoint> =
+            pivots.iter().filter(|p| p.point_type == "valley").collect();
 
         if peaks.len() < 2 || valleys.len() < 2 {
             return patterns;
@@ -1352,28 +1318,18 @@ impl PatternRecognizer {
     }
 
     /// Wedge 패턴 감지.
-    fn detect_wedges(
-        &self,
-        klines: &[Kline],
-        pivots: &[PatternPoint],
-    ) -> Vec<ChartPattern> {
+    fn detect_wedges(&self, klines: &[Kline], pivots: &[PatternPoint]) -> Vec<ChartPattern> {
         let mut patterns = Vec::new();
 
-        let peaks: Vec<&PatternPoint> = pivots
-            .iter()
-            .filter(|p| p.point_type == "peak")
-            .collect();
-        let valleys: Vec<&PatternPoint> = pivots
-            .iter()
-            .filter(|p| p.point_type == "valley")
-            .collect();
+        let peaks: Vec<&PatternPoint> = pivots.iter().filter(|p| p.point_type == "peak").collect();
+        let valleys: Vec<&PatternPoint> =
+            pivots.iter().filter(|p| p.point_type == "valley").collect();
 
         if peaks.len() < 2 || valleys.len() < 2 {
             return patterns;
         }
 
-        let slope_tolerance =
-            Decimal::try_from(self.config.slope_tolerance).unwrap_or(dec!(0.1));
+        let slope_tolerance = Decimal::try_from(self.config.slope_tolerance).unwrap_or(dec!(0.1));
 
         for i in 0..peaks.len().saturating_sub(1) {
             for j in 0..valleys.len().saturating_sub(1) {
@@ -1475,28 +1431,18 @@ impl PatternRecognizer {
     }
 
     /// Channel 패턴 감지.
-    fn detect_channels(
-        &self,
-        klines: &[Kline],
-        pivots: &[PatternPoint],
-    ) -> Vec<ChartPattern> {
+    fn detect_channels(&self, klines: &[Kline], pivots: &[PatternPoint]) -> Vec<ChartPattern> {
         let mut patterns = Vec::new();
 
-        let peaks: Vec<&PatternPoint> = pivots
-            .iter()
-            .filter(|p| p.point_type == "peak")
-            .collect();
-        let valleys: Vec<&PatternPoint> = pivots
-            .iter()
-            .filter(|p| p.point_type == "valley")
-            .collect();
+        let peaks: Vec<&PatternPoint> = pivots.iter().filter(|p| p.point_type == "peak").collect();
+        let valleys: Vec<&PatternPoint> =
+            pivots.iter().filter(|p| p.point_type == "valley").collect();
 
         if peaks.len() < 2 || valleys.len() < 2 {
             return patterns;
         }
 
-        let slope_tolerance =
-            Decimal::try_from(self.config.slope_tolerance).unwrap_or(dec!(0.1));
+        let slope_tolerance = Decimal::try_from(self.config.slope_tolerance).unwrap_or(dec!(0.1));
 
         for i in 0..peaks.len().saturating_sub(1) {
             for j in 0..valleys.len().saturating_sub(1) {
@@ -1583,14 +1529,9 @@ impl PatternRecognizer {
         // Flag/Pennant는 강한 움직임 후 짧은 조정 패턴
         // 여기서는 단순화된 감지 로직 사용
 
-        let peaks: Vec<&PatternPoint> = pivots
-            .iter()
-            .filter(|p| p.point_type == "peak")
-            .collect();
-        let valleys: Vec<&PatternPoint> = pivots
-            .iter()
-            .filter(|p| p.point_type == "valley")
-            .collect();
+        let peaks: Vec<&PatternPoint> = pivots.iter().filter(|p| p.point_type == "peak").collect();
+        let valleys: Vec<&PatternPoint> =
+            pivots.iter().filter(|p| p.point_type == "valley").collect();
 
         if peaks.len() < 2 || valleys.len() < 2 {
             return patterns;
@@ -1643,9 +1584,7 @@ impl PatternRecognizer {
                     }
 
                     // 수렴 = Pennant
-                    if peak_slope < Decimal::ZERO
-                        && valley_slope > Decimal::ZERO
-                    {
+                    if peak_slope < Decimal::ZERO && valley_slope > Decimal::ZERO {
                         patterns.push(ChartPattern {
                             pattern_type: ChartPatternType::BullishPennant,
                             start_index: i - lookback,
@@ -1738,7 +1677,9 @@ impl PatternRecognizer {
     fn calculate_doji_confidence(&self, body_ratio: Decimal) -> f64 {
         // 몸통이 작을수록 신뢰도 증가
         let ratio_f64 = body_ratio.to_string().parse::<f64>().unwrap_or(0.1);
-        (1.0 - ratio_f64 / self.config.doji_body_ratio).max(0.5).min(0.95)
+        (1.0 - ratio_f64 / self.config.doji_body_ratio)
+            .max(0.5)
+            .min(0.95)
     }
 
     /// Shadow 패턴 신뢰도 계산.
@@ -1783,8 +1724,8 @@ mod tests {
         close: Decimal,
         index: i64,
     ) -> Kline {
-        let time = Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap()
-            + chrono::Duration::hours(index);
+        let time =
+            Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap() + chrono::Duration::hours(index);
         Kline {
             symbol: Symbol::crypto("BTC", "USDT"),
             timeframe: Timeframe::H1,
@@ -1805,7 +1746,13 @@ mod tests {
         let recognizer = PatternRecognizer::with_defaults();
 
         // Doji: 시가 = 종가
-        let klines = vec![create_test_kline(dec!(100), dec!(105), dec!(95), dec!(100), 0)];
+        let klines = vec![create_test_kline(
+            dec!(100),
+            dec!(105),
+            dec!(95),
+            dec!(100),
+            0,
+        )];
 
         let patterns = recognizer.detect_candlestick_patterns(&klines);
         assert!(!patterns.is_empty());

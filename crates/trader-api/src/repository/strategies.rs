@@ -58,7 +58,10 @@ impl StrategyRepository {
     /// Save a new strategy to the database.
     ///
     /// Uses a transaction to ensure atomicity of the INSERT operation.
-    pub async fn create(pool: &PgPool, input: CreateStrategyInput) -> Result<StrategyRecord, sqlx::Error> {
+    pub async fn create(
+        pool: &PgPool,
+        input: CreateStrategyInput,
+    ) -> Result<StrategyRecord, sqlx::Error> {
         let symbols_json = serde_json::to_value(&input.symbols).unwrap_or(Value::Array(vec![]));
         let risk_limits = input.risk_config.unwrap_or_else(|| serde_json::json!({}));
         let risk_profile = input.risk_profile.unwrap_or_else(|| "default".to_string());
@@ -93,12 +96,10 @@ impl StrategyRepository {
 
     /// Get a strategy by ID.
     pub async fn get_by_id(pool: &PgPool, id: &str) -> Result<Option<StrategyRecord>, sqlx::Error> {
-        let record = sqlx::query_as::<_, StrategyRecord>(
-            "SELECT * FROM strategies WHERE id = $1"
-        )
-        .bind(id)
-        .fetch_optional(pool)
-        .await?;
+        let record = sqlx::query_as::<_, StrategyRecord>("SELECT * FROM strategies WHERE id = $1")
+            .bind(id)
+            .fetch_optional(pool)
+            .await?;
 
         Ok(record)
     }
@@ -106,7 +107,7 @@ impl StrategyRepository {
     /// Get all strategies.
     pub async fn get_all(pool: &PgPool) -> Result<Vec<StrategyRecord>, sqlx::Error> {
         let records = sqlx::query_as::<_, StrategyRecord>(
-            "SELECT * FROM strategies ORDER BY created_at DESC"
+            "SELECT * FROM strategies ORDER BY created_at DESC",
         )
         .fetch_all(pool)
         .await?;
@@ -130,7 +131,7 @@ impl StrategyRepository {
             SET config = $2, updated_at = NOW()
             WHERE id = $1
             RETURNING *
-            "#
+            "#,
         )
         .bind(id)
         .bind(config)
@@ -143,11 +144,7 @@ impl StrategyRepository {
     }
 
     /// Update strategy active status.
-    pub async fn set_active(
-        pool: &PgPool,
-        id: &str,
-        is_active: bool,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn set_active(pool: &PgPool, id: &str, is_active: bool) -> Result<(), sqlx::Error> {
         let timestamp_field = if is_active {
             "last_started_at"
         } else {
@@ -188,12 +185,11 @@ impl StrategyRepository {
 
     /// Check if a strategy exists by ID.
     pub async fn exists(pool: &PgPool, id: &str) -> Result<bool, sqlx::Error> {
-        let result: (bool,) = sqlx::query_as(
-            "SELECT EXISTS(SELECT 1 FROM strategies WHERE id = $1)"
-        )
-        .bind(id)
-        .fetch_one(pool)
-        .await?;
+        let result: (bool,) =
+            sqlx::query_as("SELECT EXISTS(SELECT 1 FROM strategies WHERE id = $1)")
+                .bind(id)
+                .fetch_one(pool)
+                .await?;
 
         Ok(result.0)
     }
@@ -213,7 +209,7 @@ impl StrategyRepository {
             SET risk_limits = $2, risk_profile = $3, updated_at = NOW()
             WHERE id = $1
             RETURNING *
-            "#
+            "#,
         )
         .bind(id)
         .bind(risk_config)
@@ -236,7 +232,7 @@ impl StrategyRepository {
             SET allocated_capital = $2, updated_at = NOW()
             WHERE id = $1
             RETURNING *
-            "#
+            "#,
         )
         .bind(id)
         .bind(allocated_capital)
@@ -266,7 +262,7 @@ impl StrategyRepository {
                 updated_at = NOW()
             WHERE id = $1
             RETURNING *
-            "#
+            "#,
         )
         .bind(id)
         .bind(risk_config)
@@ -289,11 +285,10 @@ impl StrategyRepository {
             AllWeatherStrategy, BaaStrategy, BollingerStrategy, CandlePatternStrategy,
             DualMomentumStrategy, GridStrategy, HaaStrategy, InfinityBotStrategy,
             KosdaqFireRainStrategy, KospiBothSideStrategy, MagicSplitStrategy,
-            MarketCapTopStrategy, MarketInterestDayStrategy, PensionBotStrategy,
-            RsiStrategy, SectorMomentumStrategy, SectorVbStrategy, SimplePowerStrategy,
-            SmallCapQuantStrategy, SmaStrategy, SnowStrategy, StockGuganStrategy,
-            StockRotationStrategy, Us3xLeverageStrategy,
-            VolatilityBreakoutStrategy, XaaStrategy,
+            MarketCapTopStrategy, MarketInterestDayStrategy, PensionBotStrategy, RsiStrategy,
+            SectorMomentumStrategy, SectorVbStrategy, SimplePowerStrategy, SmaStrategy,
+            SmallCapQuantStrategy, SnowStrategy, StockGuganStrategy, StockRotationStrategy,
+            Us3xLeverageStrategy, VolatilityBreakoutStrategy, XaaStrategy,
         };
         use trader_strategy::Strategy;
 
@@ -309,7 +304,9 @@ impl StrategyRepository {
                 "rsi" | "rsi_mean_reversion" => Some(Box::new(RsiStrategy::new())),
                 "grid" | "grid_trading" => Some(Box::new(GridStrategy::new())),
                 "bollinger" | "bollinger_bands" => Some(Box::new(BollingerStrategy::new())),
-                "volatility_breakout" | "volatility" => Some(Box::new(VolatilityBreakoutStrategy::new())),
+                "volatility_breakout" | "volatility" => {
+                    Some(Box::new(VolatilityBreakoutStrategy::new()))
+                }
                 "magic_split" | "split" => Some(Box::new(MagicSplitStrategy::new())),
                 "sma" | "sma_crossover" | "ma_crossover" => Some(Box::new(SmaStrategy::new())),
 
@@ -318,7 +315,9 @@ impl StrategyRepository {
                 "haa" => Some(Box::new(HaaStrategy::new())),
                 "xaa" => Some(Box::new(XaaStrategy::new())),
                 "stock_rotation" => Some(Box::new(StockRotationStrategy::new())),
-                "all_weather" | "all_weather_us" | "all_weather_kr" => Some(Box::new(AllWeatherStrategy::new())),
+                "all_weather" | "all_weather_us" | "all_weather_kr" => {
+                    Some(Box::new(AllWeatherStrategy::new()))
+                }
                 "snow" | "snow_us" | "snow_kr" => Some(Box::new(SnowStrategy::new())),
                 "baa" => Some(Box::new(BaaStrategy::new())),
                 "sector_momentum" => Some(Box::new(SectorMomentumStrategy::new())),
@@ -338,7 +337,11 @@ impl StrategyRepository {
                 "small_cap_quant" => Some(Box::new(SmallCapQuantStrategy::new())),
 
                 _ => {
-                    tracing::warn!("Unknown strategy type: {} for strategy {}", strategy_type, record.id);
+                    tracing::warn!(
+                        "Unknown strategy type: {} for strategy {}",
+                        strategy_type,
+                        record.id
+                    );
                     None
                 }
             };

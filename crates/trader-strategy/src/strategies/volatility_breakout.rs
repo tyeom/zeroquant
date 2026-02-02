@@ -21,15 +21,15 @@
 use crate::strategies::common::deserialize_symbol;
 use crate::Strategy;
 use async_trait::async_trait;
+use chrono::{DateTime, Timelike, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::VecDeque;
-use chrono::{DateTime, Utc, Timelike};
-use trader_core::{MarketData, MarketDataType, MarketType, Order, Position, Side, Signal, Symbol};
 use tracing::{debug, info};
+use trader_core::{MarketData, MarketDataType, MarketType, Order, Position, Side, Signal, Symbol};
 
 /// 변동성 돌파 전략 설정.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -88,16 +88,36 @@ pub struct VolatilityBreakoutConfig {
     pub volume_multiplier: f64,
 }
 
-fn default_k_factor() -> f64 { 0.5 }
-fn default_lookback() -> usize { 1 }
-fn default_atr_period() -> usize { 14 }
-fn default_stop_multiplier() -> f64 { 1.0 }
-fn default_tp_multiplier() -> f64 { 2.0 }
-fn default_exit_at_close() -> bool { true }
-fn default_trade_both() -> bool { true }
-fn default_min_range() -> f64 { 0.5 }
-fn default_max_range() -> f64 { 10.0 }
-fn default_volume_multiplier() -> f64 { 1.5 }
+fn default_k_factor() -> f64 {
+    0.5
+}
+fn default_lookback() -> usize {
+    1
+}
+fn default_atr_period() -> usize {
+    14
+}
+fn default_stop_multiplier() -> f64 {
+    1.0
+}
+fn default_tp_multiplier() -> f64 {
+    2.0
+}
+fn default_exit_at_close() -> bool {
+    true
+}
+fn default_trade_both() -> bool {
+    true
+}
+fn default_min_range() -> f64 {
+    0.5
+}
+fn default_max_range() -> f64 {
+    10.0
+}
+fn default_volume_multiplier() -> f64 {
+    1.5
+}
 
 impl Default for VolatilityBreakoutConfig {
     fn default() -> Self {
@@ -224,7 +244,12 @@ impl VolatilityBreakoutStrategy {
     }
 
     /// True Range 계산.
-    fn calculate_true_range(&self, high: Decimal, low: Decimal, prev_close: Option<Decimal>) -> Decimal {
+    fn calculate_true_range(
+        &self,
+        high: Decimal,
+        low: Decimal,
+        prev_close: Option<Decimal>,
+    ) -> Decimal {
         let hl = high - low;
 
         match prev_close {
@@ -302,8 +327,8 @@ impl VolatilityBreakoutStrategy {
         match self.avg_volume {
             Some(avg) if avg > Decimal::ZERO => {
                 // f64 변환 실패 시 기본값 1.5 사용
-                let threshold = avg * Decimal::from_f64_retain(config.volume_multiplier)
-                    .unwrap_or(dec!(1.5));
+                let threshold =
+                    avg * Decimal::from_f64_retain(config.volume_multiplier).unwrap_or(dec!(1.5));
                 current_volume >= threshold
             }
             _ => true, // 아직 평균 없음, 거래 허용
@@ -357,7 +382,12 @@ impl VolatilityBreakoutStrategy {
     }
 
     /// 현재 가격 기반으로 신호 생성.
-    fn generate_signals(&mut self, current_price: Decimal, current_volume: Decimal, current_time: DateTime<Utc>) -> Vec<Signal> {
+    fn generate_signals(
+        &mut self,
+        current_price: Decimal,
+        current_volume: Decimal,
+        current_time: DateTime<Utc>,
+    ) -> Vec<Signal> {
         let config = match self.config.as_ref() {
             Some(c) => c,
             None => return Vec::new(), // 초기화되지 않은 경우
@@ -394,7 +424,7 @@ impl VolatilityBreakoutStrategy {
                     Signal::exit("volatility_breakout", symbol.clone(), exit_side)
                         .with_strength(1.0)
                         .with_prices(Some(current_price), None, None)
-                        .with_metadata("exit_reason", json!(reason))
+                        .with_metadata("exit_reason", json!(reason)),
                 );
 
                 let pnl = match pos.side {
@@ -464,10 +494,10 @@ impl VolatilityBreakoutStrategy {
         // 롱 돌파
         if current_price >= upper_breakout {
             // f64 변환 실패 시 기본값 사용 (손절: 1.0, 익절: 2.0)
-            let stop_mult = Decimal::from_f64_retain(config.stop_loss_multiplier)
-                .unwrap_or(dec!(1.0));
-            let tp_mult = Decimal::from_f64_retain(config.take_profit_multiplier)
-                .unwrap_or(dec!(2.0));
+            let stop_mult =
+                Decimal::from_f64_retain(config.stop_loss_multiplier).unwrap_or(dec!(1.0));
+            let tp_mult =
+                Decimal::from_f64_retain(config.take_profit_multiplier).unwrap_or(dec!(2.0));
 
             let stop_loss = current_price - range * stop_mult;
             let take_profit = current_price + range * tp_mult;
@@ -477,7 +507,7 @@ impl VolatilityBreakoutStrategy {
                     .with_strength(0.5)
                     .with_prices(Some(current_price), Some(stop_loss), Some(take_profit))
                     .with_metadata("breakout_level", json!(upper_breakout.to_string()))
-                    .with_metadata("range", json!(range.to_string()))
+                    .with_metadata("range", json!(range.to_string())),
             );
 
             self.position = Some(PositionState {
@@ -499,12 +529,15 @@ impl VolatilityBreakoutStrategy {
         }
 
         // 숏 돌파
-        if config.trade_both_directions && current_price <= lower_breakout && self.position.is_none() {
+        if config.trade_both_directions
+            && current_price <= lower_breakout
+            && self.position.is_none()
+        {
             // f64 변환 실패 시 기본값 사용 (손절: 1.0, 익절: 2.0)
-            let stop_mult = Decimal::from_f64_retain(config.stop_loss_multiplier)
-                .unwrap_or(dec!(1.0));
-            let tp_mult = Decimal::from_f64_retain(config.take_profit_multiplier)
-                .unwrap_or(dec!(2.0));
+            let stop_mult =
+                Decimal::from_f64_retain(config.stop_loss_multiplier).unwrap_or(dec!(1.0));
+            let tp_mult =
+                Decimal::from_f64_retain(config.take_profit_multiplier).unwrap_or(dec!(2.0));
 
             let stop_loss = current_price + range * stop_mult;
             let take_profit = current_price - range * tp_mult;
@@ -514,7 +547,7 @@ impl VolatilityBreakoutStrategy {
                     .with_strength(0.5)
                     .with_prices(Some(current_price), Some(stop_loss), Some(take_profit))
                     .with_metadata("breakout_level", json!(lower_breakout.to_string()))
-                    .with_metadata("range", json!(range.to_string()))
+                    .with_metadata("range", json!(range.to_string())),
             );
 
             self.position = Some(PositionState {
@@ -701,7 +734,14 @@ mod tests {
     use chrono::{TimeZone, Utc};
     use trader_core::{Kline, Timeframe};
 
-    fn create_kline_at_time(symbol: &Symbol, open: Decimal, high: Decimal, low: Decimal, close: Decimal, hour: u32) -> MarketData {
+    fn create_kline_at_time(
+        symbol: &Symbol,
+        open: Decimal,
+        high: Decimal,
+        low: Decimal,
+        close: Decimal,
+        hour: u32,
+    ) -> MarketData {
         let timestamp = Utc.with_ymd_and_hms(2024, 1, 1, hour, 0, 0).unwrap();
         let kline = Kline::new(
             symbol.clone(),
@@ -747,18 +787,39 @@ mod tests {
         let symbol = Symbol::crypto("BTC", "USDT");
 
         // First period: establish range (high-low = 1000)
-        let data1 = create_kline_at_time(&symbol, dec!(50000), dec!(50500), dec!(49500), dec!(50200), 0);
+        let data1 = create_kline_at_time(
+            &symbol,
+            dec!(50000),
+            dec!(50500),
+            dec!(49500),
+            dec!(50200),
+            0,
+        );
         strategy.on_market_data(&data1).await.unwrap();
 
         // New period starts
-        let data2 = create_kline_at_time(&symbol, dec!(50200), dec!(50200), dec!(50200), dec!(50200), 1);
+        let data2 = create_kline_at_time(
+            &symbol,
+            dec!(50200),
+            dec!(50200),
+            dec!(50200),
+            dec!(50200),
+            1,
+        );
         strategy.on_market_data(&data2).await.unwrap();
 
         // 레인지는 1000, K=0.5, 따라서 상단 돌파 = 50200 + 500 = 50700
         assert!(strategy.prev_range.is_some());
 
         // 가격이 상방 돌파
-        let data3 = create_kline_at_time(&symbol, dec!(50200), dec!(51000), dec!(50200), dec!(50800), 1);
+        let data3 = create_kline_at_time(
+            &symbol,
+            dec!(50200),
+            dec!(51000),
+            dec!(50200),
+            dec!(50800),
+            1,
+        );
         let signals = strategy.on_market_data(&data3).await.unwrap();
 
         // 롱 신호가 생성되거나 포지션이 있어야 함

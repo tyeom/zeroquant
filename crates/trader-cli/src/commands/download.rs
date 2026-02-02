@@ -40,8 +40,8 @@ impl Market {
     /// Yahoo Finance 심볼 접미사 반환
     pub fn yahoo_suffix(&self) -> &'static str {
         match self {
-            Self::KR => ".KS",  // 코스피 (코스닥은 .KQ)
-            Self::US => "",     // 미국은 접미사 없음
+            Self::KR => ".KS", // 코스피 (코스닥은 .KQ)
+            Self::US => "",    // 미국은 접미사 없음
         }
     }
 }
@@ -49,9 +49,9 @@ impl Market {
 /// 지원되는 타임프레임 간격
 #[derive(Debug, Clone, Copy)]
 pub enum Interval {
-    D1,  // 일봉
-    W1,  // 주봉
-    M1,  // 월봉
+    D1, // 일봉
+    W1, // 주봉
+    M1, // 월봉
 }
 
 impl Interval {
@@ -167,7 +167,10 @@ pub async fn download_data(config: DownloadConfig) -> Result<usize> {
     // 1차: Yahoo Finance 시도
     match download_from_yahoo(&config).await {
         Ok(data) if !data.is_empty() => {
-            info!("Successfully fetched {} candles from Yahoo Finance", data.len());
+            info!(
+                "Successfully fetched {} candles from Yahoo Finance",
+                data.len()
+            );
             return save_to_csv(&config, &data);
         }
         Ok(_) => {
@@ -266,12 +269,16 @@ async fn download_from_yahoo(config: &DownloadConfig) -> Result<Vec<OhlcvData>> 
     let body = response.text().await?;
     debug!("Yahoo Finance response length: {} bytes", body.len());
 
-    let chart_response: YahooChartResponse = serde_json::from_str(&body)
-        .with_context(|| "Failed to parse Yahoo Finance response")?;
+    let chart_response: YahooChartResponse =
+        serde_json::from_str(&body).with_context(|| "Failed to parse Yahoo Finance response")?;
 
     // 에러 체크
     if let Some(error) = chart_response.chart.error {
-        anyhow::bail!("Yahoo Finance error: {} - {}", error.code, error.description);
+        anyhow::bail!(
+            "Yahoo Finance error: {} - {}",
+            error.code,
+            error.description
+        );
     }
 
     // 결과 파싱
@@ -282,7 +289,11 @@ async fn download_from_yahoo(config: &DownloadConfig) -> Result<Vec<OhlcvData>> 
         .ok_or_else(|| anyhow::anyhow!("No data returned from Yahoo Finance"))?;
 
     let timestamps = result.timestamp.unwrap_or_default();
-    let quote = result.indicators.quote.into_iter().next()
+    let quote = result
+        .indicators
+        .quote
+        .into_iter()
+        .next()
         .ok_or_else(|| anyhow::anyhow!("No quote data in response"))?;
 
     let opens = quote.open.unwrap_or_default();
@@ -292,7 +303,9 @@ async fn download_from_yahoo(config: &DownloadConfig) -> Result<Vec<OhlcvData>> 
     let volumes = quote.volume.unwrap_or_default();
 
     // 조정 종가 사용 (있는 경우)
-    let adj_closes = result.indicators.adj_close
+    let adj_closes = result
+        .indicators
+        .adj_close
         .and_then(|ac| ac.into_iter().next())
         .and_then(|ac| ac.adj_close);
 
@@ -304,7 +317,8 @@ async fn download_from_yahoo(config: &DownloadConfig) -> Result<Vec<OhlcvData>> 
         let open = opens.get(i).and_then(|v| *v);
         let high = highs.get(i).and_then(|v| *v);
         let low = lows.get(i).and_then(|v| *v);
-        let close = adj_closes.as_ref()
+        let close = adj_closes
+            .as_ref()
             .and_then(|ac| ac.get(i).and_then(|v| *v))
             .or_else(|| closes.get(i).and_then(|v| *v));
         let volume = volumes.get(i).and_then(|v| *v);
@@ -329,7 +343,10 @@ async fn download_from_yahoo(config: &DownloadConfig) -> Result<Vec<OhlcvData>> 
     // 날짜순 정렬 (오래된 것부터)
     data.sort_by(|a, b| a.date.cmp(&b.date));
 
-    pb.finish_with_message(format!("Downloaded {} candles from Yahoo Finance", data.len()));
+    pb.finish_with_message(format!(
+        "Downloaded {} candles from Yahoo Finance",
+        data.len()
+    ));
 
     Ok(data)
 }
@@ -353,22 +370,13 @@ fn save_to_csv(config: &DownloadConfig, data: &[OhlcvData]) -> Result<usize> {
         writeln!(
             writer,
             "{},{},{},{},{},{}",
-            candle.date,
-            candle.open,
-            candle.high,
-            candle.low,
-            candle.close,
-            candle.volume
+            candle.date, candle.open, candle.high, candle.low, candle.close, candle.volume
         )?;
     }
 
     writer.flush()?;
 
-    info!(
-        "Saved {} candles to {}",
-        data.len(),
-        config.output_path
-    );
+    info!("Saved {} candles to {}", data.len(), config.output_path);
 
     Ok(data.len())
 }

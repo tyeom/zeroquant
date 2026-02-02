@@ -26,20 +26,23 @@
 use crate::strategies::common::deserialize_symbols;
 use crate::Strategy;
 use async_trait::async_trait;
+use chrono::{DateTime, Timelike, Utc};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use chrono::{DateTime, Utc, Timelike};
-use trader_core::{MarketData, MarketDataType, Order, Position, Side, Signal, Symbol};
 use tracing::{debug, info};
+use trader_core::{MarketData, MarketDataType, Order, Position, Side, Signal, Symbol};
 
 /// 섹터 변동성 돌파 전략 설정.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SectorVbConfig {
     /// 거래 대상 섹터 ETF 리스트
-    #[serde(default = "default_sector_list", deserialize_with = "deserialize_symbols")]
+    #[serde(
+        default = "default_sector_list",
+        deserialize_with = "deserialize_symbols"
+    )]
     pub symbols: Vec<String>,
 
     /// 돌파 K 계수 (기본값: 0.5)
@@ -86,13 +89,27 @@ fn default_sector_list() -> Vec<String> {
     ]
 }
 
-fn default_k_factor() -> f64 { 0.5 }
-fn default_selection_method() -> String { "returns".to_string() }
-fn default_top_n() -> usize { 1 }
-fn default_min_volume() -> u64 { 100_000 }
-fn default_close_before_minutes() -> u32 { 10 }
-fn default_stop_loss_pct() -> f64 { 2.0 }
-fn default_take_profit_pct() -> f64 { 3.0 }
+fn default_k_factor() -> f64 {
+    0.5
+}
+fn default_selection_method() -> String {
+    "returns".to_string()
+}
+fn default_top_n() -> usize {
+    1
+}
+fn default_min_volume() -> u64 {
+    100_000
+}
+fn default_close_before_minutes() -> u32 {
+    10
+}
+fn default_stop_loss_pct() -> f64 {
+    2.0
+}
+fn default_take_profit_pct() -> f64 {
+    3.0
+}
 
 impl Default for SectorVbConfig {
     fn default() -> Self {
@@ -247,8 +264,12 @@ impl SectorVbStrategy {
         };
 
         // 수익률 기준 정렬
-        let mut ranked: Vec<_> = self.sector_data.values()
-            .filter(|d| d.prev_close > Decimal::ZERO && d.prev_volume >= Decimal::from(config.min_volume))
+        let mut ranked: Vec<_> = self
+            .sector_data
+            .values()
+            .filter(|d| {
+                d.prev_close > Decimal::ZERO && d.prev_volume >= Decimal::from(config.min_volume)
+            })
             .collect();
 
         ranked.sort_by(|a, b| b.returns.cmp(&a.returns));
@@ -290,7 +311,12 @@ impl SectorVbStrategy {
     }
 
     /// 신호 생성.
-    fn generate_signals(&mut self, symbol: &str, current_price: Decimal, timestamp: DateTime<Utc>) -> Vec<Signal> {
+    fn generate_signals(
+        &mut self,
+        symbol: &str,
+        current_price: Decimal,
+        timestamp: DateTime<Utc>,
+    ) -> Vec<Signal> {
         let config = match self.config.as_ref() {
             Some(c) => c.clone(),
             None => return Vec::new(),
@@ -317,7 +343,7 @@ impl SectorVbStrategy {
                         Signal::exit("sector_vb", sym, Side::Sell)
                             .with_strength(1.0)
                             .with_prices(Some(current_price), None, None)
-                            .with_metadata("exit_reason", json!("stop_loss"))
+                            .with_metadata("exit_reason", json!("stop_loss")),
                     );
 
                     let pnl = current_price - pos.entry_price;
@@ -339,7 +365,7 @@ impl SectorVbStrategy {
                         Signal::exit("sector_vb", sym, Side::Sell)
                             .with_strength(1.0)
                             .with_prices(Some(current_price), None, None)
-                            .with_metadata("exit_reason", json!("take_profit"))
+                            .with_metadata("exit_reason", json!("take_profit")),
                     );
 
                     let pnl = current_price - pos.entry_price;
@@ -365,7 +391,7 @@ impl SectorVbStrategy {
                         Signal::exit("sector_vb", sym, Side::Sell)
                             .with_strength(1.0)
                             .with_prices(Some(current_price), None, None)
-                            .with_metadata("exit_reason", json!("market_close"))
+                            .with_metadata("exit_reason", json!("market_close")),
                     );
 
                     let pnl = current_price - pos.entry_price;
@@ -396,15 +422,24 @@ impl SectorVbStrategy {
                     // 돌파! 매수
                     let sym = self.symbols.iter().find(|s| s.base == symbol).cloned();
                     if let Some(sym) = sym {
-                        let stop_loss = current_price * (dec!(1) - Decimal::from_f64_retain(config.stop_loss_pct / 100.0).unwrap());
-                        let take_profit = current_price * (dec!(1) + Decimal::from_f64_retain(config.take_profit_pct / 100.0).unwrap());
+                        let stop_loss = current_price
+                            * (dec!(1)
+                                - Decimal::from_f64_retain(config.stop_loss_pct / 100.0).unwrap());
+                        let take_profit = current_price
+                            * (dec!(1)
+                                + Decimal::from_f64_retain(config.take_profit_pct / 100.0)
+                                    .unwrap());
 
                         signals.push(
                             Signal::entry("sector_vb", sym, Side::Buy)
                                 .with_strength(0.5)
-                                .with_prices(Some(current_price), Some(stop_loss), Some(take_profit))
+                                .with_prices(
+                                    Some(current_price),
+                                    Some(stop_loss),
+                                    Some(take_profit),
+                                )
                                 .with_metadata("target_price", json!(target.to_string()))
-                                .with_metadata("sector", json!(symbol))
+                                .with_metadata("sector", json!(symbol)),
                         );
 
                         self.position = Some(PositionState {
@@ -469,7 +504,8 @@ impl Strategy for SectorVbStrategy {
         for symbol_str in &vb_config.symbols {
             let symbol = Symbol::stock(symbol_str, "KRW");
             self.symbols.push(symbol);
-            self.sector_data.insert(symbol_str.clone(), SectorData::new(symbol_str.clone()));
+            self.sector_data
+                .insert(symbol_str.clone(), SectorData::new(symbol_str.clone()));
         }
 
         self.config = Some(vb_config);

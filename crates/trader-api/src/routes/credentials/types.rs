@@ -45,7 +45,10 @@ impl fmt::Debug for CreateExchangeCredentialRequest {
         f.debug_struct("CreateExchangeCredentialRequest")
             .field("exchange_id", &self.exchange_id)
             .field("display_name", &self.display_name)
-            .field("fields", &format!("[{} redacted fields]", self.fields.len()))
+            .field(
+                "fields",
+                &format!("[{} redacted fields]", self.fields.len()),
+            )
             .field("is_testnet", &self.is_testnet)
             .field("settings", &self.settings)
             .finish()
@@ -79,11 +82,21 @@ impl fmt::Debug for UpdateExchangeCredentialRequest {
         f.debug_struct("UpdateExchangeCredentialRequest")
             .field("exchange_name", &self.exchange_name)
             .field("api_key", &self.api_key.as_ref().map(|_| "***REDACTED***"))
-            .field("api_secret", &self.api_secret.as_ref().map(|_| "***REDACTED***"))
-            .field("passphrase", &self.passphrase.as_ref().map(|_| "***REDACTED***"))
-            .field("additional_fields", &self.additional_fields.as_ref().map(|m| {
-                format!("[{} fields]", m.len())
-            }))
+            .field(
+                "api_secret",
+                &self.api_secret.as_ref().map(|_| "***REDACTED***"),
+            )
+            .field(
+                "passphrase",
+                &self.passphrase.as_ref().map(|_| "***REDACTED***"),
+            )
+            .field(
+                "additional_fields",
+                &self
+                    .additional_fields
+                    .as_ref()
+                    .map(|m| format!("[{} fields]", m.len())),
+            )
             .field("is_active", &self.is_active)
             .field("settings", &self.settings)
             .finish()
@@ -302,10 +315,17 @@ impl fmt::Debug for EncryptedCredentials {
         f.debug_struct("EncryptedCredentials")
             .field("api_key", &"***REDACTED***")
             .field("api_secret", &"***REDACTED***")
-            .field("passphrase", &self.passphrase.as_ref().map(|_| "***REDACTED***"))
-            .field("additional", &self.additional.as_ref().map(|m| {
-                m.keys().map(|k| format!("{}=***", k)).collect::<Vec<_>>()
-            }))
+            .field(
+                "passphrase",
+                &self.passphrase.as_ref().map(|_| "***REDACTED***"),
+            )
+            .field(
+                "additional",
+                &self
+                    .additional
+                    .as_ref()
+                    .map(|m| m.keys().map(|k| format!("{}=***", k)).collect::<Vec<_>>()),
+            )
             .finish()
     }
 }
@@ -341,7 +361,10 @@ impl fmt::Debug for TestNewCredentialRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TestNewCredentialRequest")
             .field("exchange_id", &self.exchange_id)
-            .field("fields", &format!("[{} redacted fields]", self.fields.len()))
+            .field(
+                "fields",
+                &format!("[{} redacted fields]", self.fields.len()),
+            )
             .finish()
     }
 }

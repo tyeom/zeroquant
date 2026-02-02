@@ -32,6 +32,7 @@ use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
+use trader_core::{Side, TradeInfo};
 use uuid::Uuid;
 
 /// 매수 로트(Lot).
@@ -343,12 +344,19 @@ impl CostBasisTracker {
             return 0.0;
         }
 
-        let weighted_days: Decimal = self.lots.iter().map(|l| {
-            let days = (as_of - l.acquired_at).num_days();
-            l.quantity * Decimal::from(days)
-        }).sum();
+        let weighted_days: Decimal = self
+            .lots
+            .iter()
+            .map(|l| {
+                let days = (as_of - l.acquired_at).num_days();
+                l.quantity * Decimal::from(days)
+            })
+            .sum();
 
-        (weighted_days / total_qty).to_string().parse().unwrap_or(0.0)
+        (weighted_days / total_qty)
+            .to_string()
+            .parse()
+            .unwrap_or(0.0)
     }
 
     /// 포지션 클리어 (전량 매도 후 리셋).
@@ -430,11 +438,37 @@ pub struct CostBasisSummary {
 pub struct TradeExecution {
     pub id: Uuid,
     pub symbol: String,
-    pub side: String,  // "buy" or "sell"
+    pub side: Side,
     pub quantity: Decimal,
     pub price: Decimal,
     pub fee: Decimal,
     pub executed_at: DateTime<Utc>,
+}
+
+impl TradeInfo for TradeExecution {
+    fn symbol(&self) -> &str {
+        &self.symbol
+    }
+
+    fn pnl(&self) -> Option<Decimal> {
+        // TradeExecution은 단일 체결 내역이므로 pnl이 없음.
+        // 실현 손익은 매도 시 CostBasisTracker가 계산함.
+        None
+    }
+
+    fn fees(&self) -> Decimal {
+        self.fee
+    }
+
+    fn entry_time(&self) -> DateTime<Utc> {
+        self.executed_at
+    }
+
+    fn exit_time(&self) -> Option<DateTime<Utc>> {
+        // TradeExecution은 단일 체결이므로 청산 시각이 없음.
+        // 매도 체결도 진입으로 간주 (FIFO 계산용).
+        None
+    }
 }
 
 /// 체결 내역으로부터 비용 기준 추적기 빌드.
@@ -449,17 +483,16 @@ pub fn build_tracker_from_executions(
     sorted_executions.sort_by_key(|e| e.executed_at);
 
     for exec in sorted_executions {
-        match exec.side.to_lowercase().as_str() {
-            "buy" => {
+        match exec.side {
+            Side::Buy => {
                 let lot = Lot::new(exec.quantity, exec.price, exec.fee, exec.executed_at)
                     .with_execution_id(exec.id);
                 tracker.add_lot(lot);
             }
-            "sell" => {
+            Side::Sell => {
                 // 매도 시 FIFO 처리 (실패해도 계속 진행)
                 let _ = tracker.sell(exec.quantity, exec.price, exec.fee, exec.executed_at);
             }
-            _ => {}
         }
     }
 
@@ -518,7 +551,9 @@ mod tests {
 
         // 80주 매도 @ $70 (FIFO: 첫 로트에서 80주)
         let sale_time = Utc::now();
-        let result = tracker.sell(dec!(80), dec!(70.00), dec!(5.00), sale_time).unwrap();
+        let result = tracker
+            .sell(dec!(80), dec!(70.00), dec!(5.00), sale_time)
+            .unwrap();
 
         // 비용기준: 80 * 50 = 4000
         assert_eq!(result.cost_basis, dec!(4000));
@@ -548,7 +583,9 @@ mod tests {
         tracker.buy(dec!(20), dec!(110.00), dec!(0), t3);
 
         // 70주 매도 (로트1 전체 + 로트2의 20주 사용)
-        let result = tracker.sell(dec!(70), dec!(130.00), dec!(0), Utc::now()).unwrap();
+        let result = tracker
+            .sell(dec!(70), dec!(130.00), dec!(0), Utc::now())
+            .unwrap();
 
         // 비용기준: 50*100 + 20*120 = 5000 + 2400 = 7400
         assert_eq!(result.cost_basis, dec!(7400));
@@ -592,7 +629,7 @@ mod tests {
             TradeExecution {
                 id: Uuid::new_v4(),
                 symbol: "AAPL".to_string(),
-                side: "buy".to_string(),
+                side: Side::Buy,
                 quantity: dec!(100),
                 price: dec!(150.00),
                 fee: dec!(5.00),
@@ -601,7 +638,7 @@ mod tests {
             TradeExecution {
                 id: Uuid::new_v4(),
                 symbol: "AAPL".to_string(),
-                side: "buy".to_string(),
+                side: Side::Buy,
                 quantity: dec!(50),
                 price: dec!(140.00),
                 fee: dec!(5.00),
@@ -610,7 +647,7 @@ mod tests {
             TradeExecution {
                 id: Uuid::new_v4(),
                 symbol: "AAPL".to_string(),
-                side: "sell".to_string(),
+                side: Side::Sell,
                 quantity: dec!(80),
                 price: dec!(160.00),
                 fee: dec!(8.00),

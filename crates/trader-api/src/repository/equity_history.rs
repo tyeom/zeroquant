@@ -458,12 +458,8 @@ impl EquityHistoryRepository {
             total_equity: r.get("total_equity"),
             cash_balance: r.get("cash_balance"),
             securities_value: r.get("securities_value"),
-            total_pnl: r
-                .get::<Option<Decimal>, _>("total_pnl")
-                .unwrap_or_default(),
-            daily_pnl: r
-                .get::<Option<Decimal>, _>("daily_pnl")
-                .unwrap_or_default(),
+            total_pnl: r.get::<Option<Decimal>, _>("total_pnl").unwrap_or_default(),
+            daily_pnl: r.get::<Option<Decimal>, _>("daily_pnl").unwrap_or_default(),
             currency: r
                 .get::<Option<String>, _>("currency")
                 .unwrap_or_else(|| "KRW".to_string()),
@@ -863,10 +859,7 @@ impl EquityHistoryRepository {
                         securities_value += *qty * p;
                     } else {
                         has_all_prices = false;
-                        warn!(
-                            "{} 종가 없음: {} (보유: {})",
-                            current_date, symbol, qty
-                        );
+                        warn!("{} 종가 없음: {} (보유: {})", current_date, symbol, qty);
                     }
                 }
             }

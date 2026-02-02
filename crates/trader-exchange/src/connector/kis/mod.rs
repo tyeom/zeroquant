@@ -46,18 +46,17 @@ pub mod websocket_us;
 
 pub use auth::{KisOAuth, TokenState};
 pub use client_kr::{
-    KisKrClient, KrStockPrice, KrOrderBook, KrOrderResponse, KrHolding,
-    KrAccountSummary, KrBalance, KrBuyPower, KrOhlcv, KrMinuteOhlcv,
-    KrOrderExecution, KrOrderHistory,
+    KisKrClient, KrAccountSummary, KrBalance, KrBuyPower, KrHolding, KrMinuteOhlcv, KrOhlcv,
+    KrOrderBook, KrOrderExecution, KrOrderHistory, KrOrderResponse, KrStockPrice,
 };
 pub use client_us::{
-    KisUsClient, UsMarketSession, UsStockPrice, UsOrderResponse, UsHolding,
-    UsBalance, UsOhlcv,
+    KisUsClient, UsBalance, UsHolding, UsMarketSession, UsOhlcv, UsOrderExecution, UsOrderResponse,
+    UsStockPrice,
 };
-pub use config::{KisConfig, KisEnvironment, KisAccountType};
+pub use config::{KisAccountType, KisConfig, KisEnvironment};
 pub use holiday::{HolidayChecker, MarketStatus};
-pub use websocket_kr::{KisKrWebSocket, KrRealtimeMessage, KrRealtimeTrade, KrRealtimeOrderbook};
-pub use websocket_us::{KisUsWebSocket, UsRealtimeMessage, UsRealtimeTrade, UsRealtimeOrderbook};
+pub use websocket_kr::{KisKrWebSocket, KrRealtimeMessage, KrRealtimeOrderbook, KrRealtimeTrade};
+pub use websocket_us::{KisUsWebSocket, UsRealtimeMessage, UsRealtimeOrderbook, UsRealtimeTrade};
 
 /// KIS 거래 ID (tr_id) 상수 모음.
 ///
@@ -177,6 +176,16 @@ pub mod tr_id {
     pub const US_DAY_NIGHT_REAL: &str = "JTTT3010R";
     /// 해외 주식 주야간 구분 (모의)
     pub const US_DAY_NIGHT_PAPER: &str = "JTTT3010R";
+
+    /// 해외 주식 미체결 주문 조회 (실전)
+    pub const US_PENDING_ORDERS_REAL: &str = "TTTT3039R";
+    /// 해외 주식 미체결 주문 조회 (모의)
+    pub const US_PENDING_ORDERS_PAPER: &str = "VTTT3039R";
+
+    /// 해외 주식 체결 내역 조회 (실전)
+    pub const US_ORDER_EXECUTION_REAL: &str = "TTTS3035R";
+    /// 해외 주식 체결 내역 조회 (모의)
+    pub const US_ORDER_EXECUTION_PAPER: &str = "VTTS3035R";
 
     // ========================================
     // WebSocket Real-time (실시간 시세)

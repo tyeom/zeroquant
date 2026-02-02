@@ -220,7 +220,10 @@ mod tests {
         assert_eq!(format_currency(&dec!(1000000), "KRW"), "1,000,000.00 KRW");
         assert_eq!(format_currency(&dec!(0.5), "EUR"), "0.50 EUR");
         assert_eq!(format_currency(&dec!(-500.5), "EUR"), "-500.50 EUR");
-        assert_eq!(format_currency(&dec!(123456789.12), "USD"), "123,456,789.12 USD");
+        assert_eq!(
+            format_currency(&dec!(123456789.12), "USD"),
+            "123,456,789.12 USD"
+        );
     }
 
     #[test]

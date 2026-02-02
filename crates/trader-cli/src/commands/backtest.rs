@@ -71,8 +71,8 @@ impl Default for BacktestCliConfig {
             start_date: None,
             end_date: None,
             initial_capital: Decimal::from(10_000_000), // 1천만원
-            commission_rate: Decimal::from_str("0.00015").unwrap(),    // 0.015% (한국 증권사 평균)
-            slippage_rate: Decimal::from_str("0.0005").unwrap(),       // 0.05%
+            commission_rate: Decimal::from_str("0.00015").unwrap(), // 0.015% (한국 증권사 평균)
+            slippage_rate: Decimal::from_str("0.0005").unwrap(), // 0.05%
             db_url: None,
             output_path: None,
         }
@@ -187,12 +187,13 @@ pub async fn run_backtest(config: BacktestCliConfig) -> Result<BacktestReport> {
     info!("Loaded {} klines for backtest", klines.len());
 
     // 5. 전략 타입 파싱
-    let strategy_type = StrategyType::from_str(&strategy_config.strategy_type).ok_or_else(|| {
-        anyhow!(
-            "Unknown strategy type: {}. Use --list-strategies to see available strategies.",
-            strategy_config.strategy_type
-        )
-    })?;
+    let strategy_type =
+        StrategyType::from_str(&strategy_config.strategy_type).ok_or_else(|| {
+            anyhow!(
+                "Unknown strategy type: {}. Use --list-strategies to see available strategies.",
+                strategy_config.strategy_type
+            )
+        })?;
 
     // 6. 백테스트 엔진 설정
     let backtest_config = BacktestConfig::new(config.initial_capital)
@@ -405,7 +406,10 @@ async fn load_klines_from_db(
     debug!("Loaded {} rows from database", rows.len());
 
     // DB 행을 Kline으로 변환
-    let klines: Vec<Kline> = rows.into_iter().map(|row| row.to_kline(symbol.clone())).collect();
+    let klines: Vec<Kline> = rows
+        .into_iter()
+        .map(|row| row.to_kline(symbol.clone()))
+        .collect();
 
     Ok(klines)
 }

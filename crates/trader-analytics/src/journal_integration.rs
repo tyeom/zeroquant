@@ -8,7 +8,7 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 use crate::performance::RoundTrip;
-use trader_core::Side;
+use trader_core::{Side, TradeInfo};
 
 /// 매매일지 체결 내역 입력 (trader-api의 TradeExecutionInput 간소화 버전).
 ///
@@ -43,6 +43,35 @@ pub struct JournalTradeInput {
     pub executed_at: DateTime<Utc>,
     /// 메모 (백테스트 표시용)
     pub memo: Option<String>,
+}
+
+impl TradeInfo for JournalTradeInput {
+    fn symbol(&self) -> &str {
+        &self.symbol
+    }
+
+    fn pnl(&self) -> Option<Decimal> {
+        self.realized_pnl
+    }
+
+    fn fees(&self) -> Decimal {
+        self.fee
+    }
+
+    fn entry_time(&self) -> DateTime<Utc> {
+        self.executed_at
+    }
+
+    fn exit_time(&self) -> Option<DateTime<Utc>> {
+        // JournalTradeInput은 단일 체결 내역.
+        // realized_pnl이 있으면 청산 체결 (exit_time = executed_at)
+        // realized_pnl이 없으면 진입 체결 (exit_time = None)
+        if self.realized_pnl.is_some() {
+            Some(self.executed_at)
+        } else {
+            None
+        }
+    }
 }
 
 /// 백테스트 리포트의 거래 내역을 매매일지 형식으로 변환합니다.
@@ -113,7 +142,7 @@ pub fn export_backtest_to_journal(
         // 2. 청산 체결
         let close_side = match rt.side {
             Side::Buy => Side::Sell, // 롱 포지션 청산 = 매도
-            Side::Sell => Side::Buy,  // 숏 포지션 청산 = 매수
+            Side::Sell => Side::Buy, // 숏 포지션 청산 = 매수
         };
 
         executions.push(JournalTradeInput {

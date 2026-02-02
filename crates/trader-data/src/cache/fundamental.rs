@@ -4,8 +4,8 @@
 //! 주요 지표: 시가총액, PER, PBR, ROE, 배당수익률 등.
 
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
-use rust_decimal::Decimal;
 use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 
@@ -25,7 +25,7 @@ fn round_decimal_from_f64(value: f64) -> Option<Decimal> {
 fn round_decimal_from_f64_dp2(value: f64) -> Option<Decimal> {
     Decimal::from_f64(value).map(|d| d.round_dp(2))
 }
-use trader_core::{Kline, Symbol, MarketType, Timeframe};
+use trader_core::{Kline, MarketType, Symbol, Timeframe};
 
 /// Yahoo Finance에서 가져온 Fundamental 데이터.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -44,16 +44,16 @@ pub struct FundamentalData {
     pub avg_volume_3m: Option<i64>,
 
     // 밸류에이션
-    pub per: Option<Decimal>,           // trailing PE
-    pub forward_per: Option<Decimal>,   // forward PE
-    pub pbr: Option<Decimal>,           // price to book
-    pub psr: Option<Decimal>,           // price to sales
+    pub per: Option<Decimal>,         // trailing PE
+    pub forward_per: Option<Decimal>, // forward PE
+    pub pbr: Option<Decimal>,         // price to book
+    pub psr: Option<Decimal>,         // price to sales
     pub ev_ebitda: Option<Decimal>,
 
     // 주당 지표
-    pub eps: Option<Decimal>,           // trailing EPS
-    pub bps: Option<Decimal>,           // book value per share
-    pub dps: Option<Decimal>,           // dividend per share
+    pub eps: Option<Decimal>, // trailing EPS
+    pub bps: Option<Decimal>, // book value per share
+    pub dps: Option<Decimal>, // dividend per share
 
     // 배당
     pub dividend_yield: Option<Decimal>,
@@ -106,10 +106,13 @@ impl FundamentalFetcher {
         debug!(symbol = yahoo_symbol, "Fundamental 데이터 수집 시작");
 
         // 1. 기본 시세 데이터 조회 (search_ticker로 요약 정보 가져오기)
-        let search_result = self.connector
+        let search_result = self
+            .connector
             .search_ticker(yahoo_symbol)
             .await
-            .map_err(|e| DataError::FetchError(format!("Yahoo Finance 검색 실패 ({}): {}", yahoo_symbol, e)))?;
+            .map_err(|e| {
+                DataError::FetchError(format!("Yahoo Finance 검색 실패 ({}): {}", yahoo_symbol, e))
+            })?;
 
         // 2. 최근 1개월 가격 데이터로 52주 고저가 및 평균 거래량 계산
         let price_data = self.fetch_price_statistics(yahoo_symbol).await;
@@ -160,14 +163,21 @@ impl FundamentalFetcher {
     }
 
     /// 가격 통계 수집 (52주 고저가, 평균 거래량).
-    async fn fetch_price_statistics(&self, symbol: &str) -> Result<(Option<Decimal>, Option<Decimal>, Option<i64>, Option<i64>)> {
+    async fn fetch_price_statistics(
+        &self,
+        symbol: &str,
+    ) -> Result<(Option<Decimal>, Option<Decimal>, Option<i64>, Option<i64>)> {
         // 1년치 일봉 데이터 조회
-        let response = self.connector
+        let response = self
+            .connector
             .get_quote_range(symbol, "1d", "1y")
             .await
-            .map_err(|e| DataError::FetchError(format!("가격 통계 조회 실패 ({}): {}", symbol, e)))?;
+            .map_err(|e| {
+                DataError::FetchError(format!("가격 통계 조회 실패 ({}): {}", symbol, e))
+            })?;
 
-        let quotes = response.quotes()
+        let quotes = response
+            .quotes()
             .map_err(|e| DataError::ParseError(format!("Quote 파싱 오류: {}", e)))?;
 
         if quotes.is_empty() {
@@ -175,12 +185,14 @@ impl FundamentalFetcher {
         }
 
         // 52주 고저가 계산 (소수점 4자리로 반올림)
-        let high_52w = quotes.iter()
+        let high_52w = quotes
+            .iter()
             .map(|q| q.high)
             .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .and_then(round_decimal_from_f64);
 
-        let low_52w = quotes.iter()
+        let low_52w = quotes
+            .iter()
             .map(|q| q.low)
             .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .and_then(round_decimal_from_f64);
@@ -212,16 +224,23 @@ impl FundamentalFetcher {
     /// 최신 시세 정보 조회.
     async fn fetch_latest_quote(&self, symbol: &str) -> Result<LatestQuote> {
         // 최근 5일 데이터로 현재가 정보 조회
-        let response = self.connector
+        let response = self
+            .connector
             .get_quote_range(symbol, "1d", "5d")
             .await
-            .map_err(|e| DataError::FetchError(format!("최신 시세 조회 실패 ({}): {}", symbol, e)))?;
+            .map_err(|e| {
+                DataError::FetchError(format!("최신 시세 조회 실패 ({}): {}", symbol, e))
+            })?;
 
-        let quotes = response.quotes()
+        let quotes = response
+            .quotes()
             .map_err(|e| DataError::ParseError(format!("Quote 파싱 오류: {}", e)))?;
 
         if quotes.is_empty() {
-            return Err(DataError::FetchError(format!("시세 데이터 없음: {}", symbol)));
+            return Err(DataError::FetchError(format!(
+                "시세 데이터 없음: {}",
+                symbol
+            )));
         }
 
         let latest = quotes.last().unwrap();
@@ -270,7 +289,8 @@ impl FundamentalFetcher {
                             "Fundamental 수집 재시도 예정"
                         );
                         // 재시도 전 짧은 대기 (exponential backoff: 500ms, 1000ms, ...)
-                        tokio::time::sleep(std::time::Duration::from_millis(500 * attempt as u64)).await;
+                        tokio::time::sleep(std::time::Duration::from_millis(500 * attempt as u64))
+                            .await;
                     } else {
                         warn!(
                             symbol = symbol,
@@ -290,18 +310,21 @@ impl FundamentalFetcher {
     /// 시가총액, PER, PBR, ROE, 배당수익률 등 핵심 지표를 수집합니다.
     /// `yahoo_finance_api` 크레이트가 crumb 토큰 인증을 자동 처리합니다.
     async fn fetch_fundamental_from_ticker_info(&mut self, symbol: &str) -> Result<LatestQuote> {
-        let summary = self.connector
-            .get_ticker_info(symbol)
-            .await
-            .map_err(|e| DataError::FetchError(format!("Yahoo ticker info 조회 실패 ({}): {}", symbol, e)))?;
+        let summary = self.connector.get_ticker_info(symbol).await.map_err(|e| {
+            DataError::FetchError(format!("Yahoo ticker info 조회 실패 ({}): {}", symbol, e))
+        })?;
 
         // quote_summary에서 데이터 추출
-        let quote_summary = summary.quote_summary
-            .ok_or_else(|| DataError::FetchError(format!("Yahoo ticker info 결과 없음: {}", symbol)))?;
+        let quote_summary = summary.quote_summary.ok_or_else(|| {
+            DataError::FetchError(format!("Yahoo ticker info 결과 없음: {}", symbol))
+        })?;
 
-        let result_data = quote_summary.result
+        let result_data = quote_summary
+            .result
             .and_then(|r| r.into_iter().next())
-            .ok_or_else(|| DataError::FetchError(format!("Yahoo ticker info 결과 비어있음: {}", symbol)))?;
+            .ok_or_else(|| {
+                DataError::FetchError(format!("Yahoo ticker info 결과 비어있음: {}", symbol))
+            })?;
 
         // SummaryDetail에서 시가총액, PER, 배당수익률 추출
         let summary_detail = result_data.summary_detail.as_ref();
@@ -322,10 +345,7 @@ impl FundamentalFetcher {
             .and_then(|v| round_decimal_from_f64_dp2(v * 100.0)); // % 변환
         let ex_dividend_date = summary_detail
             .and_then(|sd| sd.ex_dividend_date)
-            .and_then(|ts| {
-                chrono::DateTime::from_timestamp(ts, 0)
-                    .map(|dt| dt.date_naive())
-            });
+            .and_then(|ts| chrono::DateTime::from_timestamp(ts, 0).map(|dt| dt.date_naive()));
 
         // DefaultKeyStatistics에서 PBR, EPS, BPS, 발행주식수 추출
         let key_stats = result_data.default_key_statistics.as_ref();
@@ -345,9 +365,7 @@ impl FundamentalFetcher {
         let shares_outstanding = key_stats
             .and_then(|ks| ks.shares_outstanding)
             .map(|v| v as i64);
-        let float_shares = key_stats
-            .and_then(|ks| ks.float_shares)
-            .map(|v| v as i64);
+        let float_shares = key_stats.and_then(|ks| ks.float_shares).map(|v| v as i64);
 
         // FinancialData에서 ROE, ROA, 마진율 추출 (퍼센트는 소수점 2자리로 반올림)
         let financial_data = result_data.financial_data.as_ref();
@@ -384,11 +402,12 @@ impl FundamentalFetcher {
         let earnings_growth = financial_data
             .and_then(|fd| fd.earnings_growth)
             .and_then(|v| round_decimal_from_f64_dp2(v * 100.0)); // % 변환
-        let currency = financial_data
-            .and_then(|fd| fd.financial_currency.clone());
+        let currency = financial_data.and_then(|fd| fd.financial_currency.clone());
 
         // QuoteType에서 종목명 추출
-        let name = result_data.quote_type.as_ref()
+        let name = result_data
+            .quote_type
+            .as_ref()
             .and_then(|qt| qt.long_name.clone().or(qt.short_name.clone()));
 
         let quote = LatestQuote {
@@ -431,12 +450,11 @@ impl FundamentalFetcher {
 
         Ok(quote)
     }
-
-
 }
 
 /// 최신 시세 및 Fundamental 정보.
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)] // API 응답 전체 필드 매핑 (일부만 사용)
 struct LatestQuote {
     /// 종목명 (한글/영문)
     name: Option<String>,
@@ -465,7 +483,6 @@ struct LatestQuote {
     float_shares: Option<i64>,
     currency: Option<String>,
 }
-
 
 /// Fundamental + OHLCV 통합 수집 결과.
 #[derive(Debug, Clone)]
@@ -500,12 +517,16 @@ impl FundamentalFetcher {
         debug!(symbol = yahoo_symbol, "Fundamental + OHLCV 통합 수집 시작");
 
         // 1. 1년치 일봉 데이터 조회 (펀더멘털 + OHLCV 공용)
-        let response = self.connector
+        let response = self
+            .connector
             .get_quote_range(yahoo_symbol, "1d", "1y")
             .await
-            .map_err(|e| DataError::FetchError(format!("Yahoo Finance 조회 실패 ({}): {}", yahoo_symbol, e)))?;
+            .map_err(|e| {
+                DataError::FetchError(format!("Yahoo Finance 조회 실패 ({}): {}", yahoo_symbol, e))
+            })?;
 
-        let quotes = response.quotes()
+        let quotes = response
+            .quotes()
             .map_err(|e| DataError::ParseError(format!("Quote 파싱 오류: {}", e)))?;
 
         // 빈 데이터 처리
@@ -558,12 +579,14 @@ impl FundamentalFetcher {
             .collect();
 
         // 3. Fundamental 지표 계산 (소수점 4자리로 반올림)
-        let high_52w = quotes.iter()
+        let high_52w = quotes
+            .iter()
             .map(|q| q.high)
             .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .and_then(round_decimal_from_f64);
 
-        let low_52w = quotes.iter()
+        let low_52w = quotes
+            .iter()
             .map(|q| q.low)
             .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .and_then(round_decimal_from_f64);
@@ -584,9 +607,7 @@ impl FundamentalFetcher {
         };
 
         // 메타데이터에서 통화 정보 추출
-        let default_currency = response.metadata()
-            .ok()
-            .and_then(|m| m.currency.clone());
+        let default_currency = response.metadata().ok().and_then(|m| m.currency.clone());
 
         // 4. Yahoo ticker info API에서 Fundamental 데이터 추가 수집
         // get_ticker_info는 crumb 토큰 인증을 자동 처리함
@@ -662,13 +683,15 @@ impl FundamentalFetcher {
             "Fundamental + OHLCV 통합 수집 완료"
         );
 
-        Ok(FetchResult { fundamental, klines, name })
+        Ok(FetchResult {
+            fundamental,
+            klines,
+            name,
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-
+    // 테스트 작성 예정
 }

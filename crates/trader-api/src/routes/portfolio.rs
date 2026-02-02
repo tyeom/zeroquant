@@ -22,16 +22,20 @@ use axum::{
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracing::{debug, info, warn, error};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-use crate::routes::strategies::ApiError;
+use crate::repository::{
+    EquityHistoryRepository, HoldingPosition, PortfolioSnapshot, PositionRepository,
+};
 use crate::routes::credentials::EncryptedCredentials;
-use crate::repository::{EquityHistoryRepository, PortfolioSnapshot, PositionRepository, HoldingPosition};
+use crate::routes::strategies::ApiError;
 use crate::state::AppState;
 use chrono::Utc;
 use trader_core::ExecutionRecord;
-use trader_exchange::connector::kis::{KisConfig, KisOAuth, KisKrClient, KisUsClient, KisAccountType, KisEnvironment};
+use trader_exchange::connector::kis::{
+    KisAccountType, KisConfig, KisEnvironment, KisKrClient, KisOAuth, KisUsClient,
+};
 
 // ==================== 응답 타입 ====================
 
@@ -218,14 +222,21 @@ pub async fn get_or_create_kis_client(
     }
 
     // 2. 캐시 미스 - 새 클라이언트 생성
-    info!("KIS 클라이언트 캐시 미스, 새로 생성: credential_id={}", credential_id);
+    info!(
+        "KIS 클라이언트 캐시 미스, 새로 생성: credential_id={}",
+        credential_id
+    );
 
     // DB 연결 확인
-    let pool = state.db_pool.as_ref()
+    let pool = state
+        .db_pool
+        .as_ref()
         .ok_or("데이터베이스 연결이 설정되지 않았습니다.")?;
 
     // 암호화 관리자 확인
-    let encryptor = state.encryptor.as_ref()
+    let encryptor = state
+        .encryptor
+        .as_ref()
         .ok_or("암호화 설정이 없습니다. ENCRYPTION_MASTER_KEY를 설정하세요.")?;
 
     // 특정 자격증명 조회
@@ -234,7 +245,7 @@ pub async fn get_or_create_kis_client(
         SELECT encrypted_credentials, encryption_nonce, is_testnet, settings, exchange_name
         FROM exchange_credentials
         WHERE id = $1 AND exchange_id = 'kis' AND is_active = true
-        "#
+        "#,
     )
     .bind(credential_id)
     .fetch_optional(pool)
@@ -256,7 +267,8 @@ pub async fn get_or_create_kis_client(
         .map_err(|e| format!("자격증명 복호화 실패: {}", e))?;
 
     // 추가 필드에서 계좌번호 추출
-    let account_number = credentials.additional
+    let account_number = credentials
+        .additional
         .as_ref()
         .and_then(|a| a.get("account_number").cloned())
         .unwrap_or_else(|| "00000000-01".to_string());
@@ -279,8 +291,13 @@ pub async fn get_or_create_kis_client(
 
     info!(
         "KIS 클라이언트 생성: credential_id={}, account_type={:?}, account={}***",
-        credential_id, account_type,
-        if account_number.len() > 4 { &account_number[..4] } else { &account_number }
+        credential_id,
+        account_type,
+        if account_number.len() > 4 {
+            &account_number[..4]
+        } else {
+            &account_number
+        }
     );
 
     // 3. OAuth 캐시 확인 (app_key + environment 기반)
@@ -303,13 +320,17 @@ pub async fn get_or_create_kis_client(
                 account_number.clone(),
                 account_type,
             );
-            let new_oauth = Arc::new(KisOAuth::new(config)
-                .map_err(|e| format!("KIS OAuth 생성 실패: {}", e))?);
+            let new_oauth =
+                Arc::new(KisOAuth::new(config).map_err(|e| format!("KIS OAuth 생성 실패: {}", e))?);
 
             // 캐시에 저장
             let mut oauth_cache = state.kis_oauth_cache.write().await;
             oauth_cache.insert(oauth_cache_key.clone(), Arc::clone(&new_oauth));
-            info!("KIS OAuth 캐시 저장: key={}, 캐시 크기={}", oauth_cache_key, oauth_cache.len());
+            info!(
+                "KIS OAuth 캐시 저장: key={}, 캐시 크기={}",
+                oauth_cache_key,
+                oauth_cache.len()
+            );
 
             new_oauth
         }
@@ -326,7 +347,11 @@ pub async fn get_or_create_kis_client(
     {
         let mut cache = state.kis_clients_cache.write().await;
         cache.insert(credential_id, Arc::clone(&pair));
-        info!("KIS 클라이언트 캐시 저장: credential_id={}, 캐시 크기={}", credential_id, cache.len());
+        info!(
+            "KIS 클라이언트 캐시 저장: credential_id={}, 캐시 크기={}",
+            credential_id,
+            cache.len()
+        );
     }
 
     Ok((Arc::clone(&pair.kr), Arc::clone(&pair.us)))
@@ -357,7 +382,10 @@ pub async fn get_portfolio_summary(
                 // 한국 주식 잔고 조회
                 match kr_client.get_balance().await {
                     Ok(balance) => {
-                        debug!("KR balance fetched for credential {}: {:?}", credential_id, balance);
+                        debug!(
+                            "KR balance fetched for credential {}: {:?}",
+                            credential_id, balance
+                        );
 
                         if let Some(summary) = &balance.summary {
                             cash_balance = summary.cash_balance;
@@ -366,10 +394,16 @@ pub async fn get_portfolio_summary(
                         }
                     }
                     Err(e) => {
-                        error!("KR balance fetch failed for credential {}: {}", credential_id, e);
+                        error!(
+                            "KR balance fetch failed for credential {}: {}",
+                            credential_id, e
+                        );
                         return Err((
                             StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(ApiError::new("BALANCE_FETCH_ERROR", &format!("잔고 조회 실패: {}", e))),
+                            Json(ApiError::new(
+                                "BALANCE_FETCH_ERROR",
+                                &format!("잔고 조회 실패: {}", e),
+                            )),
                         ));
                     }
                 }
@@ -467,7 +501,10 @@ pub async fn get_portfolio_summary(
             let pool = db_pool.clone();
             tokio::spawn(async move {
                 match EquityHistoryRepository::save_snapshot(&pool, &snapshot).await {
-                    Ok(_) => debug!("포트폴리오 스냅샷 저장 성공: credential_id={}", credential_id),
+                    Ok(_) => debug!(
+                        "포트폴리오 스냅샷 저장 성공: credential_id={}",
+                        credential_id
+                    ),
                     Err(e) => warn!("포트폴리오 스냅샷 저장 실패: {}", e),
                 }
             });
@@ -478,10 +515,10 @@ pub async fn get_portfolio_summary(
         total_value,
         total_pnl,
         total_pnl_percent,
-        daily_pnl: Decimal::ZERO,        // TODO: 당일 손익 계산 필요
+        daily_pnl: Decimal::ZERO, // TODO: 당일 손익 계산 필요
         daily_pnl_percent: Decimal::ZERO,
         cash_balance,
-        margin_used: Decimal::ZERO,      // 현금 계좌는 마진 없음
+        margin_used: Decimal::ZERO, // 현금 계좌는 마진 없음
     }))
 }
 
@@ -588,7 +625,8 @@ pub async fn get_holdings(
                 match kr_client.get_balance().await {
                     Ok(balance) => {
                         for holding in balance.holdings {
-                            let display_name = format!("{}({})", holding.stock_code, holding.stock_name);
+                            let display_name =
+                                format!("{}({})", holding.stock_code, holding.stock_name);
                             kr_holdings.push(HoldingInfo {
                                 symbol: holding.stock_code,
                                 display_name: Some(display_name),
@@ -699,7 +737,9 @@ pub async fn get_holdings(
         // 비동기로 동기화 (API 응답 지연 방지)
         let pool = db_pool.clone();
         tokio::spawn(async move {
-            match PositionRepository::sync_holdings(&pool, credential_id, "kis", sync_holdings).await {
+            match PositionRepository::sync_holdings(&pool, credential_id, "kis", sync_holdings)
+                .await
+            {
                 Ok(result) => {
                     debug!(
                         "포지션 동기화 완료: credential_id={}, synced={}, closed={}",
@@ -707,7 +747,10 @@ pub async fn get_holdings(
                     );
                 }
                 Err(e) => {
-                    warn!("포지션 동기화 실패: credential_id={}, error={}", credential_id, e);
+                    warn!(
+                        "포지션 동기화 실패: credential_id={}, error={}",
+                        credential_id, e
+                    );
                 }
             }
         });
@@ -803,7 +846,9 @@ pub async fn get_order_history(
 
     // 기본 날짜 설정 (30일 전 ~ 오늘)
     let today = chrono::Utc::now() + chrono::Duration::hours(9); // KST
-    let default_start = (today - chrono::Duration::days(30)).format("%Y%m%d").to_string();
+    let default_start = (today - chrono::Duration::days(30))
+        .format("%Y%m%d")
+        .to_string();
     let default_end = today.format("%Y%m%d").to_string();
 
     let start_date = params.start_date.unwrap_or(default_start);
@@ -841,7 +886,10 @@ pub async fn get_order_history(
             error!("체결 내역 조회 실패: {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("HISTORY_FETCH_ERROR", &format!("체결 내역 조회 실패: {}", e))),
+                Json(ApiError::new(
+                    "HISTORY_FETCH_ERROR",
+                    &format!("체결 내역 조회 실패: {}", e),
+                )),
             )
         })?;
 
@@ -877,12 +925,12 @@ fn mock_portfolio_summary() -> PortfolioSummaryResponse {
     use rust_decimal_macros::dec;
 
     PortfolioSummaryResponse {
-        total_value: dec!(10000000),        // 1천만원
-        total_pnl: dec!(250000),            // 25만원 수익
+        total_value: dec!(10000000), // 1천만원
+        total_pnl: dec!(250000),     // 25만원 수익
         total_pnl_percent: dec!(2.56),
-        daily_pnl: dec!(15000),             // 일 1.5만원
+        daily_pnl: dec!(15000), // 일 1.5만원
         daily_pnl_percent: dec!(0.15),
-        cash_balance: dec!(3000000),        // 현금 300만원
+        cash_balance: dec!(3000000), // 현금 300만원
         margin_used: dec!(0),
     }
 }

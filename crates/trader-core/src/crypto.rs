@@ -73,8 +73,7 @@ impl CredentialEncryptor {
     /// Base64로 인코딩된 마스터 키 디코드
     fn decode_key(master_key: &str) -> Result<Vec<u8>, CryptoError> {
         use base64::Engine;
-        let key_bytes = base64::engine::general_purpose::STANDARD
-            .decode(master_key)?;
+        let key_bytes = base64::engine::general_purpose::STANDARD.decode(master_key)?;
 
         if key_bytes.len() != KEY_SIZE {
             return Err(CryptoError::InvalidKeyLength(key_bytes.len()));
@@ -139,8 +138,7 @@ impl CredentialEncryptor {
         nonce: &[u8],
     ) -> Result<T, CryptoError> {
         let json = self.decrypt(ciphertext, nonce)?;
-        serde_json::from_str(&json)
-            .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))
+        serde_json::from_str(&json).map_err(|e| CryptoError::DecryptionFailed(e.to_string()))
     }
 }
 
@@ -188,9 +186,7 @@ impl ExchangeCredentials {
 /// SecretString에서 안전하게 자격증명 생성
 impl From<ExchangeCredentials> for SecretString {
     fn from(creds: ExchangeCredentials) -> Self {
-        SecretString::new(
-            serde_json::to_string(&creds).unwrap_or_default().into(),
-        )
+        SecretString::new(serde_json::to_string(&creds).unwrap_or_default().into())
     }
 }
 
@@ -217,15 +213,11 @@ mod tests {
     #[test]
     fn test_encrypt_decrypt_json() {
         let encryptor = test_encryptor();
-        let creds = ExchangeCredentials::new(
-            "api_key_123".to_string(),
-            "secret_456".to_string(),
-        ).with_passphrase("pass_789".to_string());
+        let creds = ExchangeCredentials::new("api_key_123".to_string(), "secret_456".to_string())
+            .with_passphrase("pass_789".to_string());
 
         let (ciphertext, nonce) = encryptor.encrypt_json(&creds).unwrap();
-        let decrypted: ExchangeCredentials = encryptor
-            .decrypt_json(&ciphertext, &nonce)
-            .unwrap();
+        let decrypted: ExchangeCredentials = encryptor.decrypt_json(&ciphertext, &nonce).unwrap();
 
         assert_eq!(creds.api_key, decrypted.api_key);
         assert_eq!(creds.api_secret, decrypted.api_secret);

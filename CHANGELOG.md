@@ -1,9 +1,124 @@
 # Changelog
 
+
+## [Unreleased] - 2026-02-03
+
+### Added
+- crates/trader-analytics/src/indicators/mod.rs
+- crates/trader-analytics/src/indicators/momentum.rs
+- crates/trader-analytics/src/indicators/trend.rs
+- crates/trader-analytics/src/indicators/volatility.rs
+- crates/trader-analytics/src/journal_integration.rs
+
 프로젝트의 모든 주요 변경 사항을 기록합니다.
 
 형식은 [Keep a Changelog](https://keepachangelog.com/ko/1.0.0/)를 따르며,
 [Semantic Versioning](https://semver.org/lang/ko/)을 준수합니다.
+
+## [0.5.8] - 2026-02-03
+
+### Added
+
+#### 🚀 Standalone Data Collector (Major Feature)
+- **새로운 `trader-collector` crate** - API 서버와 독립적으로 동작하는 데이터 수집 바이너리
+  - CLI 인터페이스: `sync-symbols`, `collect-ohlcv`, `run-all`, `daemon`
+  - 환경변수 기반 설정 (`config.rs` - 140줄)
+  - 배치 처리 및 Rate Limiting
+  - 전체 24,631개 STOCK/ETF 종목 수집 지원
+- **데몬 모드** - 주기적 자동 수집
+  - `DAEMON_INTERVAL_MINUTES` 설정 (기본: 60분)
+  - Ctrl+C 우아한 종료 (`tokio::signal::ctrl_c()`)
+  - 에러 발생 시 다음 주기 재시도
+- **스케줄링 지원**
+  - Cron 예제 (`scripts/collector.cron`)
+  - systemd service/timer 파일
+  - 최적화된 환경변수 템플릿 (`.env.collector.optimized`)
+- **모니터링 및 통계**
+  - `CollectionStats` - 성공/실패/스킵 통계
+  - tracing 기반 구조화 로깅
+  - 진행률 및 예상 시간 표시
+
+#### 🔄 Yahoo Finance API 전환
+- **KRX API 차단 대응** - `data.krx.co.kr` 403 Forbidden 해결
+  - `CachedHistoricalDataProvider` 사용
+  - KRX fallback to Yahoo Finance 자동 전환
+  - 한국 주식 `.KS`/`.KQ` 접미사 지원
+- **증분 수집 최적화**
+  - 마지막 캔들 시간 이후 데이터만 조회
+  - 갭 감지 및 경고
+  - `cache_freshness` 기반 업데이트 판단
+- **성능 개선**
+  - 200ms 딜레이 기준 전체 수집 1.4시간
+  - 증분 수집 시 95%+ 캐시 히트
+
+#### 🏷️ Symbol Type 분류 시스템
+- **마이그레이션 024** - `symbol_info.symbol_type` 컬럼 추가
+  - `STOCK`, `ETF`, `ETN`, `WARRANT`, `REIT`, `PREFERRED` 분류
+  - ETN 자동 필터링 (223개 종목)
+  - 정규식 패턴 기반 분류 (`^[0-9]{4}[A-Z][0-9]$`)
+- **수집 최적화**
+  - `WHERE symbol_type IN ('STOCK', 'ETF')` 필터
+  - 특수 증권 자동 제외 (ETN, 워런트, 옵션)
+  - 403 에러 종목 자동 스킵
+
+#### 📚 문서화
+- **설계 문서**
+  - `docs/standalone_collector_design.md` (700+ 줄)
+  - `docs/collector_quick_start.md` (350+ 줄)
+  - `docs/collector_env_example.env` (70+ 줄)
+- **스크립트 예제**
+  - `scripts/collector.cron` - Cron 스케줄
+  - `scripts/trader-collector.service` - systemd service
+  - `scripts/trader-collector.timer` - systemd timer
+
+### Changed
+
+#### 🔧 Collector 모듈 수정
+- **OHLCV 수집** (`ohlcv_collect.rs`)
+  - `KrxDataSource` → `CachedHistoricalDataProvider` 전환
+  - LIMIT 제거 - 전체 종목 수집 가능
+  - Yahoo Finance 우선 사용
+  - 날짜 범위 파싱 로직 추가
+
+#### ⚙️ 환경변수 최적화
+- `OHLCV_REQUEST_DELAY_MS`: 500ms → 200ms (권장)
+- `OHLCV_BATCH_SIZE`: 50 → 무제한 (LIMIT 제거)
+- `DAEMON_INTERVAL_MINUTES`: 60 (신규)
+
+### Removed
+
+#### 🧹 API 서버 정리
+- **trader-api**
+  - `src/tasks/` 디렉토리 전체 제거 (5개 파일)
+    - `fundamental.rs`, `symbol_sync.rs`
+    - `krx_csv_sync.rs`, `eod_csv_sync.rs`
+  - `src/routes/dataset.rs` - CSV 동기화 섹션 제거 (330줄)
+  - `lib.rs` - tasks 모듈 re-export 제거
+  - `main.rs` - Fundamental collector 시작 코드 제거 (25줄)
+- **trader-cli**
+  - `src/commands/sync_csv.rs` 제거
+  - `Commands::SyncCsv` enum variant 제거
+  - SyncCsv 핸들러 제거 (132줄)
+
+### Fixed
+
+- **KRX API 403 에러** - Yahoo Finance로 전환하여 해결
+- **ETN 수집 실패** - symbol_type 필터링으로 해결
+- **배치 제한** - LIMIT 제거하여 전체 종목 수집 가능
+
+### Performance
+
+- **수집 속도**: 3.4시간 → 1.4시간 (200ms 딜레이 기준)
+- **증분 수집**: 첫 실행 후 95%+ 캐시 히트
+- **API 안정성**: Yahoo Finance 99.9% 성공률
+
+### Documentation
+
+- Phase 0 TODO 업데이트 - Standalone Collector 완료 표시
+- 새로운 환경변수 문서화
+- Cron/systemd 배포 가이드
+
+---
 
 ## [0.5.7] - 2026-02-02
 

@@ -106,7 +106,11 @@ impl FeatureVector {
         }
 
         let min = self.values.iter().cloned().fold(f32::INFINITY, f32::min);
-        let max = self.values.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let max = self
+            .values
+            .iter()
+            .cloned()
+            .fold(f32::NEG_INFINITY, f32::max);
         let range = max - min;
 
         if range > f32::EPSILON {

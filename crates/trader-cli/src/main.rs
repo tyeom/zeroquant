@@ -130,21 +130,6 @@ enum Commands {
         db_url: Option<String>,
     },
 
-    /// CSV 파일에서 종목 정보 동기화
-    SyncCsv {
-        /// 종목 코드 CSV 파일 경로 (예: data/krx_codes.csv)
-        #[arg(long, default_value = "data/krx_codes.csv")]
-        codes: String,
-
-        /// 섹터 매핑 CSV 파일 경로 (선택적)
-        #[arg(long)]
-        sectors: Option<String>,
-
-        /// 데이터베이스 URL (기본: DATABASE_URL 환경변수)
-        #[arg(long)]
-        db_url: Option<String>,
-    },
-
     /// DB에서 종목 목록 조회
     ListSymbols {
         /// 시장 필터 (KR, US, CRYPTO, ALL 등)
@@ -297,9 +282,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             output,
             kosdaq,
         } => {
-            let market = Market::from_str(&market).ok_or_else(|| {
-                format!("Invalid market: {}. Supported: KR, US", market)
-            })?;
+            let market = Market::from_str(&market)
+                .ok_or_else(|| format!("Invalid market: {}. Supported: KR, US", market))?;
 
             let interval = Interval::from_str(&interval).ok_or_else(|| {
                 format!(
@@ -362,9 +346,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         Commands::List { market } => {
-            let market = Market::from_str(&market).ok_or_else(|| {
-                format!("Invalid market: {}. Supported: KR, US", market)
-            })?;
+            let market = Market::from_str(&market)
+                .ok_or_else(|| format!("Invalid market: {}. Supported: KR, US", market))?;
 
             print_available_symbols(market);
         }
@@ -376,9 +359,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             to,
             kosdaq,
         } => {
-            let market = Market::from_str(&market).ok_or_else(|| {
-                format!("Invalid market: {}. Supported: KR, US", market)
-            })?;
+            let market = Market::from_str(&market)
+                .ok_or_else(|| format!("Invalid market: {}. Supported: KR, US", market))?;
 
             let interval = Interval::D1; // Import는 일봉 기본
             let start_date = parse_date(&from)?;
@@ -429,9 +411,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             kosdaq,
             db_url,
         } => {
-            let market = Market::from_str(&market).ok_or_else(|| {
-                format!("Invalid market: {}. Supported: KR, US", market)
-            })?;
+            let market = Market::from_str(&market)
+                .ok_or_else(|| format!("Invalid market: {}. Supported: KR, US", market))?;
 
             let interval = Interval::from_str(&interval).ok_or_else(|| {
                 format!(
@@ -473,44 +454,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 Err(e) => {
                     error!("Import to database failed: {}", e);
-                    return Err(e.into());
-                }
-            }
-        }
-
-        Commands::SyncCsv {
-            codes,
-            sectors,
-            db_url,
-        } => {
-            use commands::sync_csv::{sync_csv, SyncCsvConfig};
-
-            println!("\n📊 CSV 파일에서 종목 정보 동기화 중...");
-            println!("종목 CSV: {}", codes);
-            if let Some(ref sectors_csv) = sectors {
-                println!("섹터 CSV: {}", sectors_csv);
-            }
-
-            let config = SyncCsvConfig {
-                codes_csv: codes.clone(),
-                sectors_csv: sectors.clone(),
-                db_url: db_url.clone(),
-            };
-
-            match sync_csv(config).await {
-                Ok((symbol_count, sector_count)) => {
-                    info!(
-                        "✅ CSV sync completed: {} symbols, {} sectors",
-                        symbol_count, sector_count
-                    );
-                    println!("\n✅ 동기화 완료!");
-                    println!("   종목: {}개", symbol_count);
-                    if sector_count > 0 {
-                        println!("   섹터: {}개", sector_count);
-                    }
-                }
-                Err(e) => {
-                    error!("CSV sync failed: {}", e);
                     return Err(e.into());
                 }
             }
@@ -597,14 +540,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Ok(());
             }
 
-            let market = Market::from_str(&market).ok_or_else(|| {
-                format!("Invalid market: {}. Supported: KR, US", market)
-            })?;
+            let market = Market::from_str(&market)
+                .ok_or_else(|| format!("Invalid market: {}. Supported: KR, US", market))?;
 
             let start_date = from.as_ref().map(|d| parse_date(d)).transpose()?;
             let end_date = to.as_ref().map(|d| parse_date(d)).transpose()?;
 
-            let initial_capital = capital.parse::<rust_decimal::Decimal>()
+            let initial_capital = capital
+                .parse::<rust_decimal::Decimal>()
                 .map_err(|_| format!("Invalid capital: {}", capital))?;
 
             let backtest_config = commands::backtest::BacktestCliConfig {
@@ -734,7 +677,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         println!("\n✅ 모델 훈련 완료!");
                         println!("ONNX 모델이 {} 디렉토리에 저장되었습니다.", output_dir);
                         println!("\nRust에서 사용하려면:");
-                        println!("  cp {}/[모델이름].onnx crates/trader-analytics/models/", output_dir);
+                        println!(
+                            "  cp {}/[모델이름].onnx crates/trader-analytics/models/",
+                            output_dir
+                        );
                     } else {
                         error!("ML training failed with exit code: {:?}", status.code());
                         return Err("ML training failed".into());

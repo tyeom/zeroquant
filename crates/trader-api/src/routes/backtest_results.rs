@@ -127,8 +127,7 @@ pub async fn list_backtest_results(
     };
 
     // Repository를 통해 조회
-    let filter = ListResultsFilter::new()
-        .with_pagination(query.limit, query.offset);
+    let filter = ListResultsFilter::new().with_pagination(query.limit, query.offset);
 
     let filter = match &query.strategy_id {
         Some(sid) => filter.with_strategy_id(sid),

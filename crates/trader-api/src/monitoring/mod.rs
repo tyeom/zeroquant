@@ -30,7 +30,6 @@ pub mod error_tracker;
 
 // Re-exports
 pub use error_tracker::{
-    ErrorCategory, ErrorRecord, ErrorRecordBuilder, ErrorSeverity, ErrorStats,
-    ErrorTracker, ErrorTrackerConfig, SourceLocation,
-    global_tracker, init_global_tracker,
+    global_tracker, init_global_tracker, ErrorCategory, ErrorRecord, ErrorRecordBuilder,
+    ErrorSeverity, ErrorStats, ErrorTracker, ErrorTrackerConfig, SourceLocation,
 };

@@ -23,15 +23,15 @@
 use crate::strategies::common::deserialize_symbols;
 use crate::Strategy;
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
-use chrono::{DateTime, Utc};
-use trader_core::{MarketData, MarketDataType, Order, Position, Side, Signal, Symbol};
 use tracing::{debug, info};
+use trader_core::{MarketData, MarketDataType, Order, Position, Side, Signal, Symbol};
 
 /// 코스닥 피레인 전략 설정.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -102,19 +102,45 @@ fn default_etf_list() -> Vec<String> {
     ]
 }
 
-fn default_kospi_leverage() -> String { "122630".to_string() }
-fn default_kosdaq_leverage() -> String { "233740".to_string() }
-fn default_kospi_inverse() -> String { "252670".to_string() }
-fn default_kosdaq_inverse() -> String { "251340".to_string() }
-fn default_max_positions() -> usize { 2 }
-fn default_position_ratio() -> f64 { 0.5 }
-fn default_obv_period() -> usize { 10 }
-fn default_ma_short() -> usize { 5 }
-fn default_ma_medium() -> usize { 20 }
-fn default_ma_long() -> usize { 60 }
-fn default_rsi_period() -> usize { 14 }
-fn default_stop_loss() -> f64 { 3.0 }
-fn default_take_profit() -> f64 { 10.0 }
+fn default_kospi_leverage() -> String {
+    "122630".to_string()
+}
+fn default_kosdaq_leverage() -> String {
+    "233740".to_string()
+}
+fn default_kospi_inverse() -> String {
+    "252670".to_string()
+}
+fn default_kosdaq_inverse() -> String {
+    "251340".to_string()
+}
+fn default_max_positions() -> usize {
+    2
+}
+fn default_position_ratio() -> f64 {
+    0.5
+}
+fn default_obv_period() -> usize {
+    10
+}
+fn default_ma_short() -> usize {
+    5
+}
+fn default_ma_medium() -> usize {
+    20
+}
+fn default_ma_long() -> usize {
+    60
+}
+fn default_rsi_period() -> usize {
+    14
+}
+fn default_stop_loss() -> f64 {
+    3.0
+}
+fn default_take_profit() -> f64 {
+    10.0
+}
 
 impl Default for KosdaqFireRainConfig {
     fn default() -> Self {
@@ -209,11 +235,21 @@ impl EtfData {
 
         // 버퍼 크기 제한
         let max_len = 70;
-        while self.prices.len() > max_len { self.prices.pop_back(); }
-        while self.volumes.len() > max_len { self.volumes.pop_back(); }
-        while self.obv.len() > max_len { self.obv.pop_back(); }
-        while self.gains.len() > max_len { self.gains.pop_back(); }
-        while self.losses.len() > max_len { self.losses.pop_back(); }
+        while self.prices.len() > max_len {
+            self.prices.pop_back();
+        }
+        while self.volumes.len() > max_len {
+            self.volumes.pop_back();
+        }
+        while self.obv.len() > max_len {
+            self.obv.pop_back();
+        }
+        while self.gains.len() > max_len {
+            self.gains.pop_back();
+        }
+        while self.losses.len() > max_len {
+            self.losses.pop_back();
+        }
     }
 
     fn calculate_ma(&self, period: usize) -> Option<Decimal> {
@@ -229,8 +265,10 @@ impl EtfData {
             return None;
         }
 
-        let avg_gain: Decimal = self.gains.iter().take(period).sum::<Decimal>() / Decimal::from(period);
-        let avg_loss: Decimal = self.losses.iter().take(period).sum::<Decimal>() / Decimal::from(period);
+        let avg_gain: Decimal =
+            self.gains.iter().take(period).sum::<Decimal>() / Decimal::from(period);
+        let avg_loss: Decimal =
+            self.losses.iter().take(period).sum::<Decimal>() / Decimal::from(period);
 
         if avg_loss == Decimal::ZERO {
             return Some(dec!(100));
@@ -321,7 +359,8 @@ impl KosdaqFireRainStrategy {
 
     /// 현재 포지션 수 계산.
     fn current_position_count(&self) -> usize {
-        self.etf_data.values()
+        self.etf_data
+            .values()
             .filter(|d| d.holdings > Decimal::ZERO)
             .count()
     }
@@ -354,11 +393,8 @@ impl KosdaqFireRainStrategy {
         }
 
         // MA 정배열
-        let ma_bullish = data.is_ma_aligned_bullish(
-            config.ma_short,
-            config.ma_medium,
-            config.ma_long,
-        );
+        let ma_bullish =
+            data.is_ma_aligned_bullish(config.ma_short, config.ma_medium, config.ma_long);
 
         if !ma_bullish {
             return false;
@@ -423,11 +459,8 @@ impl KosdaqFireRainStrategy {
         }
 
         // 페어 레버리지의 MA 역배열
-        let ma_bearish = pair_data.is_ma_aligned_bearish(
-            config.ma_short,
-            config.ma_medium,
-            config.ma_long,
-        );
+        let ma_bearish =
+            pair_data.is_ma_aligned_bearish(config.ma_short, config.ma_medium, config.ma_long);
 
         if !ma_bearish {
             return false;
@@ -501,7 +534,11 @@ impl KosdaqFireRainStrategy {
             };
 
             if let Some(pair_data) = self.etf_data.get(pair_ticker) {
-                if pair_data.is_ma_aligned_bullish(config.ma_short, config.ma_medium, config.ma_long) {
+                if pair_data.is_ma_aligned_bullish(
+                    config.ma_short,
+                    config.ma_medium,
+                    config.ma_long,
+                ) {
                     return Some("ma_bullish".to_string());
                 }
             }
@@ -541,7 +578,7 @@ impl KosdaqFireRainStrategy {
                         .with_strength(1.0)
                         .with_prices(Some(data.current_price), None, None)
                         .with_metadata("exit_reason", json!(reason))
-                        .with_metadata("etf_type", json!(format!("{:?}", data.etf_type)))
+                        .with_metadata("etf_type", json!(format!("{:?}", data.etf_type))),
                 );
                 info!(
                     ticker = %ticker,
@@ -564,7 +601,7 @@ impl KosdaqFireRainStrategy {
                         .with_strength(config.position_ratio)
                         .with_prices(Some(data.current_price), None, None)
                         .with_metadata("etf_type", json!(format!("{:?}", data.etf_type)))
-                        .with_metadata("action", json!("buy"))
+                        .with_metadata("action", json!("buy")),
                 );
                 info!(
                     ticker = %ticker,
@@ -630,10 +667,8 @@ impl Strategy for KosdaqFireRainStrategy {
                 continue;
             };
 
-            self.etf_data.insert(
-                ticker.clone(),
-                EtfData::new(ticker.clone(), etf_type),
-            );
+            self.etf_data
+                .insert(ticker.clone(), EtfData::new(ticker.clone(), etf_type));
         }
 
         self.config = Some(fr_config);
@@ -675,8 +710,7 @@ impl Strategy for KosdaqFireRainStrategy {
         }
 
         // 충분한 데이터가 있는지 확인
-        let all_have_data = self.etf_data.values()
-            .all(|d| d.prices.len() >= 60);
+        let all_have_data = self.etf_data.values().all(|d| d.prices.len() >= 60);
 
         if !all_have_data {
             return Ok(vec![]);
@@ -771,14 +805,21 @@ impl Strategy for KosdaqFireRainStrategy {
     }
 
     fn get_state(&self) -> Value {
-        let holdings: HashMap<_, _> = self.etf_data.iter()
+        let holdings: HashMap<_, _> = self
+            .etf_data
+            .iter()
             .filter(|(_, v)| v.holdings > Decimal::ZERO)
-            .map(|(k, v)| (k.clone(), json!({
-                "holdings": v.holdings.to_string(),
-                "entry_price": v.entry_price.to_string(),
-                "current_price": v.current_price.to_string(),
-                "etf_type": format!("{:?}", v.etf_type),
-            })))
+            .map(|(k, v)| {
+                (
+                    k.clone(),
+                    json!({
+                        "holdings": v.holdings.to_string(),
+                        "entry_price": v.entry_price.to_string(),
+                        "current_price": v.current_price.to_string(),
+                        "etf_type": format!("{:?}", v.etf_type),
+                    }),
+                )
+            })
             .collect();
 
         json!({

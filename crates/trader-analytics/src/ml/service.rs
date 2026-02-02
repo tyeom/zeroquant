@@ -10,8 +10,8 @@ use crate::ml::{
     error::MlResult,
     features::{FeatureConfig, FeatureExtractor},
     pattern::{
-        CandlestickPattern, CandlestickPatternType, ChartPattern, ChartPatternType,
-        PatternConfig, PatternRecognizer,
+        CandlestickPattern, CandlestickPatternType, ChartPattern, ChartPatternType, PatternConfig,
+        PatternRecognizer,
     },
     predictor::{MockPredictor, PredictorConfig, PricePredictor},
     types::{ConfidenceLevel, FeatureVector, Prediction},
@@ -245,7 +245,8 @@ impl MlService {
             .with_input_size(input_size)
             .with_model_name(model_name);
 
-        let new_predictor: Box<dyn PricePredictor> = Box::new(OnnxPredictor::load(predictor_config)?);
+        let new_predictor: Box<dyn PricePredictor> =
+            Box::new(OnnxPredictor::load(predictor_config)?);
 
         let mut predictor = self.predictor.write().await;
         *predictor = new_predictor;
@@ -262,7 +263,7 @@ impl MlService {
         _model_name: &str,
     ) -> MlResult<()> {
         Err(crate::ml::error::MlError::ModelLoad(
-            "ONNX Runtime not available (build with 'ml' feature)".to_string()
+            "ONNX Runtime not available (build with 'ml' feature)".to_string(),
         ))
     }
 
@@ -578,21 +579,43 @@ fn get_candlestick_pattern_name(pattern_type: &CandlestickPatternType) -> String
 fn get_candlestick_pattern_description(pattern_type: &CandlestickPatternType) -> String {
     match pattern_type {
         CandlestickPatternType::Doji => "시가와 종가가 거의 같은 중립 패턴".to_string(),
-        CandlestickPatternType::DragonflyDoji => "긴 아래꼬리를 가진 도지, 상승 반전 신호".to_string(),
-        CandlestickPatternType::GravestoneDoji => "긴 위꼬리를 가진 도지, 하락 반전 신호".to_string(),
+        CandlestickPatternType::DragonflyDoji => {
+            "긴 아래꼬리를 가진 도지, 상승 반전 신호".to_string()
+        }
+        CandlestickPatternType::GravestoneDoji => {
+            "긴 위꼬리를 가진 도지, 하락 반전 신호".to_string()
+        }
         CandlestickPatternType::Hammer => "하락 추세에서 긴 아래꼬리, 상승 반전 신호".to_string(),
-        CandlestickPatternType::InvertedHammer => "하락 추세에서 긴 위꼬리, 상승 반전 가능".to_string(),
+        CandlestickPatternType::InvertedHammer => {
+            "하락 추세에서 긴 위꼬리, 상승 반전 가능".to_string()
+        }
         CandlestickPatternType::BullishMarubozu => "꼬리 없는 강한 양봉, 매수세 강함".to_string(),
         CandlestickPatternType::BearishMarubozu => "꼬리 없는 강한 음봉, 매도세 강함".to_string(),
         CandlestickPatternType::SpinningTop => "작은 몸통과 긴 꼬리, 우유부단한 시장".to_string(),
-        CandlestickPatternType::ShootingStar => "상승 추세에서 긴 위꼬리, 하락 반전 신호".to_string(),
-        CandlestickPatternType::HangingMan => "상승 추세에서 긴 아래꼬리, 하락 반전 경고".to_string(),
-        CandlestickPatternType::BullishEngulfing => "음봉을 완전히 감싸는 양봉, 강한 상승 신호".to_string(),
-        CandlestickPatternType::BearishEngulfing => "양봉을 완전히 감싸는 음봉, 강한 하락 신호".to_string(),
-        CandlestickPatternType::BullishHarami => "큰 음봉 안에 작은 양봉, 상승 반전 가능".to_string(),
-        CandlestickPatternType::BearishHarami => "큰 양봉 안에 작은 음봉, 하락 반전 가능".to_string(),
-        CandlestickPatternType::PiercingLine => "음봉 후 중간 이상 상승하는 양봉, 상승 반전".to_string(),
-        CandlestickPatternType::DarkCloudCover => "양봉 후 중간 이하로 하락하는 음봉, 하락 반전".to_string(),
+        CandlestickPatternType::ShootingStar => {
+            "상승 추세에서 긴 위꼬리, 하락 반전 신호".to_string()
+        }
+        CandlestickPatternType::HangingMan => {
+            "상승 추세에서 긴 아래꼬리, 하락 반전 경고".to_string()
+        }
+        CandlestickPatternType::BullishEngulfing => {
+            "음봉을 완전히 감싸는 양봉, 강한 상승 신호".to_string()
+        }
+        CandlestickPatternType::BearishEngulfing => {
+            "양봉을 완전히 감싸는 음봉, 강한 하락 신호".to_string()
+        }
+        CandlestickPatternType::BullishHarami => {
+            "큰 음봉 안에 작은 양봉, 상승 반전 가능".to_string()
+        }
+        CandlestickPatternType::BearishHarami => {
+            "큰 양봉 안에 작은 음봉, 하락 반전 가능".to_string()
+        }
+        CandlestickPatternType::PiercingLine => {
+            "음봉 후 중간 이상 상승하는 양봉, 상승 반전".to_string()
+        }
+        CandlestickPatternType::DarkCloudCover => {
+            "양봉 후 중간 이하로 하락하는 음봉, 하락 반전".to_string()
+        }
         CandlestickPatternType::TweezerBottom => "연속된 동일 저가, 지지선 형성".to_string(),
         CandlestickPatternType::TweezerTop => "연속된 동일 고가, 저항선 형성".to_string(),
         CandlestickPatternType::MorningStar => "음봉-작은봉-양봉, 강한 상승 반전".to_string(),
@@ -601,8 +624,12 @@ fn get_candlestick_pattern_description(pattern_type: &CandlestickPatternType) ->
         CandlestickPatternType::EveningDojiStar => "양봉-도지-음봉, 강한 하락 반전".to_string(),
         CandlestickPatternType::ThreeWhiteSoldiers => "연속 3개 양봉, 강한 상승 추세".to_string(),
         CandlestickPatternType::ThreeBlackCrows => "연속 3개 음봉, 강한 하락 추세".to_string(),
-        CandlestickPatternType::BullishAbandonedBaby => "갭을 가진 반전 패턴, 강한 상승 신호".to_string(),
-        CandlestickPatternType::BearishAbandonedBaby => "갭을 가진 반전 패턴, 강한 하락 신호".to_string(),
+        CandlestickPatternType::BullishAbandonedBaby => {
+            "갭을 가진 반전 패턴, 강한 상승 신호".to_string()
+        }
+        CandlestickPatternType::BearishAbandonedBaby => {
+            "갭을 가진 반전 패턴, 강한 하락 신호".to_string()
+        }
     }
 }
 

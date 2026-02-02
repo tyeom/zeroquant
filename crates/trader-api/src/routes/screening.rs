@@ -417,16 +417,15 @@ pub async fn run_preset_screening(
         }
     };
 
-    let results = match ScreeningRepository::screen_preset(db_pool, &preset, query.market.as_deref())
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            warn!("프리셋 스크리닝 실패: {}", e);
-            return error_response("SCREENING_ERROR", &format!("프리셋 스크리닝 실패: {}", e))
-                .into_response();
-        }
-    };
+    let results =
+        match ScreeningRepository::screen_preset(db_pool, &preset, query.market.as_deref()).await {
+            Ok(r) => r,
+            Err(e) => {
+                warn!("프리셋 스크리닝 실패: {}", e);
+                return error_response("SCREENING_ERROR", &format!("프리셋 스크리닝 실패: {}", e))
+                    .into_response();
+            }
+        };
 
     let filter_summary = format!(
         "프리셋: {}, 시장: {}",

@@ -16,8 +16,8 @@ use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use std::str::FromStr;
-use trader_core::{Kline, Symbol, Timeframe};
 use tracing::{debug, info};
+use trader_core::{Kline, Symbol, Timeframe};
 
 /// KRX API 기본 URL.
 const KRX_API_URL: &str = "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd";
@@ -42,7 +42,7 @@ struct KrxApiResponse {
 #[allow(dead_code)] // API 응답 전체 필드 매핑 (일부만 사용)
 struct KrxOhlcvRecord {
     /// 거래일자 (YYYY/MM/DD 또는 YYYYMMDD)
-    #[serde(rename = "TRD_DD", alias = "ISU_SRT_CD")]
+    #[serde(rename = "TRD_DD")]
     trd_dd: Option<String>,
 
     /// 종목코드
@@ -143,8 +143,13 @@ impl KrxDataSource {
         debug!(response_len = text.len(), "KRX API 응답 수신");
 
         // JSON 파싱
-        let api_response: KrxApiResponse = serde_json::from_str(&text)
-            .map_err(|e| DataError::ParseError(format!("JSON 파싱 실패: {} - {}", e, &text[..text.len().min(200)])))?;
+        let api_response: KrxApiResponse = serde_json::from_str(&text).map_err(|e| {
+            DataError::ParseError(format!(
+                "JSON 파싱 실패: {} - {}",
+                e,
+                &text[..text.len().min(200)]
+            ))
+        })?;
 
         // Kline으로 변환
         let klines = self.convert_to_klines(stock_code, &api_response.output)?;
@@ -255,7 +260,10 @@ mod tests {
 
     #[test]
     fn test_parse_krx_number() {
-        assert_eq!(parse_krx_number("1,234,567").unwrap(), Decimal::from(1234567));
+        assert_eq!(
+            parse_krx_number("1,234,567").unwrap(),
+            Decimal::from(1234567)
+        );
         assert_eq!(parse_krx_number("100").unwrap(), Decimal::from(100));
         assert_eq!(parse_krx_number("").unwrap(), Decimal::ZERO);
         assert_eq!(parse_krx_number("-").unwrap(), Decimal::ZERO);

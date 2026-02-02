@@ -39,8 +39,7 @@ use std::collections::HashMap;
 use tracing::{debug, info};
 
 use crate::strategies::common::rebalance::{
-    PortfolioPosition, RebalanceCalculator, RebalanceConfig, RebalanceOrderSide,
-    TargetAllocation,
+    PortfolioPosition, RebalanceCalculator, RebalanceConfig, RebalanceOrderSide, TargetAllocation,
 };
 use crate::traits::Strategy;
 use trader_core::{MarketData, MarketDataType, Order, Position, Side, Signal, Symbol};
@@ -132,15 +131,33 @@ pub struct SectorMomentumConfig {
     pub custom_sectors: Option<Vec<SectorInfo>>,
 }
 
-fn default_total_amount() -> Decimal { dec!(10000000) }
-fn default_top_n() -> usize { 3 }
-fn default_short_period() -> usize { 20 }
-fn default_medium_period() -> usize { 60 }
-fn default_long_period() -> usize { 120 }
-fn default_short_weight() -> f64 { 0.5 }
-fn default_medium_weight() -> f64 { 0.3 }
-fn default_long_weight() -> f64 { 0.2 }
-fn default_rebalance_threshold() -> Decimal { dec!(5) }
+fn default_total_amount() -> Decimal {
+    dec!(10000000)
+}
+fn default_top_n() -> usize {
+    3
+}
+fn default_short_period() -> usize {
+    20
+}
+fn default_medium_period() -> usize {
+    60
+}
+fn default_long_period() -> usize {
+    120
+}
+fn default_short_weight() -> f64 {
+    0.5
+}
+fn default_medium_weight() -> f64 {
+    0.3
+}
+fn default_long_weight() -> f64 {
+    0.2
+}
+fn default_rebalance_threshold() -> Decimal {
+    dec!(5)
+}
 
 impl Default for SectorMomentumConfig {
     fn default() -> Self {
@@ -320,7 +337,9 @@ impl SectorMomentumStrategy {
 
     /// 상위 N개 섹터 선택.
     fn select_top_sectors(&self, n: usize) -> Vec<(String, Decimal)> {
-        let mut sectors: Vec<_> = self.sector_data.values()
+        let mut sectors: Vec<_> = self
+            .sector_data
+            .values()
             .filter(|s| s.momentum_score > Decimal::ZERO)
             .map(|s| (s.symbol.clone(), s.momentum_score))
             .collect();
@@ -405,7 +424,9 @@ impl SectorMomentumStrategy {
 
         // 현재 포지션 구성
         let quote_currency = config.get_quote_currency();
-        let mut current_positions: Vec<PortfolioPosition> = self.sector_data.values()
+        let mut current_positions: Vec<PortfolioPosition> = self
+            .sector_data
+            .values()
             .filter(|d| d.current_holdings > Decimal::ZERO)
             .map(|d| PortfolioPosition::new(&d.symbol, d.current_holdings, d.current_price))
             .collect();
@@ -546,8 +567,7 @@ impl Strategy for SectorMomentumStrategy {
         }
 
         if self.should_rebalance(timestamp) {
-            let all_have_data = self.sector_data.values()
-                .all(|s| !s.prices.is_empty());
+            let all_have_data = self.sector_data.values().all(|s| !s.prices.is_empty());
 
             if all_have_data {
                 return Ok(self.generate_rebalance_signals(timestamp));

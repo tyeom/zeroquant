@@ -83,7 +83,10 @@ impl Strategy for SmaCrossoverStrategy {
         "SMA Crossover strategy for backtesting"
     }
 
-    async fn initialize(&mut self, _config: Value) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn initialize(
+        &mut self,
+        _config: Value,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.prices.clear();
         self.prev_fast_sma = None;
         self.prev_slow_sma = None;
@@ -197,7 +200,10 @@ async fn test_full_backtest_pipeline() {
         .expect("Failed to load CSV");
 
     println!("Loaded {} candles from CSV", count);
-    assert!(count > 10000, "Should have enough data for meaningful backtest");
+    assert!(
+        count > 10000,
+        "Should have enough data for meaningful backtest"
+    );
 
     // 2. Extract klines for backtest engine
     let mut klines = Vec::new();
@@ -209,8 +215,8 @@ async fn test_full_backtest_pipeline() {
     // 3. Create strategy
     let mut strategy = SmaCrossoverStrategy::new(
         symbol.clone(),
-        10,  // Fast SMA period
-        30,  // Slow SMA period
+        10, // Fast SMA period
+        30, // Slow SMA period
     );
     strategy.initialize(json!({})).await.unwrap();
 
@@ -221,7 +227,9 @@ async fn test_full_backtest_pipeline() {
         .with_max_position_size_pct(dec!(0.2)); // 20% 최대 포지션
 
     let mut engine = BacktestEngine::new(config);
-    let report = engine.run(&mut strategy, &klines).await
+    let report = engine
+        .run(&mut strategy, &klines)
+        .await
         .expect("Backtest should complete successfully");
 
     // 5. Verify results
@@ -229,7 +237,10 @@ async fn test_full_backtest_pipeline() {
 
     // Basic sanity checks
     assert!(report.data_points > 0, "Should process data points");
-    assert!(report.start_time < report.end_time, "Time range should be valid");
+    assert!(
+        report.start_time < report.end_time,
+        "Time range should be valid"
+    );
 
     // Check that some trades were made
     println!("Total trades: {}", report.metrics.total_trades);
@@ -237,14 +248,20 @@ async fn test_full_backtest_pipeline() {
     println!("Signals generated: {}", strategy.signal_count);
 
     // The strategy should generate some signals on this dataset
-    assert!(strategy.signal_count > 0, "Strategy should generate at least some signals");
+    assert!(
+        strategy.signal_count > 0,
+        "Strategy should generate at least some signals"
+    );
 
     // Verify metrics are calculated (Decimal type - no NaN possible)
     println!("Sharpe ratio: {}", report.metrics.sharpe_ratio);
 
     // Commission and slippage should be tracked
     if report.total_orders > 0 {
-        assert!(report.total_commission > Decimal::ZERO, "Commission should be charged");
+        assert!(
+            report.total_commission > Decimal::ZERO,
+            "Commission should be charged"
+        );
     }
 
     println!("\n=== Backtest completed successfully ===");
@@ -282,7 +299,9 @@ async fn test_backtest_with_hourly_data() {
         .with_slippage_rate(dec!(0.0005));
 
     let mut engine = BacktestEngine::new(config);
-    let report = engine.run(&mut strategy, &klines).await
+    let report = engine
+        .run(&mut strategy, &klines)
+        .await
         .expect("Backtest should complete");
 
     println!("\n{}", report.summary());
@@ -290,7 +309,10 @@ async fn test_backtest_with_hourly_data() {
 
     // With only 168 candles (7 days of hourly data), might have few or no crossovers
     // This is expected - the test verifies the pipeline works, not profitability
-    assert!(report.data_points == count, "All data points should be processed");
+    assert!(
+        report.data_points == count,
+        "All data points should be processed"
+    );
 }
 
 /// Test Grid Trading strategy with BTC data.
@@ -325,9 +347,7 @@ async fn test_grid_trading_strategy() {
     }
 
     // Calculate initial price from first candle
-    let initial_price = klines.first()
-        .map(|k| k.close)
-        .unwrap_or(dec!(42000));
+    let initial_price = klines.first().map(|k| k.close).unwrap_or(dec!(42000));
 
     println!("Initial BTC price: {} USDT", initial_price);
 
@@ -348,12 +368,16 @@ async fn test_grid_trading_strategy() {
         // max_position_size: removed to bypass internal position tracking
     });
 
-    strategy.initialize(grid_config).await
+    strategy
+        .initialize(grid_config)
+        .await
         .expect("Failed to initialize grid strategy");
 
     // Send first data point to initialize grid
     let first_data = trader_core::MarketData::from_kline("backtest", klines[0].clone());
-    let init_signals = strategy.on_market_data(&first_data).await
+    let init_signals = strategy
+        .on_market_data(&first_data)
+        .await
         .expect("First data should succeed");
 
     // Debug: print grid state after first data
@@ -380,7 +404,9 @@ async fn test_grid_trading_strategy() {
     println!("  - 레벨당 금액: 50,000 USDT");
     println!("========================================\n");
 
-    let report = engine.run(&mut strategy, &klines).await
+    let report = engine
+        .run(&mut strategy, &klines)
+        .await
         .expect("Backtest should complete successfully");
 
     // 4. Print detailed results
@@ -396,7 +422,10 @@ async fn test_grid_trading_strategy() {
 
     // 5. Verify results
     assert!(report.data_points > 0, "Should process data points");
-    assert!(report.start_time < report.end_time, "Time range should be valid");
+    assert!(
+        report.start_time < report.end_time,
+        "Time range should be valid"
+    );
 
     // Grid trading should generate more trades than trend following
     println!("\n총 거래: {}", report.metrics.total_trades);
@@ -441,9 +470,7 @@ async fn test_grid_trading_hourly() {
         klines.push(kline);
     }
 
-    let initial_price = klines.first()
-        .map(|k| k.close)
-        .unwrap_or(dec!(42000));
+    let initial_price = klines.first().map(|k| k.close).unwrap_or(dec!(42000));
 
     // Grid with wider spacing for hourly data
     let mut strategy = GridStrategy::new();
@@ -466,7 +493,9 @@ async fn test_grid_trading_hourly() {
         .with_slippage_rate(dec!(0.0001));
 
     let mut engine = BacktestEngine::new(config);
-    let report = engine.run(&mut strategy, &klines).await
+    let report = engine
+        .run(&mut strategy, &klines)
+        .await
         .expect("Backtest should complete");
 
     println!("\n{}", report.summary());
@@ -497,7 +526,9 @@ async fn test_datafeed_with_simulated_exchange() {
     let symbol = Symbol::crypto("BTC", "USDT");
 
     // Load historical data
-    exchange.load_from_csv(symbol.clone(), Timeframe::H1, csv_path).await
+    exchange
+        .load_from_csv(symbol.clone(), Timeframe::H1, csv_path)
+        .await
         .expect("Failed to load CSV into exchange");
 
     // Get initial balance
@@ -508,7 +539,10 @@ async fn test_datafeed_with_simulated_exchange() {
     // Step through some data
     for i in 0..10 {
         if let Some(kline) = exchange.step(&symbol, Timeframe::H1).await {
-            println!("Step {}: close = {}, volume = {}", i, kline.close, kline.volume);
+            println!(
+                "Step {}: close = {}, volume = {}",
+                i, kline.close, kline.volume
+            );
         } else {
             println!("Step {}: No more data", i);
             break;
@@ -517,7 +551,10 @@ async fn test_datafeed_with_simulated_exchange() {
 
     // Verify exchange can provide ticker
     if let Ok(ticker) = exchange.get_ticker(&symbol).await {
-        println!("Current ticker: bid={}, ask={}, last={}", ticker.bid, ticker.ask, ticker.last);
+        println!(
+            "Current ticker: bid={}, ask={}, last={}",
+            ticker.bid, ticker.ask, ticker.last
+        );
     }
 
     // Verify exchange state
@@ -569,7 +606,9 @@ async fn test_bollinger_bands_strategy() {
         "min_bandwidth_pct": 0.5         // Minimum 0.5% band width
     });
 
-    strategy.initialize(bb_config).await
+    strategy
+        .initialize(bb_config)
+        .await
         .expect("Failed to initialize Bollinger strategy");
 
     // Run backtest with low fees
@@ -584,7 +623,9 @@ async fn test_bollinger_bands_strategy() {
     println!("  볼린저 밴드 평균회귀 백테스트 시작");
     println!("========================================\n");
 
-    let report = engine.run(&mut strategy, &klines).await
+    let report = engine
+        .run(&mut strategy, &klines)
+        .await
         .expect("Backtest should complete");
 
     println!("\n{}", report.summary());
@@ -593,7 +634,10 @@ async fn test_bollinger_bands_strategy() {
     println!("\n볼린저 밴드 전략 상태:");
     println!("  - 현재 RSI: {:?}", state.get("rsi"));
     println!("  - 밴드 폭: {:?}", state.get("bandwidth_pct"));
-    println!("  - 거래 수: {}", state.get("trades_count").unwrap_or(&json!(0)));
+    println!(
+        "  - 거래 수: {}",
+        state.get("trades_count").unwrap_or(&json!(0))
+    );
 
     assert!(report.data_points > 0);
     println!("\n=== 볼린저 밴드 전략 백테스트 완료 ===");
@@ -620,7 +664,10 @@ async fn test_volatility_breakout_strategy() {
         .load_from_csv(symbol.clone(), Timeframe::H1, csv_path)
         .expect("Failed to load CSV");
 
-    println!("Loaded {} hourly candles for Volatility Breakout test", count);
+    println!(
+        "Loaded {} hourly candles for Volatility Breakout test",
+        count
+    );
 
     let mut klines = Vec::new();
     while let Some(kline) = feed.next_kline(&symbol, Timeframe::H1) {
@@ -642,7 +689,9 @@ async fn test_volatility_breakout_strategy() {
         "max_range_pct": 15.0            // Maximum 15% range
     });
 
-    strategy.initialize(vb_config).await
+    strategy
+        .initialize(vb_config)
+        .await
         .expect("Failed to initialize Volatility Breakout strategy");
 
     // Run backtest
@@ -657,7 +706,9 @@ async fn test_volatility_breakout_strategy() {
     println!("  변동성 돌파 전략 백테스트 시작");
     println!("========================================\n");
 
-    let report = engine.run(&mut strategy, &klines).await
+    let report = engine
+        .run(&mut strategy, &klines)
+        .await
         .expect("Backtest should complete");
 
     println!("\n{}", report.summary());
@@ -667,7 +718,10 @@ async fn test_volatility_breakout_strategy() {
     println!("  - 현재 레인지: {:?}", state.get("current_range"));
     println!("  - 상단 돌파 레벨: {:?}", state.get("upper_breakout"));
     println!("  - 하단 돌파 레벨: {:?}", state.get("lower_breakout"));
-    println!("  - 거래 수: {}", state.get("trades_count").unwrap_or(&json!(0)));
+    println!(
+        "  - 거래 수: {}",
+        state.get("trades_count").unwrap_or(&json!(0))
+    );
 
     assert!(report.data_points > 0);
     println!("\n=== 변동성 돌파 전략 백테스트 완료 ===");
@@ -676,7 +730,7 @@ async fn test_volatility_breakout_strategy() {
 /// Compare all strategies on the same dataset.
 #[tokio::test]
 async fn test_strategy_comparison() {
-    use trader_strategy::strategies::{GridStrategy, BollingerStrategy};
+    use trader_strategy::strategies::{BollingerStrategy, GridStrategy};
 
     let csv_path = Path::new("../../data/btcusdt_1m_jan2024.csv");
     if !csv_path.exists() {
@@ -714,16 +768,19 @@ async fn test_strategy_comparison() {
     // 1. Grid Trading
     {
         let mut strategy = GridStrategy::new();
-        strategy.initialize(json!({
-            "symbol": "BTC/USDT",
-            "center_price": initial_price.to_string(),
-            "grid_spacing_pct": 0.5,
-            "grid_levels": 8,
-            "amount_per_level": "50000",
-            "dynamic_spacing": false,
-            "trend_filter": false,
-            "reset_threshold_pct": 3.0
-        })).await.unwrap();
+        strategy
+            .initialize(json!({
+                "symbol": "BTC/USDT",
+                "center_price": initial_price.to_string(),
+                "grid_spacing_pct": 0.5,
+                "grid_levels": 8,
+                "amount_per_level": "50000",
+                "dynamic_spacing": false,
+                "trend_filter": false,
+                "reset_threshold_pct": 3.0
+            }))
+            .await
+            .unwrap();
 
         let mut engine = BacktestEngine::new(make_config());
         let report = engine.run(&mut strategy, &klines).await.unwrap();
@@ -734,24 +791,29 @@ async fn test_strategy_comparison() {
             report.metrics.win_rate_pct,
             report.metrics.total_trades,
         ));
-        println!("1. 그리드 트레이딩: {:.2}% 수익률, {:.1}% 승률, {} 거래",
+        println!(
+            "1. 그리드 트레이딩: {:.2}% 수익률, {:.1}% 승률, {} 거래",
             report.metrics.total_return_pct,
             report.metrics.win_rate_pct,
-            report.metrics.total_trades);
+            report.metrics.total_trades
+        );
     }
 
     // 2. Bollinger Bands
     {
         let mut strategy = BollingerStrategy::new();
-        strategy.initialize(json!({
-            "symbol": "BTC/USDT",
-            "period": 20,
-            "std_multiplier": 2.0,
-            "use_rsi_confirmation": true,
-            "exit_at_middle_band": true,
-            "stop_loss_pct": 1.5,
-            "take_profit_pct": 3.0
-        })).await.unwrap();
+        strategy
+            .initialize(json!({
+                "symbol": "BTC/USDT",
+                "period": 20,
+                "std_multiplier": 2.0,
+                "use_rsi_confirmation": true,
+                "exit_at_middle_band": true,
+                "stop_loss_pct": 1.5,
+                "take_profit_pct": 3.0
+            }))
+            .await
+            .unwrap();
 
         let mut engine = BacktestEngine::new(make_config());
         let report = engine.run(&mut strategy, &klines).await.unwrap();
@@ -762,10 +824,12 @@ async fn test_strategy_comparison() {
             report.metrics.win_rate_pct,
             report.metrics.total_trades,
         ));
-        println!("2. 볼린저 밴드: {:.2}% 수익률, {:.1}% 승률, {} 거래",
+        println!(
+            "2. 볼린저 밴드: {:.2}% 수익률, {:.1}% 승률, {} 거래",
             report.metrics.total_return_pct,
             report.metrics.win_rate_pct,
-            report.metrics.total_trades);
+            report.metrics.total_trades
+        );
     }
 
     // 3. SMA Crossover (for comparison)
@@ -782,10 +846,12 @@ async fn test_strategy_comparison() {
             report.metrics.win_rate_pct,
             report.metrics.total_trades,
         ));
-        println!("3. SMA 크로스오버: {:.2}% 수익률, {:.1}% 승률, {} 거래",
+        println!(
+            "3. SMA 크로스오버: {:.2}% 수익률, {:.1}% 승률, {} 거래",
             report.metrics.total_return_pct,
             report.metrics.win_rate_pct,
-            report.metrics.total_trades);
+            report.metrics.total_trades
+        );
     }
 
     println!("\n════════════════════════════════════════════════════");
@@ -793,14 +859,16 @@ async fn test_strategy_comparison() {
     println!("════════════════════════════════════════════════════");
 
     // Find best strategy
-    let best = results.iter()
+    let best = results
+        .iter()
         .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
         .unwrap();
 
     println!("\n최고 수익률: {} ({:.2}%)", best.0, best.1);
 
     // Find highest win rate
-    let highest_wr = results.iter()
+    let highest_wr = results
+        .iter()
         .max_by(|a, b| a.2.partial_cmp(&b.2).unwrap())
         .unwrap();
 

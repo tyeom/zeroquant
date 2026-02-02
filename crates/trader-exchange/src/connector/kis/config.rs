@@ -118,7 +118,11 @@ impl fmt::Debug for KisConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // 앱키/시크릿 마스킹
         let masked_key = if self.app_key.len() > 8 {
-            format!("{}...{}", &self.app_key[..4], &self.app_key[self.app_key.len()-4..])
+            format!(
+                "{}...{}",
+                &self.app_key[..4],
+                &self.app_key[self.app_key.len() - 4..]
+            )
         } else {
             "***REDACTED***".to_string()
         };
@@ -214,8 +218,8 @@ impl KisConfig {
         let app_key = std::env::var(format!("{}_APP_KEY", prefix)).ok()?;
         let app_secret = std::env::var(format!("{}_APP_SECRET", prefix)).ok()?;
         let account_no = std::env::var(format!("{}_ACCOUNT_NUMBER", prefix)).ok()?;
-        let account_product_code = std::env::var(format!("{}_ACCOUNT_CODE", prefix))
-            .unwrap_or_else(|_| "01".to_string());
+        let account_product_code =
+            std::env::var(format!("{}_ACCOUNT_CODE", prefix)).unwrap_or_else(|_| "01".to_string());
         let hts_id = std::env::var("KIS_HTS_ID").ok();
 
         Some(Self {
@@ -317,7 +321,10 @@ mod tests {
     #[test]
     fn test_account_types() {
         assert_eq!(KisAccountType::Paper.environment(), KisEnvironment::Paper);
-        assert_eq!(KisAccountType::RealGeneral.environment(), KisEnvironment::Real);
+        assert_eq!(
+            KisAccountType::RealGeneral.environment(),
+            KisEnvironment::Real
+        );
         assert_eq!(KisAccountType::RealIsa.environment(), KisEnvironment::Real);
 
         assert_eq!(KisAccountType::Paper.display_name(), "모의투자");
@@ -327,10 +334,22 @@ mod tests {
 
     #[test]
     fn test_account_type_parsing() {
-        assert_eq!(KisAccountType::from_str("paper"), Some(KisAccountType::Paper));
-        assert_eq!(KisAccountType::from_str("real_general"), Some(KisAccountType::RealGeneral));
-        assert_eq!(KisAccountType::from_str("real_isa"), Some(KisAccountType::RealIsa));
-        assert_eq!(KisAccountType::from_str("isa"), Some(KisAccountType::RealIsa));
+        assert_eq!(
+            KisAccountType::from_str("paper"),
+            Some(KisAccountType::Paper)
+        );
+        assert_eq!(
+            KisAccountType::from_str("real_general"),
+            Some(KisAccountType::RealGeneral)
+        );
+        assert_eq!(
+            KisAccountType::from_str("real_isa"),
+            Some(KisAccountType::RealIsa)
+        );
+        assert_eq!(
+            KisAccountType::from_str("isa"),
+            Some(KisAccountType::RealIsa)
+        );
         assert_eq!(KisAccountType::from_str("invalid"), None);
     }
 

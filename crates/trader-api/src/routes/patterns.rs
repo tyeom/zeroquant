@@ -16,9 +16,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use trader_analytics::ml::{
-    CandlestickPatternInfo, ChartPatternInfo, PatternDetectionResult,
-};
+use trader_analytics::ml::{CandlestickPatternInfo, ChartPatternInfo, PatternDetectionResult};
 
 use crate::state::AppState;
 

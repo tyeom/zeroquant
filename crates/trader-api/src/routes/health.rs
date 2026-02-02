@@ -3,13 +3,7 @@
 //! 서버 상태 확인을 위한 헬스 체크 엔드포인트를 제공합니다.
 //! 로드밸런서나 오케스트레이션 시스템(Kubernetes 등)에서 사용됩니다.
 
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    routing::get,
-    Json, Router,
-};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get, Json, Router};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use utoipa::ToSchema;
@@ -122,9 +116,7 @@ pub async fn health_check() -> impl IntoResponse {
         (status = 503, description = "일부 컴포넌트 장애", body = HealthResponse)
     )
 )]
-pub async fn health_ready(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+pub async fn health_ready(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let mut overall_status = "healthy";
     let mut status_code = StatusCode::OK;
 
@@ -160,7 +152,7 @@ pub async fn health_ready(
     let stats = {
         let engine = state.strategy_engine.read().await;
         engine.get_engine_stats().await
-    };  // 락 해제됨
+    }; // 락 해제됨
 
     // 락 없이 상태 생성
     let engine_status = ComponentStatus::up_with_info(format!(
@@ -204,7 +196,12 @@ mod tests {
         let app = Router::new().route("/health", get(health_check));
 
         let response = app
-            .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
 

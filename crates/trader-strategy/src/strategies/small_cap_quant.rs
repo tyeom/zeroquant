@@ -72,14 +72,30 @@ pub struct SmallCapQuantConfig {
     pub index_symbol: String,
 }
 
-fn default_target_count() -> usize { 20 }
-fn default_ma_period() -> usize { 20 }
-fn default_total_amount() -> Decimal { dec!(10000000) }
-fn default_min_market_cap() -> f64 { 50.0 } // 50억
-fn default_min_roe() -> f64 { 5.0 }
-fn default_min_pbr() -> f64 { 0.2 }
-fn default_min_per() -> f64 { 2.0 }
-fn default_index_symbol() -> String { "229200".to_string() } // 코스닥150 ETF
+fn default_target_count() -> usize {
+    20
+}
+fn default_ma_period() -> usize {
+    20
+}
+fn default_total_amount() -> Decimal {
+    dec!(10000000)
+}
+fn default_min_market_cap() -> f64 {
+    50.0
+} // 50억
+fn default_min_roe() -> f64 {
+    5.0
+}
+fn default_min_pbr() -> f64 {
+    0.2
+}
+fn default_min_per() -> f64 {
+    2.0
+}
+fn default_index_symbol() -> String {
+    "229200".to_string()
+} // 코스닥150 ETF
 
 impl Default for SmallCapQuantConfig {
     fn default() -> Self {
@@ -100,14 +116,14 @@ impl Default for SmallCapQuantConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StockFundamentals {
     pub symbol: String,
-    pub market_cap: f64,    // 시가총액 (억원)
-    pub sector: String,     // 섹터
+    pub market_cap: f64,       // 시가총액 (억원)
+    pub sector: String,        // 섹터
     pub operating_profit: f64, // 영업이익
-    pub roe: f64,           // ROE (%)
-    pub eps: f64,           // EPS
-    pub bps: f64,           // BPS
-    pub pbr: f64,           // PBR
-    pub per: f64,           // PER
+    pub roe: f64,              // ROE (%)
+    pub eps: f64,              // EPS
+    pub bps: f64,              // BPS
+    pub pbr: f64,              // PBR
+    pub per: f64,              // PER
 }
 
 impl StockFundamentals {
@@ -120,8 +136,11 @@ impl StockFundamentals {
 
         // 금융 섹터 제외
         let sector_lower = self.sector.to_lowercase();
-        if sector_lower.contains("금융") || sector_lower.contains("은행")
-            || sector_lower.contains("보험") || sector_lower.contains("증권") {
+        if sector_lower.contains("금융")
+            || sector_lower.contains("은행")
+            || sector_lower.contains("보험")
+            || sector_lower.contains("증권")
+        {
             return false;
         }
 
@@ -185,10 +204,7 @@ impl IndexData {
             return None;
         }
 
-        let sum: Decimal = self.prices.iter()
-            .rev()
-            .take(period)
-            .sum();
+        let sum: Decimal = self.prices.iter().rev().take(period).sum();
 
         Some(sum / Decimal::from(period))
     }
@@ -313,10 +329,7 @@ impl SmallCapQuantStrategy {
             }
         }
 
-        info!(
-            count = signals.len(),
-            "20일선 하향 돌파 - 전체 매도"
-        );
+        info!(count = signals.len(), "20일선 하향 돌파 - 전체 매도");
 
         signals
     }
@@ -468,11 +481,14 @@ impl Strategy for SmallCapQuantStrategy {
             if let Some(stock) = self.stock_data.get_mut(&symbol_str) {
                 stock.current_price = close;
             } else {
-                self.stock_data.insert(symbol_str.clone(), StockData {
-                    symbol: symbol_str,
-                    current_price: close,
-                    current_holdings: Decimal::ZERO,
-                });
+                self.stock_data.insert(
+                    symbol_str.clone(),
+                    StockData {
+                        symbol: symbol_str,
+                        current_price: close,
+                        current_holdings: Decimal::ZERO,
+                    },
+                );
             }
         }
 

@@ -74,7 +74,11 @@ impl MomentumCalculator {
     ///
     /// # 반환
     /// 0-100 사이의 RSI 값들
-    pub fn rsi(&self, prices: &[Decimal], params: RsiParams) -> IndicatorResult<Vec<Option<Decimal>>> {
+    pub fn rsi(
+        &self,
+        prices: &[Decimal],
+        params: RsiParams,
+    ) -> IndicatorResult<Vec<Option<Decimal>>> {
         let period = params.period;
 
         if prices.len() < period + 1 {
@@ -104,7 +108,13 @@ impl MomentumCalculator {
             .collect();
         let losses: Vec<Decimal> = deltas
             .iter()
-            .map(|&d| if d < Decimal::ZERO { d.abs() } else { Decimal::ZERO })
+            .map(|&d| {
+                if d < Decimal::ZERO {
+                    d.abs()
+                } else {
+                    Decimal::ZERO
+                }
+            })
             .collect();
 
         // EWM (Exponential Weighted Mean) 계산
@@ -234,13 +244,13 @@ impl MomentumCalculator {
         // %D 계산 (%K의 이동평균)
         for i in 0..len {
             if i < params.k_period + params.d_period - 2 {
-                result.push(StochasticResult { k: k_values[i], d: None });
+                result.push(StochasticResult {
+                    k: k_values[i],
+                    d: None,
+                });
             } else {
                 let start = i + 1 - params.d_period;
-                let sum: Decimal = k_values[start..=i]
-                    .iter()
-                    .filter_map(|v| *v)
-                    .sum();
+                let sum: Decimal = k_values[start..=i].iter().filter_map(|v| *v).sum();
                 let count = k_values[start..=i].iter().filter(|v| v.is_some()).count();
 
                 let d = if count > 0 {
@@ -461,9 +471,7 @@ mod tests {
         let prices = sample_prices();
 
         // 1, 3, 5일 모멘텀 평균
-        let score = momentum
-            .momentum_score(&prices, &[1, 3, 5])
-            .unwrap();
+        let score = momentum.momentum_score(&prices, &[1, 3, 5]).unwrap();
 
         // 상승 추세이므로 모멘텀은 양수
         assert!(score > Decimal::ZERO);
@@ -474,9 +482,7 @@ mod tests {
         let momentum = MomentumCalculator::new();
         let prices = sample_prices();
 
-        let scores = momentum
-            .momentum_scores(&prices, &[1, 3, 5])
-            .unwrap();
+        let scores = momentum.momentum_scores(&prices, &[1, 3, 5]).unwrap();
 
         assert_eq!(scores.len(), prices.len());
 

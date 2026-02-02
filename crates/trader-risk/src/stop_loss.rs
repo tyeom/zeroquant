@@ -7,8 +7,8 @@
 //! - 변동성 조정 리스크 관리를 위한 ATR 기반 스탑
 
 use crate::config::RiskConfig;
-use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use trader_core::{OrderRequest, OrderType, Position, Side, Symbol, TimeInForce};
 
@@ -180,12 +180,17 @@ impl StopOrder {
         }
         let pnl = self.calculate_pnl();
         let notional = self.entry_price * self.quantity;
-        (pnl / notional * Decimal::from(100)).to_f64().unwrap_or(0.0)
+        (pnl / notional * Decimal::from(100))
+            .to_f64()
+            .unwrap_or(0.0)
     }
 
     /// 손절매 여부 확인.
     pub fn is_stop_loss(&self) -> bool {
-        matches!(self.stop_type, StopType::FixedStopLoss | StopType::TrailingStop | StopType::AtrStop)
+        matches!(
+            self.stop_type,
+            StopType::FixedStopLoss | StopType::TrailingStop | StopType::AtrStop
+        )
     }
 
     /// 이익실현 여부 확인.
@@ -299,11 +304,7 @@ impl StopOrderGenerator {
     /// # 인자
     /// * `position` - 보호할 포지션
     /// * `stop_loss_pct` - 선택적 사용자 정의 손절매 백분율 (None이면 설정 기본값 사용)
-    pub fn generate_stop_loss(
-        &self,
-        position: &Position,
-        stop_loss_pct: Option<f64>,
-    ) -> StopOrder {
+    pub fn generate_stop_loss(&self, position: &Position, stop_loss_pct: Option<f64>) -> StopOrder {
         let symbol_str = position.symbol.to_string();
         let pct = stop_loss_pct.unwrap_or_else(|| self.config.get_stop_loss_pct(&symbol_str));
 
@@ -398,14 +399,10 @@ impl StopOrderGenerator {
         );
 
         // 정밀도를 위해 trail_pct를 정수로 스케일링 (소수점 4자리까지 지원)
-        let trail_decimal = Decimal::from((trail_pct * 10000.0).round() as i64) / Decimal::from(10000);
+        let trail_decimal =
+            Decimal::from((trail_pct * 10000.0).round() as i64) / Decimal::from(10000);
 
-        let state = TrailingStopState::new(
-            trigger_price,
-            trail_decimal,
-            true,
-            position.side,
-        );
+        let state = TrailingStopState::new(trigger_price, trail_decimal, true, position.side);
 
         (order, state)
     }
@@ -445,12 +442,7 @@ impl StopOrderGenerator {
         multiplier: Option<f64>,
     ) -> StopOrder {
         let mult = multiplier.unwrap_or(2.0);
-        let trigger_price = self.calculate_atr_stop(
-            position.entry_price,
-            atr,
-            mult,
-            position.side,
-        );
+        let trigger_price = self.calculate_atr_stop(position.entry_price, atr, mult, position.side);
 
         let mut order = StopOrder::stop_loss(
             position.symbol.clone(),
@@ -564,8 +556,8 @@ mod tests {
     #[test]
     fn test_trailing_stop_state_long() {
         let mut state = TrailingStopState::new(
-            dec!(49000),  // 초기 트리거
-            dec!(2),      // 2% 추적
+            dec!(49000), // 초기 트리거
+            dec!(2),     // 2% 추적
             true,
             Side::Buy,
         );
@@ -584,8 +576,8 @@ mod tests {
     #[test]
     fn test_trailing_stop_state_short() {
         let mut state = TrailingStopState::new(
-            dec!(51000),  // 초기 트리거
-            dec!(2),      // 2% 추적
+            dec!(51000), // 초기 트리거
+            dec!(2),     // 2% 추적
             true,
             Side::Sell,
         );
@@ -602,16 +594,11 @@ mod tests {
 
     #[test]
     fn test_trailing_stop_trigger_detection() {
-        let state = TrailingStopState::new(
-            dec!(49000),
-            dec!(2),
-            true,
-            Side::Buy,
-        );
+        let state = TrailingStopState::new(dec!(49000), dec!(2), true, Side::Buy);
 
         assert!(!state.should_trigger(dec!(50000))); // 트리거 가격 위
-        assert!(state.should_trigger(dec!(49000)));  // 트리거 가격
-        assert!(state.should_trigger(dec!(48000)));  // 트리거 가격 아래
+        assert!(state.should_trigger(dec!(49000))); // 트리거 가격
+        assert!(state.should_trigger(dec!(48000))); // 트리거 가격 아래
     }
 
     #[test]

@@ -12,7 +12,7 @@
 //! - **KST**: 한국 시간 09:00 (장 개시) 기준
 //! - **EST**: 미국 동부 시간 09:30 (장 개시) 기준
 
-use chrono::{DateTime, Utc, Timelike};
+use chrono::{DateTime, Timelike, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -266,8 +266,17 @@ impl DailyLossTracker {
     /// * `max_daily_loss` - 절대값 기준 최대 일일 손실
     /// * `max_daily_loss_pct` - 비율 기준 최대 일일 손실 (예: 3%는 3.0)
     /// * `starting_balance` - 비율 계산을 위한 당일 시작 계좌 잔액
-    pub fn new(max_daily_loss: Decimal, max_daily_loss_pct: f64, starting_balance: Decimal) -> Self {
-        Self::with_timezone(max_daily_loss, max_daily_loss_pct, starting_balance, TradingTimezone::default())
+    pub fn new(
+        max_daily_loss: Decimal,
+        max_daily_loss_pct: f64,
+        starting_balance: Decimal,
+    ) -> Self {
+        Self::with_timezone(
+            max_daily_loss,
+            max_daily_loss_pct,
+            starting_balance,
+            TradingTimezone::default(),
+        )
     }
 
     /// 시간대를 지정하여 새 일일 손실 추적기 생성.
@@ -304,8 +313,10 @@ impl DailyLossTracker {
     /// RiskConfig에서 생성.
     pub fn from_config(config: &crate::config::RiskConfig, starting_balance: Decimal) -> Self {
         Self::new(
-            Decimal::from_f64_retain(config.max_daily_loss_pct * starting_balance.to_f64().unwrap_or(0.0) / 100.0)
-                .unwrap_or(Decimal::ZERO),
+            Decimal::from_f64_retain(
+                config.max_daily_loss_pct * starting_balance.to_f64().unwrap_or(0.0) / 100.0,
+            )
+            .unwrap_or(Decimal::ZERO),
             config.max_daily_loss_pct,
             starting_balance,
         )
@@ -318,8 +329,10 @@ impl DailyLossTracker {
         timezone: TradingTimezone,
     ) -> Self {
         Self::with_timezone(
-            Decimal::from_f64_retain(config.max_daily_loss_pct * starting_balance.to_f64().unwrap_or(0.0) / 100.0)
-                .unwrap_or(Decimal::ZERO),
+            Decimal::from_f64_retain(
+                config.max_daily_loss_pct * starting_balance.to_f64().unwrap_or(0.0) / 100.0,
+            )
+            .unwrap_or(Decimal::ZERO),
             config.max_daily_loss_pct,
             starting_balance,
             timezone,
@@ -363,7 +376,10 @@ impl DailyLossTracker {
         self.daily_total += record.amount;
 
         // 심볼별 추적 업데이트
-        let symbol_total = self.symbol_pnl.entry(record.symbol.clone()).or_insert(Decimal::ZERO);
+        let symbol_total = self
+            .symbol_pnl
+            .entry(record.symbol.clone())
+            .or_insert(Decimal::ZERO);
         *symbol_total += record.amount;
 
         // 기록 저장
@@ -485,7 +501,10 @@ impl DailyLossTracker {
     /// 특정 심볼의 손익 조회.
     pub fn symbol_pnl(&mut self, symbol: &str) -> Decimal {
         self.check_and_reset();
-        self.symbol_pnl.get(symbol).copied().unwrap_or(Decimal::ZERO)
+        self.symbol_pnl
+            .get(symbol)
+            .copied()
+            .unwrap_or(Decimal::ZERO)
     }
 
     /// 오늘의 모든 손익 기록 조회.
@@ -528,13 +547,13 @@ impl DailyLossTracker {
     }
 
     /// 승률 조회.
-    pub fn win_rate(&mut self) -> f64 {
+    pub fn win_rate(&mut self) -> Decimal {
         self.check_and_reset();
         let total = self.records.len();
         if total == 0 {
-            return 0.0;
+            return Decimal::ZERO;
         }
-        self.winning_trades() as f64 / total as f64
+        (Decimal::from(self.winning_trades()) / Decimal::from(total)) * Decimal::from(100)
     }
 
     /// 총 이익 조회 (모든 양의 손익 합계).
@@ -682,7 +701,7 @@ mod tests {
         tracker.record_profit("DOGE/USDT", dec!(20));
 
         let win_rate = tracker.win_rate();
-        assert!((win_rate - 0.75).abs() < 0.01); // 4개 중 3개 승리 = 75%
+        assert_eq!(win_rate, dec!(75)); // 4개 중 3개 승리 = 75%
     }
 
     #[test]

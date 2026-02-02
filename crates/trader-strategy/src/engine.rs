@@ -222,7 +222,9 @@ impl StrategyEngine {
             return Err(EngineError::StrategyAlreadyExists(id));
         }
 
-        let display_name = custom_name.clone().unwrap_or_else(|| strategy.name().to_string());
+        let display_name = custom_name
+            .clone()
+            .unwrap_or_else(|| strategy.name().to_string());
 
         info!(
             strategy_id = %id,
@@ -487,9 +489,7 @@ impl StrategyEngine {
         let window_ms = self.config.dedup_window_ms as i64;
 
         // 오래된 항목 정리
-        recent.retain(|_, ts| {
-            now.signed_duration_since(*ts).num_milliseconds() < window_ms
-        });
+        recent.retain(|_, ts| now.signed_duration_since(*ts).num_milliseconds() < window_ms);
 
         let mut unique_signals = Vec::new();
 
@@ -696,11 +696,7 @@ impl StrategyEngine {
     }
 
     /// 전략 설정 업데이트 (핫 리로드).
-    pub async fn update_strategy_config(
-        &self,
-        id: &str,
-        config: Value,
-    ) -> Result<(), EngineError> {
+    pub async fn update_strategy_config(&self, id: &str, config: Value) -> Result<(), EngineError> {
         let mut strategies = self.strategies.write().await;
 
         let instance = strategies

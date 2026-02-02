@@ -230,7 +230,13 @@ impl ErrorTracker {
 
     /// 에러 기록.
     pub fn record(&self, record: ErrorRecord) -> u64 {
-        let mut inner = self.inner.write().expect("RwLock poisoned");
+        let mut inner = match self.inner.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                error!("ErrorTracker RwLock poisoned (write), recovering");
+                poisoned.into_inner()
+            }
+        };
 
         // ID 할당
         let id = inner.next_id;
@@ -241,8 +247,16 @@ impl ErrorTracker {
         record.timestamp = Utc::now();
 
         // 통계 업데이트
-        *inner.stats.by_severity.entry(record.severity.to_string()).or_insert(0) += 1;
-        *inner.stats.by_category.entry(record.category.to_string()).or_insert(0) += 1;
+        *inner
+            .stats
+            .by_severity
+            .entry(record.severity.to_string())
+            .or_insert(0) += 1;
+        *inner
+            .stats
+            .by_category
+            .entry(record.category.to_string())
+            .or_insert(0) += 1;
         inner.stats.total_count += 1;
         inner.stats.last_error_at = Some(record.timestamp);
 
@@ -292,19 +306,27 @@ impl ErrorTracker {
 
     /// 최근 에러 조회.
     pub fn get_recent(&self, limit: usize) -> Vec<ErrorRecord> {
-        let inner = self.inner.read().expect("RwLock poisoned");
-        inner.history
-            .iter()
-            .rev()
-            .take(limit)
-            .cloned()
-            .collect()
+        let inner = match self.inner.read() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                error!("ErrorTracker RwLock poisoned (read), recovering");
+                poisoned.into_inner()
+            }
+        };
+        inner.history.iter().rev().take(limit).cloned().collect()
     }
 
     /// 심각도별 에러 조회.
     pub fn get_by_severity(&self, severity: ErrorSeverity, limit: usize) -> Vec<ErrorRecord> {
-        let inner = self.inner.read().expect("RwLock poisoned");
-        inner.history
+        let inner = match self.inner.read() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                error!("ErrorTracker RwLock poisoned (read), recovering");
+                poisoned.into_inner()
+            }
+        };
+        inner
+            .history
             .iter()
             .rev()
             .filter(|r| r.severity == severity)
@@ -315,8 +337,15 @@ impl ErrorTracker {
 
     /// 카테고리별 에러 조회.
     pub fn get_by_category(&self, category: &ErrorCategory, limit: usize) -> Vec<ErrorRecord> {
-        let inner = self.inner.read().expect("RwLock poisoned");
-        inner.history
+        let inner = match self.inner.read() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                error!("ErrorTracker RwLock poisoned (read), recovering");
+                poisoned.into_inner()
+            }
+        };
+        inner
+            .history
             .iter()
             .rev()
             .filter(|r| &r.category == category)
@@ -327,13 +356,25 @@ impl ErrorTracker {
 
     /// 에러 통계 조회.
     pub fn get_stats(&self) -> ErrorStats {
-        let inner = self.inner.read().expect("RwLock poisoned");
+        let inner = match self.inner.read() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                error!("ErrorTracker RwLock poisoned (read), recovering");
+                poisoned.into_inner()
+            }
+        };
         inner.stats.clone()
     }
 
     /// 통계 초기화.
     pub fn reset_stats(&self) {
-        let mut inner = self.inner.write().expect("RwLock poisoned");
+        let mut inner = match self.inner.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                error!("ErrorTracker RwLock poisoned (write), recovering");
+                poisoned.into_inner()
+            }
+        };
         inner.stats = ErrorStats {
             stats_since: Utc::now(),
             ..Default::default()
@@ -342,7 +383,13 @@ impl ErrorTracker {
 
     /// 히스토리 전체 삭제.
     pub fn clear_history(&self) {
-        let mut inner = self.inner.write().expect("RwLock poisoned");
+        let mut inner = match self.inner.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                error!("ErrorTracker RwLock poisoned (write), recovering");
+                poisoned.into_inner()
+            }
+        };
         inner.history.clear();
     }
 }
@@ -416,14 +463,18 @@ impl ErrorRecordBuilder {
 
     /// 컨텍스트 추가 (Decimal).
     pub fn with_decimal(mut self, key: impl Into<String>, value: Option<Decimal>) -> Self {
-        let val_str = value.map(|d| d.to_string()).unwrap_or_else(|| "None".to_string());
+        let val_str = value
+            .map(|d| d.to_string())
+            .unwrap_or_else(|| "None".to_string());
         self.context.insert(key.into(), val_str);
         self
     }
 
     /// 컨텍스트 추가 (i64).
     pub fn with_i64(mut self, key: impl Into<String>, value: Option<i64>) -> Self {
-        let val_str = value.map(|v| v.to_string()).unwrap_or_else(|| "None".to_string());
+        let val_str = value
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "None".to_string());
         self.context.insert(key.into(), val_str);
         self
     }
@@ -526,7 +577,11 @@ mod tests {
         // 여러 에러 기록
         for i in 0..5 {
             let record = ErrorRecordBuilder::new(format!("에러 {}", i))
-                .severity(if i % 2 == 0 { ErrorSeverity::Error } else { ErrorSeverity::Warning })
+                .severity(if i % 2 == 0 {
+                    ErrorSeverity::Error
+                } else {
+                    ErrorSeverity::Warning
+                })
                 .category(ErrorCategory::Database)
                 .build();
             tracker.record(record);

@@ -281,17 +281,18 @@ mod tests {
 
     #[test]
     fn test_fragment_creation() {
-        let fragment = SchemaFragment::new("indicator.rsi", "RSI 설정", FragmentCategory::Indicator)
-            .with_description("RSI 지표 설정")
-            .with_field(FieldSchema {
-                name: "period".to_string(),
-                field_type: FieldType::Integer,
-                label: "RSI 기간".to_string(),
-                default: Some(json!(14)),
-                min: Some(2.0),
-                max: Some(100.0),
-                ..Default::default()
-            });
+        let fragment =
+            SchemaFragment::new("indicator.rsi", "RSI 설정", FragmentCategory::Indicator)
+                .with_description("RSI 지표 설정")
+                .with_field(FieldSchema {
+                    name: "period".to_string(),
+                    field_type: FieldType::Integer,
+                    label: "RSI 기간".to_string(),
+                    default: Some(json!(14)),
+                    min: Some(2.0),
+                    max: Some(100.0),
+                    ..Default::default()
+                });
 
         assert_eq!(fragment.id, "indicator.rsi");
         assert_eq!(fragment.fields.len(), 1);
@@ -300,22 +301,18 @@ mod tests {
 
     #[test]
     fn test_strategy_ui_schema() {
-        let schema = StrategyUISchema::new(
-            "rsi_mean_reversion",
-            "RSI 평균회귀",
-            "single_asset",
-        )
-        .with_description("RSI 과매수/과매도 구간에서 평균회귀 매매")
-        .with_fragment(FragmentRef::required("indicator.rsi"))
-        .with_custom_field(FieldSchema {
-            name: "cooldown_candles".to_string(),
-            field_type: FieldType::Integer,
-            label: "쿨다운 캔들 수".to_string(),
-            default: Some(json!(5)),
-            min: Some(0.0),
-            max: Some(100.0),
-            ..Default::default()
-        });
+        let schema = StrategyUISchema::new("rsi_mean_reversion", "RSI 평균회귀", "single_asset")
+            .with_description("RSI 과매수/과매도 구간에서 평균회귀 매매")
+            .with_fragment(FragmentRef::required("indicator.rsi"))
+            .with_custom_field(FieldSchema {
+                name: "cooldown_candles".to_string(),
+                field_type: FieldType::Integer,
+                label: "쿨다운 캔들 수".to_string(),
+                default: Some(json!(5)),
+                min: Some(0.0),
+                max: Some(100.0),
+                ..Default::default()
+            });
 
         assert_eq!(schema.id, "rsi_mean_reversion");
         assert_eq!(schema.fragments.len(), 1);

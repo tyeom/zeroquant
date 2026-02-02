@@ -40,7 +40,9 @@ pub mod strategies;
 pub mod traits;
 
 // 주요 타입 재내보내기
-pub use engine::{EngineConfig, EngineError, EngineStats, StrategyEngine, StrategyStats, StrategyStatus};
+pub use engine::{
+    EngineConfig, EngineError, EngineStats, StrategyEngine, StrategyStats, StrategyStatus,
+};
 pub use plugin::{BuiltinStrategyFactory, LoaderConfig, PluginError, PluginLoader, PluginMetadata};
 pub use registry::{StrategyCategory, StrategyMeta, StrategyRegistry};
 pub use schema_composer::SchemaComposer;

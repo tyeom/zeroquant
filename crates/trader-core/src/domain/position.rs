@@ -188,8 +188,14 @@ impl PositionSummary {
             total_unrealized_pnl: open_positions.iter().map(|p| p.unrealized_pnl).sum(),
             total_realized_pnl: positions.iter().map(|p| p.realized_pnl).sum(),
             total_notional_value: open_positions.iter().map(|p| p.notional_value()).sum(),
-            long_count: open_positions.iter().filter(|p| p.side == Side::Buy).count(),
-            short_count: open_positions.iter().filter(|p| p.side == Side::Sell).count(),
+            long_count: open_positions
+                .iter()
+                .filter(|p| p.side == Side::Buy)
+                .count(),
+            short_count: open_positions
+                .iter()
+                .filter(|p| p.side == Side::Sell)
+                .count(),
         }
     }
 }

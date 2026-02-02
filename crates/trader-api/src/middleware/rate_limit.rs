@@ -286,7 +286,14 @@ fn extract_client_ip(request: &Request) -> IpAddr {
 /// Rate Limit 레이어 생성 헬퍼.
 pub fn create_rate_limit_layer(
     requests_per_minute: u32,
-) -> (RateLimitState, fn(axum::extract::State<RateLimitState>, Request, Next) -> std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send>>) {
+) -> (
+    RateLimitState,
+    fn(
+        axum::extract::State<RateLimitState>,
+        Request,
+        Next,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send>>,
+) {
     let state = RateLimitState::new(RateLimitConfig::new(requests_per_minute));
     (state, |s, r, n| Box::pin(rate_limit_middleware(s, r, n)))
 }

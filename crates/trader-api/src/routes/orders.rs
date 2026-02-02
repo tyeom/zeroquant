@@ -161,17 +161,27 @@ pub async fn create_order(
 
     // 심볼 파싱 (기본적으로 Crypto 시장으로 가정)
     // 심볼 형식: "BTC/USDT" 또는 "AAPL/USD"
-    let symbol = Symbol::from_string(&request.symbol, MarketType::Crypto)
-        .ok_or_else(|| (
+    let symbol = Symbol::from_string(&request.symbol, MarketType::Crypto).ok_or_else(|| {
+        (
             StatusCode::BAD_REQUEST,
-            Json(ApiError::new("INVALID_SYMBOL", format!("Invalid symbol format: {}. Expected format: BASE/QUOTE (e.g., BTC/USDT)", request.symbol))),
-        ))?;
+            Json(ApiError::new(
+                "INVALID_SYMBOL",
+                format!(
+                    "Invalid symbol format: {}. Expected format: BASE/QUOTE (e.g., BTC/USDT)",
+                    request.symbol
+                ),
+            )),
+        )
+    })?;
 
     // 지정가 주문시 가격 필수 체크
     if request.order_type == OrderType::Limit && request.price.is_none() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ApiError::new("PRICE_REQUIRED", "지정가 주문시 가격이 필요합니다")),
+            Json(ApiError::new(
+                "PRICE_REQUIRED",
+                "지정가 주문시 가격이 필요합니다",
+            )),
         ));
     }
 
@@ -197,7 +207,7 @@ pub async fn create_order(
     let order_manager = {
         let executor = state.executor.read().await;
         std::sync::Arc::clone(executor.order_manager())
-    };  // executor 락 해제됨
+    }; // executor 락 해제됨
 
     {
         let mut order_manager_guard = order_manager.write().await;
@@ -245,14 +255,12 @@ pub async fn create_order(
 /// 활성 주문 목록 조회.
 ///
 /// GET /api/v1/orders
-pub async fn list_orders(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+pub async fn list_orders(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     // 최소 락 홀드: 주문 목록만 빠르게 복사
     let orders = {
         let executor = state.executor.read().await;
         executor.get_active_orders().await
-    };  // 락 해제됨
+    }; // 락 해제됨
 
     // 락 없이 후속 작업 수행
     let symbols: Vec<String> = orders.iter().map(|o| o.symbol.to_string()).collect();
@@ -288,7 +296,10 @@ pub async fn get_order(
     let order_id = Uuid::parse_str(&id).map_err(|_| {
         (
             StatusCode::BAD_REQUEST,
-            Json(ApiError::new("INVALID_ORDER_ID", format!("Invalid order ID format: {}", id))),
+            Json(ApiError::new(
+                "INVALID_ORDER_ID",
+                format!("Invalid order ID format: {}", id),
+            )),
         )
     })?;
 
@@ -296,18 +307,25 @@ pub async fn get_order(
     let order = {
         let executor = state.executor.read().await;
         executor.get_order(order_id).await
-    };  // 락 해제됨
+    }; // 락 해제됨
 
     // 락 없이 응답 생성
     match order {
         Some(order) => {
             let mut resp = OrderResponse::from(&order);
-            resp.display_name = Some(state.get_display_name(&order.symbol.to_string(), false).await);
+            resp.display_name = Some(
+                state
+                    .get_display_name(&order.symbol.to_string(), false)
+                    .await,
+            );
             Ok(Json(resp))
         }
         None => Err((
             StatusCode::NOT_FOUND,
-            Json(ApiError::new("ORDER_NOT_FOUND", format!("Order not found: {}", id))),
+            Json(ApiError::new(
+                "ORDER_NOT_FOUND",
+                format!("Order not found: {}", id),
+            )),
         )),
     }
 }
@@ -324,7 +342,10 @@ pub async fn cancel_order(
     let order_id = Uuid::parse_str(&id).map_err(|_| {
         (
             StatusCode::BAD_REQUEST,
-            Json(ApiError::new("INVALID_ORDER_ID", format!("Invalid order ID format: {}", id))),
+            Json(ApiError::new(
+                "INVALID_ORDER_ID",
+                format!("Invalid order ID format: {}", id),
+            )),
         )
     })?;
 
@@ -338,17 +359,20 @@ pub async fn cancel_order(
             None => {
                 return Err((
                     StatusCode::NOT_FOUND,
-                    Json(ApiError::new("ORDER_NOT_FOUND", format!("Order not found: {}", id))),
+                    Json(ApiError::new(
+                        "ORDER_NOT_FOUND",
+                        format!("Order not found: {}", id),
+                    )),
                 ));
             }
         }
-    };  // 락 해제됨
+    }; // 락 해제됨
 
     // 주문 취소 (별도 락 획득)
     let cancel_result = {
         let executor = state.executor.read().await;
         executor.cancel_order(order_id, reason).await
-    };  // 락 해제됨
+    }; // 락 해제됨
 
     match cancel_result {
         Ok(()) => {
@@ -389,20 +413,27 @@ pub async fn cancel_order(
 /// 주문 통계 조회.
 ///
 /// GET /api/v1/orders/stats
-pub async fn get_order_stats(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+pub async fn get_order_stats(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     // 최소 락 홀드: 주문 목록만 빠르게 복사
     let orders = {
         let executor = state.executor.read().await;
         executor.get_active_orders().await
-    };  // 락 해제됨
+    }; // 락 해제됨
 
     // 락 없이 통계 계산
     let total = orders.len();
-    let pending = orders.iter().filter(|o| o.status == OrderStatusType::Pending).count();
-    let open = orders.iter().filter(|o| o.status == OrderStatusType::Open).count();
-    let partially_filled = orders.iter().filter(|o| o.status == OrderStatusType::PartiallyFilled).count();
+    let pending = orders
+        .iter()
+        .filter(|o| o.status == OrderStatusType::Pending)
+        .count();
+    let open = orders
+        .iter()
+        .filter(|o| o.status == OrderStatusType::Open)
+        .count();
+    let partially_filled = orders
+        .iter()
+        .filter(|o| o.status == OrderStatusType::PartiallyFilled)
+        .count();
 
     let buy_orders = orders.iter().filter(|o| o.side == Side::Buy).count();
     let sell_orders = orders.iter().filter(|o| o.side == Side::Sell).count();

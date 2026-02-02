@@ -4,7 +4,7 @@
 //! - `Trade` - 개별 체결 기록
 //! - `TradeStats` - 거래 통계
 
-use crate::domain::{Side, OrderStatusType};
+use crate::domain::{OrderStatusType, Side};
 use crate::types::{Price, Quantity, Symbol};
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
@@ -182,63 +182,6 @@ pub struct ExecutionHistory {
     pub next_cursor: Option<String>,
 }
 
-/// 기간별 거래 통계.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct TradeStats {
-    /// 총 거래 횟수
-    pub total_trades: usize,
-    /// 수익 거래 횟수
-    pub winning_trades: usize,
-    /// 손실 거래 횟수
-    pub losing_trades: usize,
-    /// 총 거래량
-    pub total_volume: Decimal,
-    /// 총 지불 수수료
-    pub total_fees: Decimal,
-    /// 총 수익
-    pub gross_profit: Decimal,
-    /// 총 손실
-    pub gross_loss: Decimal,
-}
-
-impl TradeStats {
-    /// 승률을 계산합니다.
-    pub fn win_rate(&self) -> Decimal {
-        if self.total_trades == 0 {
-            return Decimal::ZERO;
-        }
-        Decimal::from(self.winning_trades) / Decimal::from(self.total_trades)
-    }
-
-    /// 손익비(Profit Factor)를 계산합니다.
-    pub fn profit_factor(&self) -> Decimal {
-        if self.gross_loss.is_zero() {
-            return Decimal::MAX;
-        }
-        self.gross_profit / self.gross_loss.abs()
-    }
-
-    /// 순이익을 계산합니다.
-    pub fn net_profit(&self) -> Decimal {
-        self.gross_profit - self.gross_loss.abs() - self.total_fees
-    }
-
-    /// 거래를 통계에 추가합니다.
-    pub fn add_trade(&mut self, trade: &Trade, pnl: Decimal) {
-        self.total_trades += 1;
-        self.total_volume += trade.notional_value();
-        self.total_fees += trade.fee;
-
-        if pnl > Decimal::ZERO {
-            self.winning_trades += 1;
-            self.gross_profit += pnl;
-        } else if pnl < Decimal::ZERO {
-            self.losing_trades += 1;
-            self.gross_loss += pnl;
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,42 +203,5 @@ mod tests {
 
         assert_eq!(trade.notional_value(), dec!(5000));
         assert_eq!(trade.fee, dec!(5));
-    }
-
-    #[test]
-    fn test_trade_stats() {
-        let mut stats = TradeStats::default();
-
-        // Add winning trade
-        let symbol = Symbol::crypto("BTC", "USDT");
-        let trade = Trade::new(
-            Uuid::new_v4(),
-            "binance",
-            "1",
-            symbol.clone(),
-            Side::Sell,
-            dec!(1.0),
-            dec!(51000),
-        )
-        .with_fee(dec!(10), "USDT");
-        stats.add_trade(&trade, dec!(1000));
-
-        // Add losing trade
-        let trade2 = Trade::new(
-            Uuid::new_v4(),
-            "binance",
-            "2",
-            symbol,
-            Side::Sell,
-            dec!(1.0),
-            dec!(49000),
-        )
-        .with_fee(dec!(10), "USDT");
-        stats.add_trade(&trade2, dec!(-500));
-
-        assert_eq!(stats.total_trades, 2);
-        assert_eq!(stats.winning_trades, 1);
-        assert_eq!(stats.losing_trades, 1);
-        assert_eq!(stats.win_rate(), dec!(0.5));
     }
 }

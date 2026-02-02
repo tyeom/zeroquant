@@ -89,8 +89,7 @@ impl KlinesRepository {
         let lows: Vec<Decimal> = klines.iter().map(|k| k.low).collect();
         let closes: Vec<Decimal> = klines.iter().map(|k| k.close).collect();
         let volumes: Vec<Decimal> = klines.iter().map(|k| k.volume).collect();
-        let close_times: Vec<Option<DateTime<Utc>>> =
-            klines.iter().map(|k| k.close_time).collect();
+        let close_times: Vec<Option<DateTime<Utc>>> = klines.iter().map(|k| k.close_time).collect();
 
         let result = sqlx::query(
             r#"
@@ -314,11 +313,7 @@ impl KlinesRepository {
     /// * `pool` - 데이터베이스 연결 풀
     /// * `symbol` - 심볼
     /// * `timeframe` - 타임프레임
-    pub async fn delete(
-        pool: &PgPool,
-        symbol: &str,
-        timeframe: &str,
-    ) -> Result<u64, sqlx::Error> {
+    pub async fn delete(pool: &PgPool, symbol: &str, timeframe: &str) -> Result<u64, sqlx::Error> {
         let result = sqlx::query(
             r#"
             DELETE FROM ohlcv
@@ -386,11 +381,7 @@ impl KlinesRepository {
     /// * `pool` - 데이터베이스 연결 풀
     /// * `symbol` - 심볼
     /// * `timeframe` - 타임프레임
-    pub async fn count(
-        pool: &PgPool,
-        symbol: &str,
-        timeframe: &str,
-    ) -> Result<i64, sqlx::Error> {
+    pub async fn count(pool: &PgPool, symbol: &str, timeframe: &str) -> Result<i64, sqlx::Error> {
         let result: (i64,) = sqlx::query_as(
             r#"
             SELECT COUNT(*)

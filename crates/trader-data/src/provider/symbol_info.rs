@@ -35,7 +35,9 @@ pub trait SymbolInfoProvider: Send + Sync {
     fn supported_markets(&self) -> Vec<&str>;
 
     /// 모든 심볼 정보 조회.
-    async fn fetch_all(&self) -> Result<Vec<SymbolMetadata>, Box<dyn std::error::Error + Send + Sync>>;
+    async fn fetch_all(
+        &self,
+    ) -> Result<Vec<SymbolMetadata>, Box<dyn std::error::Error + Send + Sync>>;
 
     /// 심볼 검색.
     async fn search(
@@ -74,7 +76,9 @@ impl SymbolInfoProvider for KrxSymbolProvider {
         vec!["KR"]
     }
 
-    async fn fetch_all(&self) -> Result<Vec<SymbolMetadata>, Box<dyn std::error::Error + Send + Sync>> {
+    async fn fetch_all(
+        &self,
+    ) -> Result<Vec<SymbolMetadata>, Box<dyn std::error::Error + Send + Sync>> {
         // KRX Open API에서 전체 종목 정보 조회
         // http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd
 
@@ -130,6 +134,7 @@ impl KrxSymbolProvider {
         }
 
         #[derive(Deserialize)]
+        #[allow(dead_code)] // API 응답 전체 필드 매핑 (일부만 사용)
         struct KrxStock {
             #[serde(rename = "ISU_SRT_CD")]
             ticker: String,
@@ -159,7 +164,11 @@ impl KrxSymbolProvider {
 
         let data: KrxResponse = response.json().await?;
 
-        let exchange = if market_code == "STK" { "KRX" } else { "KOSDAQ" };
+        let exchange = if market_code == "STK" {
+            "KRX"
+        } else {
+            "KOSDAQ"
+        };
         let suffix = if market_code == "STK" { ".KS" } else { ".KQ" };
 
         let symbols: Vec<SymbolMetadata> = data
@@ -210,7 +219,9 @@ impl SymbolInfoProvider for BinanceSymbolProvider {
         vec!["CRYPTO"]
     }
 
-    async fn fetch_all(&self) -> Result<Vec<SymbolMetadata>, Box<dyn std::error::Error + Send + Sync>> {
+    async fn fetch_all(
+        &self,
+    ) -> Result<Vec<SymbolMetadata>, Box<dyn std::error::Error + Send + Sync>> {
         let client = reqwest::Client::new();
 
         #[derive(Deserialize)]
@@ -220,6 +231,7 @@ impl SymbolInfoProvider for BinanceSymbolProvider {
 
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
+        #[allow(dead_code)] // API 응답 전체 필드 매핑 (일부만 사용)
         struct BinanceSymbol {
             symbol: String,
             base_asset: String,
@@ -358,9 +370,14 @@ impl YahooSymbolProvider {
             .and_then(|r| r.quotes)
             .unwrap_or_default()
             .into_iter()
-            .filter(|q| !q.symbol.contains('.') || q.symbol.ends_with(".L") || q.symbol.ends_with(".T"))
+            .filter(|q| {
+                !q.symbol.contains('.') || q.symbol.ends_with(".L") || q.symbol.ends_with(".T")
+            })
             .map(|q| {
-                let name = q.long_name.or(q.short_name).unwrap_or_else(|| q.symbol.clone());
+                let name = q
+                    .long_name
+                    .or(q.short_name)
+                    .unwrap_or_else(|| q.symbol.clone());
                 let exchange_name = q.exchange.clone();
                 // 정규화된 티커: Yahoo 접미사 제거 (AAPL.L → AAPL for UK)
                 // US 주식은 접미사가 없으므로 그대로 사용
@@ -444,20 +461,22 @@ impl SymbolInfoProvider for YahooSymbolProvider {
         vec!["US", "UK", "JP"]
     }
 
-    async fn fetch_all(&self) -> Result<Vec<SymbolMetadata>, Box<dyn std::error::Error + Send + Sync>> {
+    async fn fetch_all(
+        &self,
+    ) -> Result<Vec<SymbolMetadata>, Box<dyn std::error::Error + Send + Sync>> {
         let client = reqwest::Client::new();
         let mut all_symbols: Vec<SymbolMetadata> = Vec::new();
         let mut seen = std::collections::HashSet::new();
 
         // 여러 Screener 카테고리에서 종목 수집
         let screener_ids = [
-            "most_actives",           // 거래량 상위
-            "day_gainers",            // 상승 종목
-            "day_losers",             // 하락 종목
-            "undervalued_large_caps", // 저평가 대형주
-            "growth_technology_stocks", // 기술 성장주
+            "most_actives",              // 거래량 상위
+            "day_gainers",               // 상승 종목
+            "day_losers",                // 하락 종목
+            "undervalued_large_caps",    // 저평가 대형주
+            "growth_technology_stocks",  // 기술 성장주
             "undervalued_growth_stocks", // 저평가 성장주
-            "small_cap_gainers",      // 소형주 상승
+            "small_cap_gainers",         // 소형주 상승
         ];
 
         for screener_id in &screener_ids {
@@ -487,10 +506,7 @@ impl SymbolInfoProvider for YahooSymbolProvider {
             }
         }
 
-        tracing::info!(
-            count = all_symbols.len(),
-            "Yahoo Finance 심볼 수집 완료"
-        );
+        tracing::info!(count = all_symbols.len(), "Yahoo Finance 심볼 수집 완료");
 
         Ok(all_symbols)
     }
@@ -546,7 +562,10 @@ impl SymbolInfoProvider for YahooSymbolProvider {
             })
             .take(limit)
             .map(|q| {
-                let name = q.long_name.or(q.short_name).unwrap_or_else(|| q.symbol.clone());
+                let name = q
+                    .long_name
+                    .or(q.short_name)
+                    .unwrap_or_else(|| q.symbol.clone());
                 let market = if q.symbol.ends_with(".KS") || q.symbol.ends_with(".KQ") {
                     "KR"
                 } else if q.symbol.ends_with(".T") {
@@ -598,7 +617,9 @@ impl CompositeSymbolProvider {
     }
 
     /// 모든 심볼 정보 조회.
-    pub async fn fetch_all(&self) -> Result<Vec<SymbolMetadata>, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn fetch_all(
+        &self,
+    ) -> Result<Vec<SymbolMetadata>, Box<dyn std::error::Error + Send + Sync>> {
         let mut all = Vec::new();
 
         for provider in &self.providers {
@@ -829,7 +850,15 @@ impl SymbolResolver {
         }
 
         // 2. DB 조회 - ticker 또는 yahoo_symbol로 검색
-        let result: Option<(String, String, Option<String>, String, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
+        let result: Option<(
+            String,
+            String,
+            Option<String>,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        )> = sqlx::query_as(
             r#"
             SELECT ticker, name, name_en, market, exchange, sector, yahoo_symbol
             FROM symbol_info
@@ -842,8 +871,8 @@ impl SymbolResolver {
         .fetch_optional(&self.pool)
         .await?;
 
-        let metadata = result.map(|(ticker, name, name_en, market, exchange, sector, yahoo_symbol)| {
-            SymbolMetadata {
+        let metadata = result.map(
+            |(ticker, name, name_en, market, exchange, sector, yahoo_symbol)| SymbolMetadata {
                 ticker,
                 name,
                 name_en,
@@ -851,8 +880,8 @@ impl SymbolResolver {
                 exchange,
                 sector,
                 yahoo_symbol,
-            }
-        });
+            },
+        );
 
         // 3. 캐시 저장
         if let Some(ref meta) = metadata {
@@ -1066,7 +1095,15 @@ impl SymbolResolver {
                 .map(|(_, n)| n.to_uppercase())
                 .collect();
 
-            let records: Vec<(String, String, Option<String>, String, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
+            let records: Vec<(
+                String,
+                String,
+                Option<String>,
+                String,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+            )> = sqlx::query_as(
                 r#"
                 SELECT ticker, name, name_en, market, exchange, sector, yahoo_symbol
                 FROM symbol_info
@@ -1170,7 +1207,15 @@ impl SymbolResolver {
         let query_upper = query.to_uppercase();
         let query_pattern = format!("%{}%", query_upper);
 
-        let results: Vec<(String, String, Option<String>, String, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
+        let results: Vec<(
+            String,
+            String,
+            Option<String>,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        )> = sqlx::query_as(
             r#"
             SELECT ticker, name, name_en, market, exchange, sector, yahoo_symbol
             FROM symbol_info
@@ -1200,8 +1245,8 @@ impl SymbolResolver {
 
         Ok(results
             .into_iter()
-            .map(|(ticker, name, name_en, market, exchange, sector, yahoo_symbol)| {
-                SymbolMetadata {
+            .map(
+                |(ticker, name, name_en, market, exchange, sector, yahoo_symbol)| SymbolMetadata {
                     ticker,
                     name,
                     name_en,
@@ -1209,8 +1254,8 @@ impl SymbolResolver {
                     exchange,
                     sector,
                     yahoo_symbol,
-                }
-            })
+                },
+            )
             .collect())
     }
 }

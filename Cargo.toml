@@ -11,6 +11,7 @@ members = [
     "crates/trader-analytics",
     "crates/trader-api",
     "crates/trader-cli",
+    "crates/trader-collector",
     "crates/trader-notification",
 ]
 

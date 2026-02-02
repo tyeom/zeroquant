@@ -89,7 +89,11 @@ impl TrendIndicators {
     ///
     /// # 반환
     /// 각 시점의 SMA 값 (처음 period-1개는 None)
-    pub fn sma(&self, prices: &[Decimal], params: SmaParams) -> IndicatorResult<Vec<Option<Decimal>>> {
+    pub fn sma(
+        &self,
+        prices: &[Decimal],
+        params: SmaParams,
+    ) -> IndicatorResult<Vec<Option<Decimal>>> {
         let period = params.period;
 
         if prices.len() < period {
@@ -131,7 +135,11 @@ impl TrendIndicators {
     ///
     /// # 반환
     /// 각 시점의 EMA 값
-    pub fn ema(&self, prices: &[Decimal], params: EmaParams) -> IndicatorResult<Vec<Option<Decimal>>> {
+    pub fn ema(
+        &self,
+        prices: &[Decimal],
+        params: EmaParams,
+    ) -> IndicatorResult<Vec<Option<Decimal>>> {
         let period = params.period;
 
         if prices.len() < period {
@@ -193,8 +201,18 @@ impl TrendIndicators {
         }
 
         // 단기, 장기 EMA 계산
-        let fast_ema = self.ema(prices, EmaParams { period: params.fast_period })?;
-        let slow_ema = self.ema(prices, EmaParams { period: params.slow_period })?;
+        let fast_ema = self.ema(
+            prices,
+            EmaParams {
+                period: params.fast_period,
+            },
+        )?;
+        let slow_ema = self.ema(
+            prices,
+            EmaParams {
+                period: params.slow_period,
+            },
+        )?;
 
         // MACD 라인 계산
         let mut macd_line: Vec<Option<Decimal>> = Vec::with_capacity(prices.len());
@@ -208,7 +226,12 @@ impl TrendIndicators {
         // 시그널 라인 계산 (MACD 라인의 EMA)
         let macd_values: Vec<Decimal> = macd_line.iter().flatten().copied().collect();
         let signal_ema = if macd_values.len() >= params.signal_period {
-            self.ema(&macd_values, EmaParams { period: params.signal_period })?
+            self.ema(
+                &macd_values,
+                EmaParams {
+                    period: params.signal_period,
+                },
+            )?
         } else {
             vec![None; macd_values.len()]
         };

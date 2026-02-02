@@ -20,8 +20,8 @@
 
 use super::auth::KisOAuth;
 use super::config::KisEnvironment;
-use super::tr_id;
 use super::exchange_code;
+use super::tr_id;
 use crate::ExchangeError;
 use reqwest::Client;
 use rust_decimal::Decimal;
@@ -99,15 +99,15 @@ impl KisUsClient {
     pub fn get_exchange_code(symbol: &str) -> &'static str {
         // 일반적인 NASDAQ 심볼
         let nasdaq_symbols = [
-            "AAPL", "MSFT", "GOOGL", "GOOG", "AMZN", "META", "NVDA", "TSLA",
-            "QQQ", "TQQQ", "SQQQ", "SPY", "VOO", "IVV", "VTI", "SCHD",
-            "TLT", "IEF", "SHY", "BIL", "VEA", "VWO", "EFA", "EEM",
+            "AAPL", "MSFT", "GOOGL", "GOOG", "AMZN", "META", "NVDA", "TSLA", "QQQ", "TQQQ", "SQQQ",
+            "SPY", "VOO", "IVV", "VTI", "SCHD", "TLT", "IEF", "SHY", "BIL", "VEA", "VWO", "EFA",
+            "EEM",
         ];
 
         // 일반적인 NYSE 심볼
         let nyse_symbols = [
-            "KO", "JNJ", "PG", "JPM", "V", "MA", "WMT", "DIS", "HD",
-            "BAC", "XOM", "CVX", "PFE", "MRK", "ABT", "UNH",
+            "KO", "JNJ", "PG", "JPM", "V", "MA", "WMT", "DIS", "HD", "BAC", "XOM", "CVX", "PFE",
+            "MRK", "ABT", "UNH",
         ];
 
         let upper = symbol.to_uppercase();
@@ -149,11 +149,7 @@ impl KisUsClient {
             .client
             .get(&url)
             .headers(headers)
-            .query(&[
-                ("AUTH", ""),
-                ("EXCD", excd),
-                ("SYMB", symbol),
-            ])
+            .query(&[("AUTH", ""), ("EXCD", excd), ("SYMB", symbol)])
             .send()
             .await
             .map_err(|e| ExchangeError::NetworkError(e.to_string()))?;
@@ -174,8 +170,9 @@ impl KisUsClient {
 
         debug!("US price response: {}", body);
 
-        let resp: KisUsPriceResponse = serde_json::from_str(&body)
-            .map_err(|e| ExchangeError::ParseError(format!("Failed to parse price response: {}", e)))?;
+        let resp: KisUsPriceResponse = serde_json::from_str(&body).map_err(|e| {
+            ExchangeError::ParseError(format!("Failed to parse price response: {}", e))
+        })?;
 
         if resp.rt_cd != "0" {
             return Err(ExchangeError::ApiError {
@@ -220,9 +217,9 @@ impl KisUsClient {
                 ("AUTH", ""),
                 ("EXCD", excd),
                 ("SYMB", symbol),
-                ("GUBN", period),  // D: daily, W: weekly, M: monthly
+                ("GUBN", period), // D: daily, W: weekly, M: monthly
                 ("BYMD", end_date),
-                ("MODP", "1"),  // 수정주가 반영
+                ("MODP", "1"), // 수정주가 반영
             ])
             .send()
             .await
@@ -244,8 +241,9 @@ impl KisUsClient {
 
         debug!("US daily price response: {}", body);
 
-        let resp: KisUsDailyPriceResponse = serde_json::from_str(&body)
-            .map_err(|e| ExchangeError::ParseError(format!("Failed to parse daily price response: {}", e)))?;
+        let resp: KisUsDailyPriceResponse = serde_json::from_str(&body).map_err(|e| {
+            ExchangeError::ParseError(format!("Failed to parse daily price response: {}", e))
+        })?;
 
         if resp.rt_cd != "0" {
             return Err(ExchangeError::ApiError {
@@ -277,7 +275,8 @@ impl KisUsClient {
         order_type: &str,
         exchange_code: Option<&str>,
     ) -> Result<UsOrderResponse, ExchangeError> {
-        self.place_order(symbol, quantity, price, order_type, exchange_code, true).await
+        self.place_order(symbol, quantity, price, order_type, exchange_code, true)
+            .await
     }
 
     /// 해외주식 매도 주문.
@@ -289,7 +288,8 @@ impl KisUsClient {
         order_type: &str,
         exchange_code: Option<&str>,
     ) -> Result<UsOrderResponse, ExchangeError> {
-        self.place_order(symbol, quantity, price, order_type, exchange_code, false).await
+        self.place_order(symbol, quantity, price, order_type, exchange_code, false)
+            .await
     }
 
     /// 내부 주문 실행.
@@ -367,8 +367,9 @@ impl KisUsClient {
 
         debug!("US order response: {}", response_body);
 
-        let resp: KisUsOrderApiResponse = serde_json::from_str(&response_body)
-            .map_err(|e| ExchangeError::ParseError(format!("Failed to parse order response: {}", e)))?;
+        let resp: KisUsOrderApiResponse = serde_json::from_str(&response_body).map_err(|e| {
+            ExchangeError::ParseError(format!("Failed to parse order response: {}", e))
+        })?;
 
         if resp.rt_cd != "0" {
             return Err(ExchangeError::ApiError {
@@ -393,7 +394,15 @@ impl KisUsClient {
         quantity: u32,
         exchange_code: Option<&str>,
     ) -> Result<UsOrderResponse, ExchangeError> {
-        self.modify_or_cancel_order(order_no, symbol, quantity, Decimal::ZERO, exchange_code, true).await
+        self.modify_or_cancel_order(
+            order_no,
+            symbol,
+            quantity,
+            Decimal::ZERO,
+            exchange_code,
+            true,
+        )
+        .await
     }
 
     /// 해외주식 주문 정정.
@@ -405,7 +414,8 @@ impl KisUsClient {
         price: Decimal,
         exchange_code: Option<&str>,
     ) -> Result<UsOrderResponse, ExchangeError> {
-        self.modify_or_cancel_order(order_no, symbol, quantity, price, exchange_code, false).await
+        self.modify_or_cancel_order(order_no, symbol, quantity, price, exchange_code, false)
+            .await
     }
 
     /// 내부 정정/취소 주문.
@@ -468,7 +478,10 @@ impl KisUsClient {
             .map_err(|e| ExchangeError::NetworkError(e.to_string()))?;
 
         if !status.is_success() {
-            error!("US order modify/cancel failed: {} - {}", status, response_body);
+            error!(
+                "US order modify/cancel failed: {} - {}",
+                status, response_body
+            );
             return Err(ExchangeError::ApiError {
                 code: status.as_u16() as i32,
                 message: response_body,
@@ -512,7 +525,7 @@ impl KisUsClient {
             .query(&[
                 ("CANO", self.oauth.config().cano()),
                 ("ACNT_PRDT_CD", self.oauth.config().acnt_prdt_cd()),
-                ("OVRS_EXCG_CD", "NASD"),  // Default to NASDAQ
+                ("OVRS_EXCG_CD", "NASD"), // Default to NASDAQ
                 ("TR_CRCY_CD", currency),
                 ("CTX_AREA_FK200", ""),
                 ("CTX_AREA_NK200", ""),
@@ -537,8 +550,9 @@ impl KisUsClient {
 
         debug!("US balance response: {}", body);
 
-        let resp: KisUsBalanceResponse = serde_json::from_str(&body)
-            .map_err(|e| ExchangeError::ParseError(format!("Failed to parse balance response: {}", e)))?;
+        let resp: KisUsBalanceResponse = serde_json::from_str(&body).map_err(|e| {
+            ExchangeError::ParseError(format!("Failed to parse balance response: {}", e))
+        })?;
 
         if resp.rt_cd != "0" {
             return Err(ExchangeError::ApiError {
@@ -551,6 +565,82 @@ impl KisUsClient {
             holdings: resp.output1,
             summary: resp.output2,
         })
+    }
+
+    /// 해외 주식 미체결 주문 조회.
+    ///
+    /// 당일 미체결 주문만 조회합니다.
+    ///
+    /// # 참고
+    /// - TR ID: TTTT3039R (실전), VTTT3039R (모의)
+    /// - 엔드포인트: /uapi/overseas-stock/v1/trading/inquire-nccs
+    pub async fn get_pending_orders(&self) -> Result<Vec<UsOrderExecution>, ExchangeError> {
+        // 당일 날짜 생성 (KST 기준)
+        let now = chrono::Utc::now() + chrono::Duration::hours(9);
+        let today = now.format("%Y%m%d").to_string();
+
+        let tr_id = self.get_tr_id(
+            tr_id::US_PENDING_ORDERS_REAL,
+            tr_id::US_PENDING_ORDERS_PAPER,
+        );
+
+        let url = format!(
+            "{}/uapi/overseas-stock/v1/trading/inquire-nccs",
+            self.oauth.config().rest_base_url()
+        );
+
+        let headers = self.oauth.build_headers(tr_id, None).await?;
+
+        let response = self
+            .client
+            .get(&url)
+            .headers(headers)
+            .query(&[
+                ("CANO", self.oauth.config().cano()),
+                ("ACNT_PRDT_CD", self.oauth.config().acnt_prdt_cd()),
+                ("INQR_STRT_DT", today.as_str()), // 조회 시작일
+                ("INQR_END_DT", today.as_str()),  // 조회 종료일
+                ("INQR_DVSN_CD", "00"),           // 조회구분: 00=전체
+                ("OVRS_EXCG_CD", ""),             // 거래소코드 (공백=전체)
+                ("PDNO", ""),                     // 종목코드 (공백=전체)
+                ("CCLD_DVSN", "02"),              // 체결구분: 02=미체결
+                ("SORT_SQN", "DS"),               // 정렬순서: DS=내림차순
+                ("ORD_DT", ""),                   // 주문일자 (공백=당일)
+                ("CTX_AREA_FK200", ""),           // 연속조회키
+                ("CTX_AREA_NK200", ""),           // 연속조회키
+            ])
+            .send()
+            .await
+            .map_err(|e| ExchangeError::NetworkError(e.to_string()))?;
+
+        let status = response.status();
+        let body = response
+            .text()
+            .await
+            .map_err(|e| ExchangeError::NetworkError(e.to_string()))?;
+
+        if !status.is_success() {
+            error!("US pending orders inquiry failed: {} - {}", status, body);
+            return Err(ExchangeError::ApiError {
+                code: status.as_u16() as i32,
+                message: body,
+            });
+        }
+
+        debug!("US pending orders response: {}", body);
+
+        let resp: KisUsOrderHistoryResponse = serde_json::from_str(&body).map_err(|e| {
+            ExchangeError::ParseError(format!("Failed to parse pending orders response: {}", e))
+        })?;
+
+        if resp.rt_cd != "0" {
+            return Err(ExchangeError::ApiError {
+                code: resp.msg_cd.parse().unwrap_or(-1),
+                message: resp.msg1,
+            });
+        }
+
+        Ok(resp.output)
     }
 
     /// 해외주식 주야간원장 구분 조회.
@@ -593,8 +683,9 @@ impl KisUsClient {
 
         debug!("US day/night response: {}", body);
 
-        let resp: KisUsDayNightResponse = serde_json::from_str(&body)
-            .map_err(|e| ExchangeError::ParseError(format!("Failed to parse day/night response: {}", e)))?;
+        let resp: KisUsDayNightResponse = serde_json::from_str(&body).map_err(|e| {
+            ExchangeError::ParseError(format!("Failed to parse day/night response: {}", e))
+        })?;
 
         if resp.rt_cd != "0" {
             return Err(ExchangeError::ApiError {
@@ -730,10 +821,16 @@ pub struct UsHolding {
     #[serde(rename = "now_pric2", deserialize_with = "deserialize_decimal")]
     pub current_price: Decimal,
     /// 평가금액 (외화)
-    #[serde(rename = "ovrs_stck_evlu_amt", deserialize_with = "deserialize_decimal")]
+    #[serde(
+        rename = "ovrs_stck_evlu_amt",
+        deserialize_with = "deserialize_decimal"
+    )]
     pub eval_amount: Decimal,
     /// 평가손익금액 (외화)
-    #[serde(rename = "frcr_evlu_pfls_amt", deserialize_with = "deserialize_decimal")]
+    #[serde(
+        rename = "frcr_evlu_pfls_amt",
+        deserialize_with = "deserialize_decimal"
+    )]
     pub profit_loss: Decimal,
     /// 평가손익률 (%)
     #[serde(rename = "evlu_pfls_rt", deserialize_with = "deserialize_decimal")]
@@ -747,7 +844,10 @@ pub struct UsHolding {
 #[derive(Debug, Clone, Deserialize)]
 pub struct UsAccountSummary {
     /// 총 평가금액 (외화)
-    #[serde(rename = "tot_evlu_pfls_amt", deserialize_with = "deserialize_decimal_opt")]
+    #[serde(
+        rename = "tot_evlu_pfls_amt",
+        deserialize_with = "deserialize_decimal_opt"
+    )]
     pub total_eval_amount: Option<Decimal>,
     /// 총 평가손익
     #[serde(rename = "ovrs_tot_pfls", deserialize_with = "deserialize_decimal_opt")]
@@ -769,6 +869,79 @@ pub struct UsDayNightInfo {
     /// 거래가능여부 ("Y" 또는 "N")
     #[serde(rename = "PSBL_YN")]
     pub psbl_yn: String,
+}
+
+/// 해외 주식 체결 내역 (미체결 주문 조회).
+///
+/// # 참고
+/// - 필드명은 KIS API 패턴을 따름 (`ft_` 접두사는 foreign trade)
+/// - 가격 필드는 `*_unpr3` 패턴 (소수점 3자리)
+/// - TR ID: TTTT3039R (실전), VTTT3039R (모의)
+#[derive(Debug, Clone, Deserialize)]
+pub struct UsOrderExecution {
+    /// 주문일자 (YYYYMMDD)
+    #[serde(rename = "ord_dt")]
+    pub order_date: String,
+
+    /// 주문번호
+    #[serde(rename = "odno")]
+    pub order_no: String,
+
+    /// 원주문번호
+    #[serde(rename = "orgn_odno", default)]
+    pub original_order_no: String,
+
+    /// 주문시각 (HHMMSS)
+    #[serde(rename = "ord_tmd")]
+    pub order_time: String,
+
+    /// 매수/매도 구분 (01=매도, 02=매수)
+    #[serde(rename = "sll_buy_dvsn_cd")]
+    pub side_code: String,
+
+    /// 종목코드
+    #[serde(rename = "pdno")]
+    pub symbol: String,
+
+    /// 종목명
+    #[serde(rename = "prdt_name", default)]
+    pub name: String,
+
+    /// 거래소 코드 (NASD, NYSE, AMEX 등)
+    #[serde(rename = "ovrs_excg_cd")]
+    pub exchange_code: String,
+
+    /// 주문수량
+    #[serde(rename = "ft_ord_qty", deserialize_with = "deserialize_decimal")]
+    pub order_qty: Decimal,
+
+    /// 주문단가
+    #[serde(rename = "ft_ord_unpr3", deserialize_with = "deserialize_decimal")]
+    pub order_price: Decimal,
+
+    /// 체결수량
+    #[serde(rename = "ft_ccld_qty", deserialize_with = "deserialize_decimal")]
+    pub filled_qty: Decimal,
+
+    /// 체결평균가
+    #[serde(rename = "ft_ccld_unpr3", deserialize_with = "deserialize_decimal")]
+    pub avg_price: Decimal,
+
+    /// 체결금액
+    #[serde(rename = "ft_ccld_amt3", deserialize_with = "deserialize_decimal")]
+    pub filled_amount: Decimal,
+
+    /// 주문구분명
+    #[serde(rename = "ord_dvsn_name", default)]
+    pub order_type_name: String,
+
+    /// 취소여부 ("Y" 또는 "N")
+    #[serde(rename = "cncl_yn", default)]
+    pub cancel_yn: String,
+
+    /// 정정취소구분명
+    #[serde(rename = "rvse_cncl_dvsn_name", default)]
+    pub modify_cancel_name: String,
 }
 
 // ========================================
@@ -816,6 +989,16 @@ struct KisUsDayNightResponse {
     output: UsDayNightInfo,
 }
 
+/// 해외 주식 미체결 주문 조회 응답.
+#[derive(Debug, Deserialize)]
+struct KisUsOrderHistoryResponse {
+    rt_cd: String,
+    msg_cd: String,
+    msg1: String,
+    /// 주문 내역 목록
+    output: Vec<UsOrderExecution>,
+}
+
 // ========================================
 // 유틸리티 함수
 // ========================================
@@ -840,11 +1023,10 @@ where
 {
     let s: Option<String> = Option::deserialize(deserializer)?;
     match s {
-        Some(s) if !s.is_empty() && s != "-" => {
-            s.parse::<Decimal>()
-                .map(Some)
-                .map_err(|_| serde::de::Error::custom(format!("Invalid decimal: {}", s)))
-        }
+        Some(s) if !s.is_empty() && s != "-" => s
+            .parse::<Decimal>()
+            .map(Some)
+            .map_err(|_| serde::de::Error::custom(format!("Invalid decimal: {}", s))),
         _ => Ok(None),
     }
 }

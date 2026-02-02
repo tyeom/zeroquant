@@ -337,7 +337,11 @@ fn create_market_regime_filter() -> SchemaFragment {
             field_type: FieldType::MultiSelect,
             label: "허용 국면".to_string(),
             default: Some(json!(["bull", "neutral"])),
-            options: vec!["bull".to_string(), "neutral".to_string(), "bear".to_string()],
+            options: vec![
+                "bull".to_string(),
+                "neutral".to_string(),
+                "bear".to_string(),
+            ],
             condition: Some("enabled == true".to_string()),
             ..Default::default()
         },
@@ -345,33 +349,29 @@ fn create_market_regime_filter() -> SchemaFragment {
 }
 
 fn create_volume_filter() -> SchemaFragment {
-    SchemaFragment::new(
-        "filter.volume",
-        "거래량 필터",
-        FragmentCategory::Filter,
-    )
-    .with_description("거래량 기반 신호 필터링")
-    .with_fields(vec![
-        FieldSchema {
-            name: "enabled".to_string(),
-            field_type: FieldType::Boolean,
-            label: "거래량 필터 활성화".to_string(),
-            default: Some(json!(false)),
-            required: true,
-            ..Default::default()
-        },
-        FieldSchema {
-            name: "min_volume_ratio".to_string(),
-            field_type: FieldType::Number,
-            label: "최소 거래량 비율".to_string(),
-            description: Some("평균 거래량 대비 최소 비율".to_string()),
-            default: Some(json!(1.5)),
-            min: Some(0.1),
-            max: Some(10.0),
-            condition: Some("enabled == true".to_string()),
-            ..Default::default()
-        },
-    ])
+    SchemaFragment::new("filter.volume", "거래량 필터", FragmentCategory::Filter)
+        .with_description("거래량 기반 신호 필터링")
+        .with_fields(vec![
+            FieldSchema {
+                name: "enabled".to_string(),
+                field_type: FieldType::Boolean,
+                label: "거래량 필터 활성화".to_string(),
+                default: Some(json!(false)),
+                required: true,
+                ..Default::default()
+            },
+            FieldSchema {
+                name: "min_volume_ratio".to_string(),
+                field_type: FieldType::Number,
+                label: "최소 거래량 비율".to_string(),
+                description: Some("평균 거래량 대비 최소 비율".to_string()),
+                default: Some(json!(1.5)),
+                min: Some(0.1),
+                max: Some(10.0),
+                condition: Some("enabled == true".to_string()),
+                ..Default::default()
+            },
+        ])
 }
 
 // ============================================================================
@@ -550,24 +550,20 @@ fn create_kelly_fragment() -> SchemaFragment {
 }
 
 fn create_atr_sizing_fragment() -> SchemaFragment {
-    SchemaFragment::new(
-        "sizing.atr",
-        "ATR 기반",
-        FragmentCategory::PositionSizing,
-    )
-    .with_description("ATR 기반 포지션 크기 결정")
-    .with_dependency("indicator.atr")
-    .with_fields(vec![FieldSchema {
-        name: "risk_per_trade".to_string(),
-        field_type: FieldType::Number,
-        label: "거래당 리스크 (%)".to_string(),
-        description: Some("총 자본 대비 거래당 리스크".to_string()),
-        default: Some(json!(1.0)),
-        min: Some(0.1),
-        max: Some(5.0),
-        required: true,
-        ..Default::default()
-    }])
+    SchemaFragment::new("sizing.atr", "ATR 기반", FragmentCategory::PositionSizing)
+        .with_description("ATR 기반 포지션 크기 결정")
+        .with_dependency("indicator.atr")
+        .with_fields(vec![FieldSchema {
+            name: "risk_per_trade".to_string(),
+            field_type: FieldType::Number,
+            label: "거래당 리스크 (%)".to_string(),
+            description: Some("총 자본 대비 거래당 리스크".to_string()),
+            default: Some(json!(1.0)),
+            min: Some(0.1),
+            max: Some(5.0),
+            required: true,
+            ..Default::default()
+        }])
 }
 
 // ============================================================================
@@ -600,7 +596,9 @@ fn create_rebalance_fragment() -> SchemaFragment {
             name: "threshold_pct".to_string(),
             field_type: FieldType::Number,
             label: "리밸런싱 임계값 (%)".to_string(),
-            description: Some("목표 비중과 현재 비중의 차이가 이 값 이상일 때만 리밸런싱".to_string()),
+            description: Some(
+                "목표 비중과 현재 비중의 차이가 이 값 이상일 때만 리밸런싱".to_string(),
+            ),
             default: Some(json!(5.0)),
             min: Some(0.0),
             max: Some(50.0),

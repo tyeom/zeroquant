@@ -23,15 +23,15 @@
 
 use crate::Strategy;
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
-use chrono::{DateTime, Utc};
-use trader_core::{MarketData, MarketDataType, Order, Position, Side, Signal, Symbol};
 use tracing::{debug, info, warn};
+use trader_core::{MarketData, MarketDataType, Order, Position, Side, Signal, Symbol};
 
 /// 개별 ETF 배분 설정.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -97,20 +97,50 @@ pub struct Us3xLeverageConfig {
 
 fn default_allocations() -> Vec<EtfAllocation> {
     vec![
-        EtfAllocation { ticker: "TQQQ".to_string(), target_ratio: 0.35, etf_type: EtfType::Leverage },
-        EtfAllocation { ticker: "SOXL".to_string(), target_ratio: 0.35, etf_type: EtfType::Leverage },
-        EtfAllocation { ticker: "SQQQ".to_string(), target_ratio: 0.15, etf_type: EtfType::Inverse },
-        EtfAllocation { ticker: "SOXS".to_string(), target_ratio: 0.15, etf_type: EtfType::Inverse },
+        EtfAllocation {
+            ticker: "TQQQ".to_string(),
+            target_ratio: 0.35,
+            etf_type: EtfType::Leverage,
+        },
+        EtfAllocation {
+            ticker: "SOXL".to_string(),
+            target_ratio: 0.35,
+            etf_type: EtfType::Leverage,
+        },
+        EtfAllocation {
+            ticker: "SQQQ".to_string(),
+            target_ratio: 0.15,
+            etf_type: EtfType::Inverse,
+        },
+        EtfAllocation {
+            ticker: "SOXS".to_string(),
+            target_ratio: 0.15,
+            etf_type: EtfType::Inverse,
+        },
     ]
 }
 
-fn default_rebalance_threshold() -> f64 { 5.0 }
-fn default_rebalance_period_days() -> u32 { 30 }
-fn default_use_ma_filter() -> bool { true }
-fn default_ma_period() -> usize { 20 }
-fn default_dynamic_allocation() -> bool { true }
-fn default_max_inverse_ratio() -> f64 { 0.5 }
-fn default_max_drawdown() -> f64 { 30.0 }
+fn default_rebalance_threshold() -> f64 {
+    5.0
+}
+fn default_rebalance_period_days() -> u32 {
+    30
+}
+fn default_use_ma_filter() -> bool {
+    true
+}
+fn default_ma_period() -> usize {
+    20
+}
+fn default_dynamic_allocation() -> bool {
+    true
+}
+fn default_max_inverse_ratio() -> f64 {
+    0.5
+}
+fn default_max_drawdown() -> f64 {
+    30.0
+}
 
 impl Default for Us3xLeverageConfig {
     fn default() -> Self {
@@ -385,7 +415,7 @@ impl Us3xLeverageStrategy {
                         .with_prices(Some(data.current_price), None, None)
                         .with_metadata("action", json!("rebalance_buy"))
                         .with_metadata("target_ratio", json!(target))
-                        .with_metadata("current_ratio", json!(current))
+                        .with_metadata("current_ratio", json!(current)),
                 );
 
                 info!(
@@ -402,7 +432,7 @@ impl Us3xLeverageStrategy {
                         .with_prices(Some(data.current_price), None, None)
                         .with_metadata("action", json!("rebalance_sell"))
                         .with_metadata("target_ratio", json!(target))
-                        .with_metadata("current_ratio", json!(current))
+                        .with_metadata("current_ratio", json!(current)),
                 );
 
                 info!(
@@ -441,7 +471,7 @@ impl Us3xLeverageStrategy {
                     .with_strength(data.target_ratio)
                     .with_prices(Some(data.current_price), None, None)
                     .with_metadata("action", json!("initial_buy"))
-                    .with_metadata("target_ratio", json!(data.target_ratio))
+                    .with_metadata("target_ratio", json!(data.target_ratio)),
             );
 
             info!(
@@ -490,7 +520,7 @@ impl Us3xLeverageStrategy {
                             .with_strength(1.0)
                             .with_prices(Some(data.current_price), None, None)
                             .with_metadata("action", json!("drawdown_exit"))
-                            .with_metadata("drawdown_pct", json!(drawdown))
+                            .with_metadata("drawdown_pct", json!(drawdown)),
                     );
 
                     warn!(
@@ -597,7 +627,9 @@ impl Strategy for Us3xLeverageStrategy {
         }
 
         // 총 가치 계산
-        self.total_value = self.etf_data.values()
+        self.total_value = self
+            .etf_data
+            .values()
             .map(|d| d.holdings * d.current_price)
             .sum();
 
@@ -609,7 +641,10 @@ impl Strategy for Us3xLeverageStrategy {
         // 아직 시작 안 했으면 초기 진입
         if !self.started {
             // 모든 ETF 가격이 있는지 확인
-            let all_have_price = self.etf_data.values().all(|d| d.current_price > Decimal::ZERO);
+            let all_have_price = self
+                .etf_data
+                .values()
+                .all(|d| d.current_price > Decimal::ZERO);
             if all_have_price {
                 return Ok(self.generate_initial_signals());
             }
@@ -648,7 +683,8 @@ impl Strategy for Us3xLeverageStrategy {
                     etf.holdings += order.quantity;
                 }
                 Side::Sell => {
-                    let pnl = order.quantity * (order.price.unwrap_or(etf.current_price) - etf.entry_price);
+                    let pnl = order.quantity
+                        * (order.price.unwrap_or(etf.current_price) - etf.entry_price);
                     self.total_pnl += pnl;
                     etf.holdings -= order.quantity;
 
@@ -697,12 +733,19 @@ impl Strategy for Us3xLeverageStrategy {
     }
 
     fn get_state(&self) -> Value {
-        let holdings: HashMap<_, _> = self.etf_data.iter()
-            .map(|(k, v)| (k.clone(), json!({
-                "holdings": v.holdings.to_string(),
-                "current_ratio": format!("{:.1}%", v.current_ratio * 100.0),
-                "target_ratio": format!("{:.1}%", v.target_ratio * 100.0),
-            })))
+        let holdings: HashMap<_, _> = self
+            .etf_data
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.clone(),
+                    json!({
+                        "holdings": v.holdings.to_string(),
+                        "current_ratio": format!("{:.1}%", v.current_ratio * 100.0),
+                        "target_ratio": format!("{:.1}%", v.target_ratio * 100.0),
+                    }),
+                )
+            })
             .collect();
 
         json!({

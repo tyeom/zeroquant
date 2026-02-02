@@ -24,6 +24,9 @@ uuid = { workspace = true }
 # Error handling
 thiserror = { workspace = true }
 
+# Async
+async-trait = { workspace = true }
+
 # Configuration
 config = { workspace = true }
 
@@ -37,5 +40,13 @@ base64 = { workspace = true }
 secrecy = { workspace = true }
 rand = { workspace = true }
 
+# Database (optional)
+sqlx = { workspace = true, optional = true }
+
+[features]
+default = []
+sqlx-support = ["sqlx"]
+
 [dev-dependencies]
 proptest = { workspace = true }
+tokio = { workspace = true }

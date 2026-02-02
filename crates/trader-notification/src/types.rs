@@ -95,15 +95,9 @@ pub enum NotificationEvent {
         reason: String,
     },
     /// 시스템 오류
-    SystemError {
-        error_code: String,
-        message: String,
-    },
+    SystemError { error_code: String, message: String },
     /// 사용자 정의 알림
-    Custom {
-        title: String,
-        message: String,
-    },
+    Custom { title: String, message: String },
 }
 
 /// 알림 메시지.

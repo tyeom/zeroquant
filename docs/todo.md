@@ -1,3 +1,5 @@
+최종 업데이트: 2026-02-03
+
 # ZeroQuant TODO - 통합 로드맵
 
 > **마지막 업데이트**: 2026-02-02
@@ -848,7 +850,93 @@ fn check_overheat_exit(&self, ctx: &StrategyContext) -> Vec<Signal> {
 ```
 
 **예상 시간**: 4시간 (0.5일)
-**총 예상 시간**: 172h → **188h** (16h 증가)
+**총 예상 시간**: 172h → **228h** (56h 증가, Standalone Collector 추가)
+
+---
+
+### 7. Standalone Data Collector ⭐ 신규
+
+**[병렬 가능: P0.7]**
+
+**목적**: API 서버와 독립적으로 데이터를 수집하는 standalone 바이너리 구축
+
+**현재 문제**:
+- 데이터 수집이 API 서버 내부 백그라운드 태스크로 실행됨
+- API 서버 재시작 시 데이터 수집 중단
+- 높은 I/O 부하가 API 응답 성능에 영향
+- Cron/systemd로 독립 실행 불가
+- 리소스 격리 불가 (별도 머신/컨테이너 배포 어려움)
+
+**구현 항목**
+- [x] 새로운 `trader-collector` crate 생성 ✅
+  ```rust
+  // CLI 인터페이스
+  pub enum Commands {
+      SyncSymbols,           // 심볼 동기화 (KRX, Binance, Yahoo)
+      CollectOhlcv,          // OHLCV 수집 (일봉)
+      CollectFundamental,    // Fundamental 수집
+      RunAll,                // 전체 워크플로우
+      Daemon,                // 데몬 모드 (주기적 실행) ⭐
+  }
+  ```
+- [x] 모듈 구조 ✅
+  ```
+  trader-collector/
+  ├── src/
+  │   ├── main.rs           // CLI 엔트리포인트
+  │   ├── config.rs         // 환경변수 기반 설정
+  │   ├── modules/
+  │   │   ├── symbol_sync.rs      // 심볼 동기화
+  │   │   ├── ohlcv_collect.rs    // OHLCV 수집
+  │   ├── error.rs          // 에러 타입
+  │   └── stats.rs          // 수집 통계
+  ```
+- [x] trader-data 컴포넌트 재사용 ✅
+  - `CachedHistoricalDataProvider` - Yahoo Finance (KRX fallback) 🔄
+  - `SymbolResolver` - 심볼 정규화 및 변환
+  - `SymbolInfoProvider` - KRX/Binance/Yahoo 종목 조회
+- [x] Yahoo Finance로 전환 ✅ (KRX API 차단 대응)
+  - KRX data.krx.co.kr → 403 Forbidden
+  - Yahoo Finance 자동 fallback 내장
+  - 증분 수집 지원 (마지막 시간 이후만)
+- [x] 배치 처리 및 Rate Limiting ✅
+  - 전체 종목 수집 (LIMIT 제거)
+  - Rate limit: 200ms~500ms (설정 가능)
+  - 개별 실패가 전체 중단하지 않도록 에러 핸들링
+- [x] 스케줄링 지원 ✅
+  - Cron 스크립트 예제 제공 (`scripts/collector.cron`)
+  - systemd timer/service 파일 제공
+  - 데몬 모드 추가 (DAEMON_INTERVAL_MINUTES)
+- [x] 모니터링 및 로깅 ✅
+  - tracing 기반 구조화 로깅
+  - 진행률, 성공/실패 통계 출력
+  - CollectionStats 구조체
+- [x] 추가 구현 ⭐
+  - symbol_type 마이그레이션 (024_add_symbol_type.sql)
+  - ETN 자동 필터링 (223개)
+  - 우선주/특수증권 대응
+  - 최적화된 환경변수 예제 (.env.collector.optimized)
+
+**기대 효과**:
+| 항목 | 개선 |
+|------|------|
+| **서비스 분리** | API 서버와 완전 독립 운영 |
+| **스케줄링** | Cron/systemd로 유연한 주기 설정 |
+| **리소스 격리** | 별도 머신/컨테이너 배포 가능 |
+| **안정성** | API 서버 장애가 데이터 수집에 영향 없음 |
+| **성능** | 데이터 수집 부하가 API 응답에 영향 없음 |
+
+**참조 문서**:
+- `docs/standalone_collector_design.md` - 상세 설계 문서 (100+ 섹션)
+- `docs/collector_quick_start.md` - 빠른 시작 가이드
+- `docs/collector_env_example.env` - 환경변수 예제
+
+**예상 시간**: 40시간 (5일)
+- CLI + 기본 구조: 8시간
+- 심볼 동기화 모듈: 10시간
+- OHLCV 수집 모듈: 10시간
+- Fundamental 수집 모듈: 8시간
+- 배포 설정 (Docker, systemd): 4시간
 
 ---
 

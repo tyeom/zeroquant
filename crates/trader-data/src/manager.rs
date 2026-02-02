@@ -6,16 +6,18 @@
 use crate::error::Result;
 use crate::storage::redis::{RedisCache, RedisConfig};
 use crate::storage::timescale::{
-    Database, DatabaseConfig, KlineRepository, OrderRecord, OrderRepository,
-    PositionRecord, PositionRepository, SymbolRecord, SymbolRepository, TradeRecord,
-    TradeRepository, TradeTickRecord, TradeTickRepository,
+    Database, DatabaseConfig, KlineRepository, OrderRecord, OrderRepository, PositionRecord,
+    PositionRepository, SymbolRecord, SymbolRepository, TradeRecord, TradeRepository,
+    TradeTickRecord, TradeTickRepository,
 };
 use chrono::{DateTime, Duration, Utc};
 use rust_decimal::Decimal;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use trader_core::{Kline, Order, OrderBook, OrderStatusType, Side, Symbol, Ticker, Timeframe, TradeTick};
 use tracing::{debug, info, instrument, warn};
+use trader_core::{
+    Kline, Order, OrderBook, OrderStatusType, Side, Symbol, Ticker, Timeframe, TradeTick,
+};
 use uuid::Uuid;
 
 /// 데이터 매니저 설정.
@@ -74,7 +76,10 @@ impl DataManager {
                     Some(cache)
                 }
                 Err(e) => {
-                    warn!("Failed to connect to Redis cache: {}. Continuing without cache.", e);
+                    warn!(
+                        "Failed to connect to Redis cache: {}. Continuing without cache.",
+                        e
+                    );
                     None
                 }
             }
@@ -209,9 +214,7 @@ impl DataManager {
             return Ok(0);
         }
 
-        let symbol_id = self
-            .get_symbol_id(&klines[0].symbol, exchange)
-            .await?;
+        let symbol_id = self.get_symbol_id(&klines[0].symbol, exchange).await?;
 
         self.klines.insert_batch(symbol_id, klines).await
     }
@@ -362,9 +365,7 @@ impl DataManager {
             return Ok(0);
         }
 
-        let symbol_id = self
-            .get_symbol_id(&trades[0].symbol, exchange)
-            .await?;
+        let symbol_id = self.get_symbol_id(&trades[0].symbol, exchange).await?;
         self.trade_ticks.insert_batch(symbol_id, trades).await
     }
 

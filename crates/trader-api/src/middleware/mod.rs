@@ -7,5 +7,5 @@ mod rate_limit;
 
 pub use metrics::metrics_layer;
 pub use rate_limit::{
-    rate_limit_middleware, RateLimitConfig, RateLimitResult, RateLimiter, RateLimitState,
+    rate_limit_middleware, RateLimitConfig, RateLimitResult, RateLimitState, RateLimiter,
 };

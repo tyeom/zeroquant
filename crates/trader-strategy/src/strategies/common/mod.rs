@@ -23,15 +23,14 @@ pub mod serde_helpers;
 pub mod signal_filters;
 
 pub use momentum::{
-    MomentumCalculator, MomentumConfig, MomentumResult, MomentumScore,
-    WeightedMomentumConfig,
+    MomentumCalculator, MomentumConfig, MomentumResult, MomentumScore, WeightedMomentumConfig,
 };
 
 pub use position_sync::{FillResult, PositionSync, SyncedPosition};
 
 pub use rebalance::{
-    RebalanceCalculator, RebalanceConfig, RebalanceOrder, RebalanceOrderSide,
-    RebalanceResult, PortfolioPosition, TargetAllocation,
+    PortfolioPosition, RebalanceCalculator, RebalanceConfig, RebalanceOrder, RebalanceOrderSide,
+    RebalanceResult, TargetAllocation,
 };
 
 pub use serde_helpers::{deserialize_symbol, deserialize_symbol_opt, deserialize_symbols};
@@ -49,9 +48,7 @@ pub use position_sizing::{
     AtrPositionSizer, FixedRatioSizer, KellyPositionSizer, PositionSize, PositionSizer,
 };
 
-pub use risk_checks::{
-    DefaultRiskChecker, RiskCheckError, RiskChecker, RiskManager, RiskParams,
-};
+pub use risk_checks::{DefaultRiskChecker, RiskCheckError, RiskChecker, RiskManager, RiskParams};
 
 pub use signal_filters::{
     CompositeFilter, ConfirmationPattern, FilteredSignal, SignalContext, SignalFilter,

@@ -6,11 +6,10 @@ pub mod fetch_symbols;
 pub mod health;
 pub mod import;
 pub mod list_symbols;
-pub mod sync_csv;
+// sync_csv는 trader-collector로 이동됨
 
 // 각 서브모듈 직접 사용 권장 (ambiguous re-export 방지)
 pub use backtest::BacktestCliConfig;
 pub use fetch_symbols::FetchSymbolsConfig;
 pub use import::ImportDbConfig;
 pub use list_symbols::ListSymbolsConfig;
-pub use sync_csv::SyncCsvConfig;

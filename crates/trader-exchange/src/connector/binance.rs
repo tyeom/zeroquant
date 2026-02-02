@@ -14,13 +14,13 @@ use reqwest::Client;
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use sha2::Sha256;
+use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tracing::{debug, error, info};
 use trader_core::{
     Kline, MarketType, OrderBook, OrderBookLevel, OrderRequest, OrderStatus, OrderType, Position,
     Side, Symbol, Ticker, Timeframe, TradeTick,
 };
-use std::fmt;
-use tracing::{debug, error, info};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -49,7 +49,11 @@ pub struct BinanceConfig {
 impl fmt::Debug for BinanceConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let masked_key = if self.api_key.len() > 8 {
-            format!("{}...{}", &self.api_key[..4], &self.api_key[self.api_key.len()-4..])
+            format!(
+                "{}...{}",
+                &self.api_key[..4],
+                &self.api_key[self.api_key.len() - 4..]
+            )
         } else {
             "***REDACTED***".to_string()
         };
@@ -251,7 +255,9 @@ impl BinanceClient {
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(config.timeout_secs))
             .build()
-            .map_err(|e| ExchangeError::NetworkError(format!("HTTP 클라이언트 생성 실패: {}", e)))?;
+            .map_err(|e| {
+                ExchangeError::NetworkError(format!("HTTP 클라이언트 생성 실패: {}", e))
+            })?;
 
         Ok(Self {
             config,
@@ -494,9 +500,19 @@ impl BinanceClient {
             _ => trader_core::OrderStatusType::Open,
         };
 
+        let side = match resp.side.as_str() {
+            "BUY" => Some(trader_core::Side::Buy),
+            "SELL" => Some(trader_core::Side::Sell),
+            _ => None,
+        };
+
         OrderStatus {
             order_id: resp.order_id.to_string(),
             client_order_id: Some(resp.client_order_id.clone()),
+            symbol: Some(Self::to_symbol(&resp.symbol)),
+            side,
+            quantity: Some(Self::parse_decimal(&resp.orig_qty)),
+            price: Some(Self::parse_decimal(&resp.price)),
             status,
             filled_quantity: Self::parse_decimal(&resp.executed_qty),
             average_price: if Self::parse_decimal(&resp.executed_qty) > Decimal::ZERO {
@@ -524,7 +540,14 @@ impl Exchange for BinanceClient {
     }
 
     async fn connect(&mut self) -> ExchangeResult<()> {
-        info!("Connecting to Binance {}...", if self.config.testnet { "testnet" } else { "mainnet" });
+        info!(
+            "Connecting to Binance {}...",
+            if self.config.testnet {
+                "testnet"
+            } else {
+                "mainnet"
+            }
+        );
 
         // 서버 시간 조회로 연결 테스트
         let _: BinanceServerTime = self.public_get("/api/v3/time", &[]).await?;
@@ -579,10 +602,7 @@ impl Exchange for BinanceClient {
     async fn get_ticker(&self, symbol: &Symbol) -> ExchangeResult<Ticker> {
         let binance_symbol = Self::from_symbol(symbol);
         let resp: BinanceTicker = self
-            .public_get(
-                "/api/v3/ticker/24hr",
-                &[("symbol", binance_symbol)],
-            )
+            .public_get("/api/v3/ticker/24hr", &[("symbol", binance_symbol)])
             .await?;
 
         Ok(Ticker {
@@ -599,7 +619,11 @@ impl Exchange for BinanceClient {
         })
     }
 
-    async fn get_order_book(&self, symbol: &Symbol, limit: Option<u32>) -> ExchangeResult<OrderBook> {
+    async fn get_order_book(
+        &self,
+        symbol: &Symbol,
+        limit: Option<u32>,
+    ) -> ExchangeResult<OrderBook> {
         let binance_symbol = Self::from_symbol(symbol);
         let limit_str = limit.unwrap_or(100).to_string();
 
@@ -793,7 +817,8 @@ impl Exchange for BinanceClient {
             vec![]
         };
 
-        let resp: Vec<BinanceOrderResponse> = self.signed_get("/api/v3/openOrders", &params).await?;
+        let resp: Vec<BinanceOrderResponse> =
+            self.signed_get("/api/v3/openOrders", &params).await?;
 
         Ok(resp.iter().map(Self::parse_order_status).collect())
     }

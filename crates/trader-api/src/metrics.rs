@@ -159,6 +159,9 @@ mod tests {
     #[test]
     fn test_normalize_path_mixed() {
         let path = "/api/v1/strategies/grid_btc/orders/123";
-        assert_eq!(normalize_path(path), "/api/v1/strategies/grid_btc/orders/:id");
+        assert_eq!(
+            normalize_path(path),
+            "/api/v1/strategies/grid_btc/orders/:id"
+        );
     }
 }

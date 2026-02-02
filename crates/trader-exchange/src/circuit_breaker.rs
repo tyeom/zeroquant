@@ -102,10 +102,18 @@ pub struct CategoryThresholds {
     pub service: u32,
 }
 
-fn default_network_threshold() -> u32 { 5 }
-fn default_rate_limit_threshold() -> u32 { 10 }  // Rate limit은 더 관대하게
-fn default_timeout_threshold() -> u32 { 5 }
-fn default_service_threshold() -> u32 { 5 }
+fn default_network_threshold() -> u32 {
+    5
+}
+fn default_rate_limit_threshold() -> u32 {
+    10
+} // Rate limit은 더 관대하게
+fn default_timeout_threshold() -> u32 {
+    5
+}
+fn default_service_threshold() -> u32 {
+    5
+}
 
 impl Default for CategoryThresholds {
     fn default() -> Self {
@@ -191,14 +199,21 @@ pub struct CircuitBreakerConfig {
     reset_timeout: Option<Duration>,
 }
 
-fn default_failure_threshold() -> u32 { 5 }
-fn default_reset_timeout_ms() -> u64 { 30_000 }  // 30초
-fn default_success_threshold() -> u32 { 1 }
+fn default_failure_threshold() -> u32 {
+    5
+}
+fn default_reset_timeout_ms() -> u64 {
+    30_000
+} // 30초
+fn default_success_threshold() -> u32 {
+    1
+}
 
 impl CircuitBreakerConfig {
     /// reset_timeout Duration 반환 (캐싱).
     pub fn reset_timeout(&self) -> Duration {
-        self.reset_timeout.unwrap_or_else(|| Duration::from_millis(self.reset_timeout_ms))
+        self.reset_timeout
+            .unwrap_or_else(|| Duration::from_millis(self.reset_timeout_ms))
     }
 }
 
@@ -244,7 +259,7 @@ impl CircuitBreakerConfig {
     pub fn conservative() -> Self {
         Self {
             failure_threshold: 3,
-            reset_timeout_ms: 60_000,  // 60초
+            reset_timeout_ms: 60_000, // 60초
             success_threshold: 2,
             category_thresholds: Some(CategoryThresholds::conservative()),
             reset_timeout: Some(Duration::from_secs(60)),
@@ -255,7 +270,7 @@ impl CircuitBreakerConfig {
     pub fn aggressive() -> Self {
         Self {
             failure_threshold: 10,
-            reset_timeout_ms: 10_000,  // 10초
+            reset_timeout_ms: 10_000, // 10초
             success_threshold: 1,
             category_thresholds: Some(CategoryThresholds::aggressive()),
             reset_timeout: Some(Duration::from_secs(10)),
@@ -852,8 +867,7 @@ mod tests {
             timeout: 5,
             service: 5,
         };
-        let config = CircuitBreakerConfig::default()
-            .with_category_thresholds(thresholds);
+        let config = CircuitBreakerConfig::default().with_category_thresholds(thresholds);
         let cb = CircuitBreaker::new("test", config);
 
         // 네트워크 에러 2번 → Open
@@ -870,12 +884,11 @@ mod tests {
         // Rate limit은 더 높은 임계치
         let thresholds = CategoryThresholds {
             network: 2,
-            rate_limit: 5,  // 더 관대
+            rate_limit: 5, // 더 관대
             timeout: 2,
             service: 2,
         };
-        let config = CircuitBreakerConfig::default()
-            .with_category_thresholds(thresholds);
+        let config = CircuitBreakerConfig::default().with_category_thresholds(thresholds);
         let cb = CircuitBreaker::new("test", config);
 
         // Rate limit 4번 → 아직 Closed
@@ -899,8 +912,7 @@ mod tests {
             timeout: 3,
             service: 3,
         };
-        let config = CircuitBreakerConfig::default()
-            .with_category_thresholds(thresholds);
+        let config = CircuitBreakerConfig::default().with_category_thresholds(thresholds);
         let cb = CircuitBreaker::new("test", config);
 
         // 각 카테고리 2번씩 실패 (총 8번, 개별로는 임계치 미달)
@@ -930,22 +942,21 @@ mod tests {
             timeout: 2,
             service: 2,
         };
-        let config = CircuitBreakerConfig::default()
-            .with_category_thresholds(thresholds);
+        let config = CircuitBreakerConfig::default().with_category_thresholds(thresholds);
         let cb = CircuitBreaker::new("test", config);
 
         // RateLimited 에러 (rate_limit 카테고리)
         let rate_limit_err: Result<i32, ExchangeError> = Err(ExchangeError::RateLimited);
         cb.record_result(&rate_limit_err);
         cb.record_result(&rate_limit_err);
-        assert_eq!(cb.state(), CircuitState::Closed);  // 임계치 3, 아직 2
+        assert_eq!(cb.state(), CircuitState::Closed); // 임계치 3, 아직 2
 
         // Timeout 에러 (timeout 카테고리)
         let timeout_err: Result<i32, ExchangeError> =
             Err(ExchangeError::Timeout("timeout".to_string()));
         cb.record_result(&timeout_err);
         cb.record_result(&timeout_err);
-        assert_eq!(cb.state(), CircuitState::Open);  // timeout 임계치 2 도달
+        assert_eq!(cb.state(), CircuitState::Open); // timeout 임계치 2 도달
         assert_eq!(cb.tripped_by(), Some(ErrorCategory::Timeout));
     }
 
@@ -957,8 +968,7 @@ mod tests {
             timeout: 3,
             service: 3,
         };
-        let config = CircuitBreakerConfig::default()
-            .with_category_thresholds(thresholds);
+        let config = CircuitBreakerConfig::default().with_category_thresholds(thresholds);
         let cb = CircuitBreaker::new("test", config);
 
         // 네트워크 에러 2번
@@ -985,8 +995,7 @@ mod tests {
             timeout: 5,
             service: 5,
         };
-        let config = CircuitBreakerConfig::default()
-            .with_category_thresholds(thresholds);
+        let config = CircuitBreakerConfig::default().with_category_thresholds(thresholds);
         let cb = CircuitBreaker::new("test", config);
 
         cb.record_failure_with_category(ErrorCategory::Network);
@@ -994,9 +1003,15 @@ mod tests {
         cb.record_failure_with_category(ErrorCategory::RateLimit);
 
         let metrics = cb.metrics();
-        assert_eq!(metrics.category_failures.get(&ErrorCategory::Network), Some(&2));
-        assert_eq!(metrics.category_failures.get(&ErrorCategory::RateLimit), Some(&1));
-        assert_eq!(metrics.tripped_by, None);  // 아직 Open 아님
+        assert_eq!(
+            metrics.category_failures.get(&ErrorCategory::Network),
+            Some(&2)
+        );
+        assert_eq!(
+            metrics.category_failures.get(&ErrorCategory::RateLimit),
+            Some(&1)
+        );
+        assert_eq!(metrics.tripped_by, None); // 아직 Open 아님
 
         // Open 시키기
         for _ in 0..3 {

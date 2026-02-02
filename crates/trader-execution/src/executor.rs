@@ -16,7 +16,10 @@ use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
-use trader_core::{Order, OrderRequest, OrderStatus, OrderStatusType, OrderType, Position, Side, Signal, SignalType, TimeInForce};
+use trader_core::{
+    Order, OrderRequest, OrderStatus, OrderStatusType, OrderType, Position, Side, Signal,
+    SignalType, TimeInForce,
+};
 use trader_risk::RiskManager;
 use uuid::Uuid;
 
@@ -478,9 +481,9 @@ impl SignalConverter {
                     (OrderType::Market, None, None)
                 } else {
                     // 제안 가격 또는 슬리피지가 적용된 현재 가격으로 지정가 주문 사용
-                    let limit_price = signal.suggested_price.unwrap_or_else(|| {
-                        self.apply_slippage(current_price, signal.side)
-                    });
+                    let limit_price = signal
+                        .suggested_price
+                        .unwrap_or_else(|| self.apply_slippage(current_price, signal.side));
                     (OrderType::Limit, Some(limit_price), None)
                 }
             }
@@ -530,10 +533,7 @@ impl SignalConverter {
 
     /// 신호 유형이 청산인지 확인.
     pub fn is_exit_signal(signal_type: &SignalType) -> bool {
-        matches!(
-            signal_type,
-            SignalType::Exit | SignalType::ReducePosition
-        )
+        matches!(signal_type, SignalType::Exit | SignalType::ReducePosition)
     }
 
     /// 매매 방향이 일반적으로 진입을 나타내는지 확인.
@@ -632,11 +632,7 @@ impl OrderExecutor {
     /// # 인자
     /// * `signal` - 처리할 트레이딩 신호
     /// * `current_price` - 현재 시장 가격
-    pub async fn process_signal(
-        &self,
-        signal: &Signal,
-        current_price: Decimal,
-    ) -> ExecutionResult {
+    pub async fn process_signal(&self, signal: &Signal, current_price: Decimal) -> ExecutionResult {
         // Signal을 주문 요청으로 변환
         let order_request = match self.converter.convert(signal, current_price, None) {
             Ok(o) => o,
@@ -652,10 +648,11 @@ impl OrderExecutor {
         // 리스크 관리자로 검증
         let mut risk_manager = self.risk_manager.write().await;
 
-        let validation = match risk_manager.validate_order(&order_request, &positions, current_price) {
-            Ok(v) => v,
-            Err(e) => return ExecutionResult::failure(signal.id, e.to_string()),
-        };
+        let validation =
+            match risk_manager.validate_order(&order_request, &positions, current_price) {
+                Ok(v) => v,
+                Err(e) => return ExecutionResult::failure(signal.id, e.to_string()),
+            };
 
         if !validation.is_valid {
             // 수정된 주문 제안이 있는지 확인
@@ -680,8 +677,8 @@ impl OrderExecutor {
         }
 
         // 성공 결과 구성
-        let mut result = ExecutionResult::success(signal.id, order_request.clone())
-            .with_order_id(order_id);
+        let mut result =
+            ExecutionResult::success(signal.id, order_request.clone()).with_order_id(order_id);
 
         // 경고가 있으면 추가
         for msg in validation.messages {
@@ -748,6 +745,10 @@ impl OrderExecutor {
         let status = OrderStatus {
             order_id: exchange_order_id.clone(),
             client_order_id: None,
+            symbol: None,
+            side: None,
+            quantity: None,
+            price: None,
             status: OrderStatusType::Open,
             filled_quantity: Decimal::ZERO,
             average_price: None,
@@ -780,10 +781,9 @@ impl OrderExecutor {
         // 업데이트 전 주문 조회
         let order = {
             let order_manager = self.order_manager.read().await;
-            order_manager
-                .get_order(order_id)
-                .cloned()
-                .ok_or_else(|| ExecutionError::ExecutionFailed(format!("Order {} not found", order_id)))?
+            order_manager.get_order(order_id).cloned().ok_or_else(|| {
+                ExecutionError::ExecutionFailed(format!("Order {} not found", order_id))
+            })?
         };
 
         // OrderManager에 체결 기록
@@ -827,7 +827,8 @@ impl OrderExecutor {
         is_complete: bool,
     ) -> Result<BracketFillResult, ExecutionError> {
         // 기본 체결 처리
-        self.handle_fill(order_id, fill.clone(), is_complete).await?;
+        self.handle_fill(order_id, fill.clone(), is_complete)
+            .await?;
 
         // 완전 체결이 아니면 브라켓 처리 안 함
         if !is_complete {
@@ -908,10 +909,7 @@ impl OrderExecutor {
     ///
     /// # 인자
     /// * `prices` - 심볼별 현재 가격 맵
-    pub async fn update_market_prices(
-        &self,
-        prices: &std::collections::HashMap<String, Decimal>,
-    ) {
+    pub async fn update_market_prices(&self, prices: &std::collections::HashMap<String, Decimal>) {
         let mut position_tracker = self.position_tracker.write().await;
         position_tracker.update_prices(prices);
     }
@@ -931,13 +929,21 @@ impl OrderExecutor {
     /// 모든 활성 주문 조회.
     pub async fn get_active_orders(&self) -> Vec<Order> {
         let order_manager = self.order_manager.read().await;
-        order_manager.get_active_orders().into_iter().cloned().collect()
+        order_manager
+            .get_active_orders()
+            .into_iter()
+            .cloned()
+            .collect()
     }
 
     /// 모든 열린 포지션 조회.
     pub async fn get_open_positions(&self) -> Vec<Position> {
         let position_tracker = self.position_tracker.read().await;
-        position_tracker.get_open_positions().into_iter().cloned().collect()
+        position_tracker
+            .get_open_positions()
+            .into_iter()
+            .cloned()
+            .collect()
     }
 
     /// ID로 주문 조회.
@@ -1029,8 +1035,13 @@ mod tests {
     }
 
     fn create_test_signal(side: Side, signal_type: SignalType) -> Signal {
-        Signal::new("test_strategy", Symbol::crypto("BTC", "USDT"), side, signal_type)
-            .with_strength(0.8)
+        Signal::new(
+            "test_strategy",
+            Symbol::crypto("BTC", "USDT"),
+            side,
+            signal_type,
+        )
+        .with_strength(0.8)
     }
 
     fn create_test_executor(default_quantity: Decimal) -> OrderExecutor {
@@ -1048,7 +1059,9 @@ mod tests {
         let converter = SignalConverter::default_config();
         let signal = create_test_signal(Side::Buy, SignalType::Entry);
 
-        let order = converter.convert(&signal, dec!(50000), Some(dec!(0.1))).unwrap();
+        let order = converter
+            .convert(&signal, dec!(50000), Some(dec!(0.1)))
+            .unwrap();
 
         assert_eq!(order.side, Side::Buy);
         assert_eq!(order.order_type, OrderType::Market);
@@ -1065,7 +1078,9 @@ mod tests {
         let converter = SignalConverter::new(config);
         let signal = create_test_signal(Side::Buy, SignalType::Entry);
 
-        let order = converter.convert(&signal, dec!(50000), Some(dec!(0.1))).unwrap();
+        let order = converter
+            .convert(&signal, dec!(50000), Some(dec!(0.1)))
+            .unwrap();
 
         assert_eq!(order.order_type, OrderType::Limit);
         assert!(order.price.is_some());
@@ -1078,7 +1093,9 @@ mod tests {
         let converter = SignalConverter::default_config();
         let signal = create_test_signal(Side::Sell, SignalType::Exit);
 
-        let order = converter.convert(&signal, dec!(50000), Some(dec!(0.1))).unwrap();
+        let order = converter
+            .convert(&signal, dec!(50000), Some(dec!(0.1)))
+            .unwrap();
 
         assert_eq!(order.side, Side::Sell);
         assert_eq!(order.order_type, OrderType::Market);
@@ -1089,7 +1106,9 @@ mod tests {
         let converter = SignalConverter::default_config();
         let signal = create_test_signal(Side::Sell, SignalType::Scale);
 
-        let order = converter.convert(&signal, dec!(50000), Some(dec!(0.1))).unwrap();
+        let order = converter
+            .convert(&signal, dec!(50000), Some(dec!(0.1)))
+            .unwrap();
 
         assert_eq!(order.side, Side::Sell);
         assert_eq!(order.order_type, OrderType::Market);
@@ -1107,7 +1126,10 @@ mod tests {
         let result = converter.convert(&signal, dec!(50000), Some(dec!(0.1)));
 
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ExecutionError::InvalidSignal(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            ExecutionError::InvalidSignal(_)
+        ));
     }
 
     #[test]
@@ -1221,7 +1243,10 @@ mod tests {
         let order_id = result.order_id.unwrap();
 
         // 주문 제출
-        executor.submit_order(order_id, "EX123".to_string()).await.unwrap();
+        executor
+            .submit_order(order_id, "EX123".to_string())
+            .await
+            .unwrap();
 
         // 주문이 이제 Open 상태인지 확인
         let order = executor.get_order(order_id).await.unwrap();
@@ -1258,10 +1283,16 @@ mod tests {
         let order_id = result.order_id.unwrap();
 
         // 주문 제출
-        executor.submit_order(order_id, "EX123".to_string()).await.unwrap();
+        executor
+            .submit_order(order_id, "EX123".to_string())
+            .await
+            .unwrap();
 
         // 주문 취소
-        executor.cancel_order(order_id, Some("User requested".to_string())).await.unwrap();
+        executor
+            .cancel_order(order_id, Some("User requested".to_string()))
+            .await
+            .unwrap();
 
         // 주문이 Cancelled 상태인지 확인
         let order = executor.get_order(order_id).await.unwrap();
@@ -1277,7 +1308,10 @@ mod tests {
             let signal = create_test_signal(Side::Buy, SignalType::Entry);
             let result = executor.process_signal(&signal, dec!(50000)).await;
             let order_id = result.order_id.unwrap();
-            executor.submit_order(order_id, format!("EX{}", order_id)).await.unwrap();
+            executor
+                .submit_order(order_id, format!("EX{}", order_id))
+                .await
+                .unwrap();
         }
 
         let active_orders = executor.get_active_orders().await;

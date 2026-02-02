@@ -27,8 +27,10 @@ use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
-use trader_core::{MarketData, MarketDataType, MarketType, Order, Position, Side, Signal, SignalType, Symbol};
 use tracing::{debug, info};
+use trader_core::{
+    MarketData, MarketDataType, MarketType, Order, Position, Side, Signal, SignalType, Symbol,
+};
 
 /// Snow 전략 시장 타입
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -73,11 +75,21 @@ pub struct SnowConfig {
     pub rebalance_threshold: Decimal,
 }
 
-fn default_total_amount() -> Decimal { dec!(10000000) }
-fn default_tip_ma_period() -> usize { 200 }
-fn default_attack_ma_period() -> usize { 5 }
-fn default_rebalance_days() -> u32 { 1 }
-fn default_rebalance_threshold() -> Decimal { dec!(5) }
+fn default_total_amount() -> Decimal {
+    dec!(10000000)
+}
+fn default_tip_ma_period() -> usize {
+    200
+}
+fn default_attack_ma_period() -> usize {
+    5
+}
+fn default_rebalance_days() -> u32 {
+    1
+}
+fn default_rebalance_threshold() -> Decimal {
+    dec!(5)
+}
 
 impl Default for SnowConfig {
     fn default() -> Self {
@@ -115,7 +127,7 @@ impl SnowAssets {
                 crisis: "272580".to_string(), // 미국채혼합레버리지
             },
             SnowMarket::US => Self {
-                tip: "TIP".to_string(),   // iShares TIPS Bond ETF
+                tip: "TIP".to_string(),     // iShares TIPS Bond ETF
                 attack: "UPRO".to_string(), // 3x S&P 500
                 safe: "TLT".to_string(),    // 20년 국채
                 crisis: "BIL".to_string(),  // 단기 국채
@@ -203,8 +215,14 @@ impl SnowStrategy {
 
     /// 시장 상태 판단 (TIP 기반)
     fn is_market_safe(&self) -> bool {
-        let assets = self.assets.as_ref().unwrap();
-        let config = self.config.as_ref().unwrap();
+        let assets = match &self.assets {
+            Some(a) => a,
+            None => return false,
+        };
+        let config = match &self.config {
+            Some(c) => c,
+            None => return false,
+        };
 
         if let Some(prices) = self.price_history.get(&assets.tip) {
             if let Some(ma) = Self::calculate_ma(prices, config.tip_ma_period) {
@@ -219,8 +237,14 @@ impl SnowStrategy {
 
     /// 공격 자산 모멘텀 확인
     fn has_attack_momentum(&self) -> bool {
-        let assets = self.assets.as_ref().unwrap();
-        let config = self.config.as_ref().unwrap();
+        let assets = match &self.assets {
+            Some(a) => a,
+            None => return false,
+        };
+        let config = match &self.config {
+            Some(c) => c,
+            None => return false,
+        };
 
         if let Some(prices) = self.price_history.get(&assets.attack) {
             if let Some(ma) = Self::calculate_ma(prices, config.attack_ma_period) {
@@ -248,7 +272,10 @@ impl SnowStrategy {
 
     /// 모드에 따른 자산 반환
     fn get_asset_for_mode(&self, mode: SnowMode) -> &str {
-        let assets = self.assets.as_ref().unwrap();
+        let assets = match &self.assets {
+            Some(a) => a,
+            None => return "",
+        };
         match mode {
             SnowMode::Attack => &assets.attack,
             SnowMode::Safe => &assets.safe,
@@ -258,7 +285,10 @@ impl SnowStrategy {
 
     /// 리밸런싱 필요 여부 확인
     fn should_rebalance(&self, now: &DateTime<Utc>) -> bool {
-        let config = self.config.as_ref().unwrap();
+        let config = match &self.config {
+            Some(c) => c,
+            None => return false,
+        };
 
         if let Some(last) = self.state.last_rebalance {
             let days = now.signed_duration_since(last).num_days() as u32;
@@ -319,7 +349,10 @@ impl Strategy for SnowStrategy {
             Some(c) => c,
             None => return Ok(vec![]),
         };
-        let assets = self.assets.as_ref().unwrap();
+        let assets = match &self.assets {
+            Some(a) => a,
+            None => return Ok(vec![]),
+        };
 
         // base 심볼만 추출 (SPY/USD -> SPY)
         let symbol = data.symbol.base.clone();
@@ -397,25 +430,20 @@ impl Strategy for SnowStrategy {
             let sym = Symbol::new(&target_asset, quote_currency, market_type);
 
             // 새 자산 매수 신호
-            let signal = Signal::new(
-                "snow",
-                sym,
-                Side::Buy,
-                SignalType::Entry,
-            )
-            .with_strength(1.0)
-            .with_metadata("mode", json!(format!("{:?}", new_mode)))
-            .with_metadata("tip_ma", json!(self.state.tip_ma.map(|d| d.to_string())))
-            .with_metadata("attack_ma", json!(self.state.attack_ma.map(|d| d.to_string())))
-            .with_metadata("market_safe", json!(self.is_market_safe()))
-            .with_metadata("has_momentum", json!(self.has_attack_momentum()));
+            let signal = Signal::new("snow", sym, Side::Buy, SignalType::Entry)
+                .with_strength(1.0)
+                .with_metadata("mode", json!(format!("{:?}", new_mode)))
+                .with_metadata("tip_ma", json!(self.state.tip_ma.map(|d| d.to_string())))
+                .with_metadata(
+                    "attack_ma",
+                    json!(self.state.attack_ma.map(|d| d.to_string())),
+                )
+                .with_metadata("market_safe", json!(self.is_market_safe()))
+                .with_metadata("has_momentum", json!(self.has_attack_momentum()));
 
             self.state.current_holding = Some(target_asset.to_string());
 
-            info!(
-                "[Snow] 모드 전환: {:?} → {} 매수",
-                new_mode, target_asset
-            );
+            info!("[Snow] 모드 전환: {:?} → {} 매수", new_mode, target_asset);
 
             return Ok(vec![signal]);
         }
@@ -427,7 +455,8 @@ impl Strategy for SnowStrategy {
         &mut self,
         order: &Order,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let fill_price = order.average_fill_price
+        let fill_price = order
+            .average_fill_price
             .or(order.price)
             .unwrap_or(Decimal::ZERO);
 

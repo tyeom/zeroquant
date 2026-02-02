@@ -7,8 +7,8 @@ use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 
-use crate::types::Quantity;
 use super::order::Side;
+use crate::types::Quantity;
 
 /// 비용 기준 계산 방법.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

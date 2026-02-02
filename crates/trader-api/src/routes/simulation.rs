@@ -25,6 +25,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use trader_core::{unrealized_pnl, Side};
 use uuid::Uuid;
 
 use crate::state::AppState;
@@ -195,7 +196,7 @@ impl SimulationEngine {
     pub fn execute_order(
         &mut self,
         symbol: &str,
-        side: &str,
+        side: Side,
         quantity: Decimal,
         price: Decimal,
     ) -> Result<SimulationTrade, String> {
@@ -208,7 +209,7 @@ impl SimulationEngine {
         let total_cost = price * quantity + commission;
 
         // 매수 주문 검증
-        if side == "Buy" && total_cost > self.current_balance {
+        if side == Side::Buy && total_cost > self.current_balance {
             return Err(format!(
                 "잔고 부족: 필요 {}, 가용 {}",
                 total_cost, self.current_balance
@@ -220,84 +221,93 @@ impl SimulationEngine {
         let mut realized_pnl = None;
 
         // 포지션 업데이트
-        if side == "Buy" {
-            self.current_balance -= total_cost;
+        match side {
+            Side::Buy => {
+                self.current_balance -= total_cost;
 
-            // 기존 롱 포지션이 있으면 평균 단가 계산
-            if let Some(pos) = self.positions.get_mut(symbol) {
-                if pos.side == "Long" {
-                    let total_qty = pos.quantity + quantity;
-                    let total_value = pos.entry_price * pos.quantity + price * quantity;
-                    pos.entry_price = total_value / total_qty;
-                    pos.quantity = total_qty;
-                    pos.current_price = price;
+                // 기존 롱 포지션이 있으면 평균 단가 계산
+                if let Some(pos) = self.positions.get_mut(symbol) {
+                    if pos.side == "Long" {
+                        let total_qty = pos.quantity + quantity;
+                        let total_value = pos.entry_price * pos.quantity + price * quantity;
+                        pos.entry_price = total_value / total_qty;
+                        pos.quantity = total_qty;
+                        pos.current_price = price;
+                    } else {
+                        // 숏 포지션 청산
+                        let pnl = (pos.entry_price - price) * quantity.min(pos.quantity);
+                        realized_pnl = Some(pnl);
+                        self.total_realized_pnl += pnl;
+                        pos.quantity -= quantity;
+                        if pos.quantity <= Decimal::ZERO {
+                            self.positions.remove(symbol);
+                        }
+                    }
                 } else {
-                    // 숏 포지션 청산
-                    let pnl = (pos.entry_price - price) * quantity.min(pos.quantity);
-                    realized_pnl = Some(pnl);
-                    self.total_realized_pnl += pnl;
-                    pos.quantity -= quantity;
-                    if pos.quantity <= Decimal::ZERO {
-                        self.positions.remove(symbol);
-                    }
+                    // 새 롱 포지션
+                    self.positions.insert(
+                        symbol.to_string(),
+                        SimulationPosition {
+                            symbol: symbol.to_string(),
+                            display_name: None,
+                            side: "Long".to_string(),
+                            quantity,
+                            entry_price: price,
+                            current_price: price,
+                            unrealized_pnl: Decimal::ZERO,
+                            return_pct: Decimal::ZERO,
+                            entry_time: Utc::now(),
+                        },
+                    );
                 }
-            } else {
-                // 새 롱 포지션
-                self.positions.insert(
-                    symbol.to_string(),
-                    SimulationPosition {
-                        symbol: symbol.to_string(),
-                        display_name: None,
-                        side: "Long".to_string(),
-                        quantity,
-                        entry_price: price,
-                        current_price: price,
-                        unrealized_pnl: Decimal::ZERO,
-                        return_pct: Decimal::ZERO,
-                        entry_time: Utc::now(),
-                    },
-                );
             }
-        } else {
-            // Sell
-            if let Some(pos) = self.positions.get_mut(symbol) {
-                if pos.side == "Long" {
-                    // 롱 포지션 청산
-                    let pnl = (price - pos.entry_price) * quantity.min(pos.quantity);
-                    realized_pnl = Some(pnl);
-                    self.total_realized_pnl += pnl;
-                    self.current_balance += price * quantity - commission;
-                    pos.quantity -= quantity;
-                    if pos.quantity <= Decimal::ZERO {
-                        self.positions.remove(symbol);
+            Side::Sell => {
+                // Sell
+                if let Some(pos) = self.positions.get_mut(symbol) {
+                    if pos.side == "Long" {
+                        // 롱 포지션 청산
+                        let pnl = (price - pos.entry_price) * quantity.min(pos.quantity);
+                        realized_pnl = Some(pnl);
+                        self.total_realized_pnl += pnl;
+                        self.current_balance += price * quantity - commission;
+                        pos.quantity -= quantity;
+                        if pos.quantity <= Decimal::ZERO {
+                            self.positions.remove(symbol);
+                        }
                     }
+                } else {
+                    // 새 숏 포지션
+                    self.positions.insert(
+                        symbol.to_string(),
+                        SimulationPosition {
+                            symbol: symbol.to_string(),
+                            display_name: None,
+                            side: "Short".to_string(),
+                            quantity,
+                            entry_price: price,
+                            current_price: price,
+                            unrealized_pnl: Decimal::ZERO,
+                            return_pct: Decimal::ZERO,
+                            entry_time: Utc::now(),
+                        },
+                    );
                 }
-            } else {
-                // 새 숏 포지션
-                self.positions.insert(
-                    symbol.to_string(),
-                    SimulationPosition {
-                        symbol: symbol.to_string(),
-                        display_name: None,
-                        side: "Short".to_string(),
-                        quantity,
-                        entry_price: price,
-                        current_price: price,
-                        unrealized_pnl: Decimal::ZERO,
-                        return_pct: Decimal::ZERO,
-                        entry_time: Utc::now(),
-                    },
-                );
             }
         }
 
         self.total_commission += commission;
 
+        // side를 표시용 문자열로 변환
+        let side_str = match side {
+            Side::Buy => "Buy",
+            Side::Sell => "Sell",
+        };
+
         let trade = SimulationTrade {
             id: trade_id,
             symbol: symbol.to_string(),
             display_name: None,
-            side: side.to_string(),
+            side: side_str.to_string(),
             quantity,
             price,
             commission,
@@ -314,11 +324,12 @@ impl SimulationEngine {
     pub fn update_price(&mut self, symbol: &str, price: Decimal) {
         if let Some(pos) = self.positions.get_mut(symbol) {
             pos.current_price = price;
-            if pos.side == "Long" {
-                pos.unrealized_pnl = (price - pos.entry_price) * pos.quantity;
+            let side = if pos.side == "Long" {
+                Side::Buy
             } else {
-                pos.unrealized_pnl = (pos.entry_price - price) * pos.quantity;
-            }
+                Side::Sell
+            };
+            pos.unrealized_pnl = unrealized_pnl(pos.entry_price, price, pos.quantity, side);
             if pos.entry_price > Decimal::ZERO {
                 pos.return_pct = pos.unrealized_pnl / (pos.entry_price * pos.quantity) * dec!(100);
             }
@@ -558,7 +569,7 @@ pub async fn start_simulation(
                 )),
             )
         })?
-    };  // 락 해제됨
+    }; // 락 해제됨
 
     Ok(Json(SimulationStartResponse {
         success: true,
@@ -592,7 +603,7 @@ pub async fn stop_simulation(
         let total_trades = engine.trades.len();
         engine.stop();
         (final_equity, initial_balance, total_trades)
-    };  // 락 해제됨
+    }; // 락 해제됨
 
     // 락 없이 계산 수행
     let total_return_pct = if initial_balance > Decimal::ZERO {
@@ -613,9 +624,7 @@ pub async fn stop_simulation(
 /// 시뮬레이션 일시정지/재개
 ///
 /// POST /api/v1/simulation/pause
-pub async fn pause_simulation(
-    State(_state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+pub async fn pause_simulation(State(_state): State<Arc<AppState>>) -> impl IntoResponse {
     let mut engine = SIMULATION_ENGINE.write().await;
 
     match engine.state {
@@ -635,22 +644,18 @@ pub async fn pause_simulation(
                 "message": "시뮬레이션이 재개되었습니다"
             }))
         }
-        SimulationState::Stopped => {
-            Json(serde_json::json!({
-                "success": false,
-                "state": "stopped",
-                "message": "시뮬레이션이 실행 중이 아닙니다"
-            }))
-        }
+        SimulationState::Stopped => Json(serde_json::json!({
+            "success": false,
+            "state": "stopped",
+            "message": "시뮬레이션이 실행 중이 아닙니다"
+        })),
     }
 }
 
 /// 시뮬레이션 상태 조회
 ///
 /// GET /api/v1/simulation/status
-pub async fn get_simulation_status(
-    State(_state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+pub async fn get_simulation_status(State(_state): State<Arc<AppState>>) -> impl IntoResponse {
     // 최소 락 홀드: 필요한 모든 데이터를 빠르게 추출
     let (
         state,
@@ -674,7 +679,11 @@ pub async fn get_simulation_status(
             engine.initial_balance,
             engine.current_balance,
             engine.total_equity(),
-            engine.positions.values().map(|p| p.unrealized_pnl).sum::<Decimal>(),
+            engine
+                .positions
+                .values()
+                .map(|p| p.unrealized_pnl)
+                .sum::<Decimal>(),
             engine.total_realized_pnl,
             engine.positions.len(),
             engine.trades.len(),
@@ -683,7 +692,7 @@ pub async fn get_simulation_status(
             engine.simulation_start_date.clone(),
             engine.simulation_end_date.clone(),
         )
-    };  // 락 해제됨
+    }; // 락 해제됨
 
     // 락 없이 계산 수행
     let return_pct = if initial_balance > Decimal::ZERO {
@@ -735,7 +744,19 @@ pub async fn execute_simulation_order(
     // 가격이 없으면 현재 시장가 시뮬레이션 (임시로 고정값 사용)
     let price = request.price.unwrap_or(dec!(50000));
 
-    match engine.execute_order(&request.symbol, &request.side, request.quantity, price) {
+    // side 문자열을 Side enum으로 파싱
+    let side = match Side::from_str_flexible(&request.side) {
+        Ok(s) => s,
+        Err(_) => {
+            return Ok(Json(SimulationOrderResponse {
+                success: false,
+                trade: None,
+                error: Some(format!("잘못된 주문 방향: {}", request.side)),
+            }));
+        }
+    };
+
+    match engine.execute_order(&request.symbol, side, request.quantity, price) {
         Ok(trade) => Ok(Json(SimulationOrderResponse {
             success: true,
             trade: Some(trade),
@@ -752,9 +773,7 @@ pub async fn execute_simulation_order(
 /// 포지션 목록 조회
 ///
 /// GET /api/v1/simulation/positions
-pub async fn get_simulation_positions(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+pub async fn get_simulation_positions(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let engine = SIMULATION_ENGINE.read().await;
 
     let mut positions: Vec<SimulationPosition> = engine.positions.values().cloned().collect();
@@ -778,9 +797,7 @@ pub async fn get_simulation_positions(
 /// 거래 내역 조회
 ///
 /// GET /api/v1/simulation/trades
-pub async fn get_simulation_trades(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+pub async fn get_simulation_trades(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let engine = SIMULATION_ENGINE.read().await;
 
     let mut trades = engine.trades.clone();
@@ -806,9 +823,7 @@ pub async fn get_simulation_trades(
 /// 시뮬레이션 리셋
 ///
 /// POST /api/v1/simulation/reset
-pub async fn reset_simulation(
-    State(_state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+pub async fn reset_simulation(State(_state): State<Arc<AppState>>) -> impl IntoResponse {
     let mut engine = SIMULATION_ENGINE.write().await;
 
     *engine = SimulationEngine::default();
@@ -855,7 +870,13 @@ mod tests {
         assert_eq!(engine.state, SimulationState::Stopped);
         assert_eq!(engine.current_balance, dec!(1_000_000));
 
-        engine.start("test_strategy".to_string(), dec!(1_000_000), 1.0, None, None);
+        engine.start(
+            "test_strategy".to_string(),
+            dec!(1_000_000),
+            1.0,
+            None,
+            None,
+        );
         assert_eq!(engine.state, SimulationState::Running);
 
         engine.pause();
@@ -874,7 +895,7 @@ mod tests {
         engine.start("test".to_string(), dec!(1_000_000), 1.0, None, None);
 
         // 매수 주문
-        let result = engine.execute_order("BTC/USDT", "Buy", dec!(0.1), dec!(50000));
+        let result = engine.execute_order("BTC/USDT", Side::Buy, dec!(0.1), dec!(50000));
         assert!(result.is_ok());
 
         let trade = result.unwrap();
@@ -887,7 +908,7 @@ mod tests {
         assert_eq!(pos.quantity, dec!(0.1));
 
         // 매도 주문 (청산)
-        let result = engine.execute_order("BTC/USDT", "Sell", dec!(0.1), dec!(51000));
+        let result = engine.execute_order("BTC/USDT", Side::Sell, dec!(0.1), dec!(51000));
         assert!(result.is_ok());
 
         let trade = result.unwrap();
@@ -900,7 +921,7 @@ mod tests {
         engine.start("test".to_string(), dec!(1000), 1.0, None, None);
 
         // 잔고 부족 주문
-        let result = engine.execute_order("BTC/USDT", "Buy", dec!(1), dec!(50000));
+        let result = engine.execute_order("BTC/USDT", Side::Buy, dec!(1), dec!(50000));
         assert!(result.is_err());
     }
 

@@ -34,11 +34,10 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use tracing::{debug, info};
 
-use crate::traits::Strategy;
 use crate::strategies::common::rebalance::{
-    PortfolioPosition, RebalanceCalculator, RebalanceConfig, RebalanceOrderSide,
-    TargetAllocation,
+    PortfolioPosition, RebalanceCalculator, RebalanceConfig, RebalanceOrderSide, TargetAllocation,
 };
+use crate::traits::Strategy;
 use trader_core::{MarketData, MarketDataType, Order, Position, Side, Signal, SignalType, Symbol};
 
 /// Simple Power 전략 설정.
@@ -268,7 +267,11 @@ impl SimplePowerStrategy {
     }
 
     /// 모멘텀 상태 계산.
-    fn calculate_momentum_state(&self, symbol: &str, config: &SimplePowerConfig) -> AssetMomentumState {
+    fn calculate_momentum_state(
+        &self,
+        symbol: &str,
+        config: &SimplePowerConfig,
+    ) -> AssetMomentumState {
         let prices = match self.price_history.get(symbol) {
             Some(p) if p.len() >= config.ma_period + 3 => p,
             _ => return AssetMomentumState::default(),
@@ -303,7 +306,8 @@ impl SimplePowerStrategy {
         }
 
         // PFIX/TMF는 두 조건 모두 충족 시 완전 청산
-        let is_hedge_asset = symbol == config.rate_hedge_asset || symbol == config.bond_leverage_asset;
+        let is_hedge_asset =
+            symbol == config.rate_hedge_asset || symbol == config.bond_leverage_asset;
         let is_out = is_hedge_asset && cut_count == 2;
 
         if is_out {
@@ -338,8 +342,16 @@ impl SimplePowerStrategy {
         }
 
         // PFIX/TMF 대체 로직
-        let pfix_state = self.momentum_states.get(&config.rate_hedge_asset).cloned().unwrap_or_default();
-        let tmf_state = self.momentum_states.get(&config.bond_leverage_asset).cloned().unwrap_or_default();
+        let pfix_state = self
+            .momentum_states
+            .get(&config.rate_hedge_asset)
+            .cloned()
+            .unwrap_or_default();
+        let tmf_state = self
+            .momentum_states
+            .get(&config.bond_leverage_asset)
+            .cloned()
+            .unwrap_or_default();
 
         if pfix_state.is_out && !tmf_state.is_out {
             // PFIX 아웃 → TMF에 2배 배분
@@ -387,7 +399,7 @@ impl SimplePowerStrategy {
         let current_ym = format!("{}_{}", current_time.year(), current_time.month());
 
         match &self.last_rebalance_ym {
-            None => true, // 첫 리밸런싱
+            None => true,                            // 첫 리밸런싱
             Some(last_ym) => last_ym != &current_ym, // 달이 바뀌었으면 리밸런싱
         }
     }
@@ -411,7 +423,11 @@ impl SimplePowerStrategy {
         for (symbol, quantity) in &self.positions {
             if let Some(prices) = self.price_history.get(symbol) {
                 if let Some(current_price) = prices.first() {
-                    portfolio_positions.push(PortfolioPosition::new(symbol, *quantity, *current_price));
+                    portfolio_positions.push(PortfolioPosition::new(
+                        symbol,
+                        *quantity,
+                        *current_price,
+                    ));
                 }
             }
         }
@@ -424,10 +440,9 @@ impl SimplePowerStrategy {
         portfolio_positions.push(PortfolioPosition::cash(self.cash_balance, cash_symbol));
 
         // 리밸런싱 계산
-        let result = self.rebalance_calculator.calculate_orders_with_cash_constraint(
-            &portfolio_positions,
-            &target_allocations,
-        );
+        let result = self
+            .rebalance_calculator
+            .calculate_orders_with_cash_constraint(&portfolio_positions, &target_allocations);
 
         // 신호 변환
         let mut signals = Vec::new();
@@ -462,11 +477,9 @@ impl SimplePowerStrategy {
 
         // 리밸런싱 시간 기록
         if !signals.is_empty() {
-            self.last_rebalance_ym = Some(format!("{}_{}", current_time.year(), current_time.month()));
-            info!(
-                "Simple Power 리밸런싱 완료: {} 주문 생성",
-                signals.len()
-            );
+            self.last_rebalance_ym =
+                Some(format!("{}_{}", current_time.year(), current_time.month()));
+            info!("Simple Power 리밸런싱 완료: {} 주문 생성", signals.len());
         }
 
         signals
@@ -493,7 +506,10 @@ impl Strategy for SimplePowerStrategy {
         "TQQQ/SCHD/PFIX/TMF 기반 모멘텀 자산배분 전략. MA130 필터로 비중 조정, 월간 리밸런싱."
     }
 
-    async fn initialize(&mut self, config: Value) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn initialize(
+        &mut self,
+        config: Value,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let parsed_config: SimplePowerConfig = serde_json::from_value(config.clone())?;
 
         // 시장에 맞는 리밸런싱 설정
@@ -566,10 +582,7 @@ impl Strategy for SimplePowerStrategy {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         info!(
             "[Simple Power] 주문 체결: {:?} {} {} @ {:?}",
-            order.side,
-            order.quantity,
-            order.symbol,
-            order.average_fill_price
+            order.side, order.quantity, order.symbol, order.average_fill_price
         );
         Ok(())
     }
@@ -582,9 +595,7 @@ impl Strategy for SimplePowerStrategy {
         self.positions.insert(symbol.clone(), position.quantity);
         info!(
             "[Simple Power] 포지션 업데이트: {} = {} (PnL: {})",
-            symbol,
-            position.quantity,
-            position.unrealized_pnl
+            symbol, position.quantity, position.unrealized_pnl
         );
         Ok(())
     }

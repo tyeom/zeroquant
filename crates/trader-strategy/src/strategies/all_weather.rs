@@ -20,8 +20,10 @@ use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use trader_core::{MarketData, MarketDataType, MarketType, Order, Position, Side, Signal, SignalType, Symbol};
 use tracing::{debug, info};
+use trader_core::{
+    MarketData, MarketDataType, MarketType, Order, Position, Side, Signal, SignalType, Symbol,
+};
 
 /// 올웨더 시장 타입
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -88,11 +90,21 @@ pub struct AllWeatherConfig {
     pub custom_assets: Option<Vec<AssetInfo>>,
 }
 
-fn default_total_amount() -> Decimal { dec!(10000000) }
-fn default_ma_periods() -> Vec<usize> { vec![50, 80, 120, 150] }
-fn default_use_seasonality() -> bool { true }
-fn default_rebalance_days() -> u32 { 30 }
-fn default_rebalance_threshold() -> Decimal { dec!(5) }
+fn default_total_amount() -> Decimal {
+    dec!(10000000)
+}
+fn default_ma_periods() -> Vec<usize> {
+    vec![50, 80, 120, 150]
+}
+fn default_use_seasonality() -> bool {
+    true
+}
+fn default_rebalance_days() -> u32 {
+    30
+}
+fn default_rebalance_threshold() -> Decimal {
+    dec!(5)
+}
 
 impl Default for AllWeatherConfig {
     fn default() -> Self {
@@ -278,7 +290,10 @@ impl AllWeatherStrategy {
 
     /// 목표 비중 계산
     fn calculate_target_weights(&self, now: &DateTime<Utc>) -> HashMap<String, Decimal> {
-        let config = self.config.as_ref().unwrap();
+        let config = match &self.config {
+            Some(c) => c,
+            None => return HashMap::new(),
+        };
         let mut weights = HashMap::new();
         let is_hell = config.use_seasonality && self.is_hell_period(now);
 
@@ -288,8 +303,8 @@ impl AllWeatherStrategy {
             // 계절성 조정
             if is_hell {
                 match asset.asset_class {
-                    AssetClass::Stock => target *= dec!(0.7),  // 주식 30% 축소
-                    AssetClass::Bond => target *= dec!(1.2),   // 채권 20% 확대
+                    AssetClass::Stock => target *= dec!(0.7), // 주식 30% 축소
+                    AssetClass::Bond => target *= dec!(1.2),  // 채권 20% 확대
                     _ => {}
                 }
             }
@@ -327,7 +342,10 @@ impl AllWeatherStrategy {
 
     /// 리밸런싱 필요 여부 확인
     fn needs_rebalance(&self, now: &DateTime<Utc>) -> bool {
-        let config = self.config.as_ref().unwrap();
+        let config = match &self.config {
+            Some(c) => c,
+            None => return false,
+        };
 
         if let Some(last) = self.last_rebalance {
             let days = (now.signed_duration_since(last).num_days()) as u32;
@@ -353,12 +371,16 @@ impl AllWeatherStrategy {
 
     /// 리밸런싱 신호 생성
     fn generate_rebalance_signals(&self, now: &DateTime<Utc>) -> Vec<Signal> {
-        let config = self.config.as_ref().unwrap();
+        let config = match &self.config {
+            Some(c) => c,
+            None => return Vec::new(),
+        };
         let target_weights = self.calculate_target_weights(now);
         let mut signals = Vec::new();
 
         for (symbol, &target_weight) in &target_weights {
-            let current_weight = self.asset_states
+            let current_weight = self
+                .asset_states
                 .get(symbol)
                 .map(|s| s.current_weight)
                 .unwrap_or(dec!(0));
@@ -379,30 +401,33 @@ impl AllWeatherStrategy {
 
             if diff > dec!(0) {
                 // 매수
-                let signal = Signal::new(
-                    "all_weather",
-                    sym,
-                    Side::Buy,
-                    SignalType::AddToPosition,
-                )
-                .with_strength((diff_abs / dec!(10)).min(dec!(1)).to_string().parse().unwrap_or(1.0))
-                .with_metadata("reason", json!("rebalance_buy"))
-                .with_metadata("target_weight", json!(target_weight.to_string()))
-                .with_metadata("current_weight", json!(current_weight.to_string()));
+                let signal = Signal::new("all_weather", sym, Side::Buy, SignalType::AddToPosition)
+                    .with_strength(
+                        (diff_abs / dec!(10))
+                            .min(dec!(1))
+                            .to_string()
+                            .parse()
+                            .unwrap_or(1.0),
+                    )
+                    .with_metadata("reason", json!("rebalance_buy"))
+                    .with_metadata("target_weight", json!(target_weight.to_string()))
+                    .with_metadata("current_weight", json!(current_weight.to_string()));
 
                 signals.push(signal);
             } else {
                 // 매도
-                let signal = Signal::new(
-                    "all_weather",
-                    sym,
-                    Side::Sell,
-                    SignalType::ReducePosition,
-                )
-                .with_strength((diff_abs / dec!(10)).min(dec!(1)).to_string().parse().unwrap_or(1.0))
-                .with_metadata("reason", json!("rebalance_sell"))
-                .with_metadata("target_weight", json!(target_weight.to_string()))
-                .with_metadata("current_weight", json!(current_weight.to_string()));
+                let signal =
+                    Signal::new("all_weather", sym, Side::Sell, SignalType::ReducePosition)
+                        .with_strength(
+                            (diff_abs / dec!(10))
+                                .min(dec!(1))
+                                .to_string()
+                                .parse()
+                                .unwrap_or(1.0),
+                        )
+                        .with_metadata("reason", json!("rebalance_sell"))
+                        .with_metadata("target_weight", json!(target_weight.to_string()))
+                        .with_metadata("current_weight", json!(current_weight.to_string()));
 
                 signals.push(signal);
             }
@@ -503,14 +528,17 @@ impl Strategy for AllWeatherStrategy {
         }
 
         // 자산 상태 업데이트
-        let state = self.asset_states.entry(symbol.clone()).or_insert(AssetState {
-            symbol: symbol.clone(),
-            current_weight: dec!(0),
-            target_weight: dec!(0),
-            quantity: dec!(0),
-            last_price: close,
-            ma_values: HashMap::new(),
-        });
+        let state = self
+            .asset_states
+            .entry(symbol.clone())
+            .or_insert(AssetState {
+                symbol: symbol.clone(),
+                current_weight: dec!(0),
+                target_weight: dec!(0),
+                quantity: dec!(0),
+                last_price: close,
+                ma_values: HashMap::new(),
+            });
         state.last_price = close;
         state.ma_values = ma_values;
 
@@ -537,7 +565,11 @@ impl Strategy for AllWeatherStrategy {
                 info!(
                     "[AllWeather] 리밸런싱 실행: {} 개 신호, 계절성: {}",
                     signals.len(),
-                    if self.is_hell_period(&now) { "지옥기간" } else { "천국기간" }
+                    if self.is_hell_period(&now) {
+                        "지옥기간"
+                    } else {
+                        "천국기간"
+                    }
                 );
                 return Ok(signals);
             }
@@ -559,7 +591,8 @@ impl Strategy for AllWeatherStrategy {
             }
 
             // 비중 재계산
-            let total_value: Decimal = self.asset_states
+            let total_value: Decimal = self
+                .asset_states
                 .values()
                 .map(|s| s.quantity * s.last_price)
                 .sum();
@@ -596,6 +629,10 @@ impl Strategy for AllWeatherStrategy {
         info!("All Weather strategy shutdown");
         self.is_initialized = false;
         Ok(())
+    }
+
+    fn set_context(&mut self, _context: std::sync::Arc<tokio::sync::RwLock<trader_core::StrategyContext>>) {
+        // TODO: Phase 1에서 StrategyContext 활용 구현
     }
 
     fn get_state(&self) -> Value {

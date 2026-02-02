@@ -24,7 +24,7 @@ use rust_decimal::Decimal;
 use serde::Deserialize;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
-use trader_core::{ExecutionRecord, ExecutionHistory, Side, OrderStatusType, Symbol};
+use trader_core::{ExecutionHistory, ExecutionRecord, OrderStatusType, Side, Symbol};
 
 /// KIS 국내 주식 REST API 클라이언트.
 ///
@@ -335,12 +335,16 @@ impl KisKrClient {
         self.execute_get_with_retry(
             &url,
             tr_id,
-            &[("FID_COND_MRKT_DIV_CODE", "J"), ("FID_INPUT_ISCD", stock_code)],
+            &[
+                ("FID_COND_MRKT_DIV_CODE", "J"),
+                ("FID_INPUT_ISCD", stock_code),
+            ],
             |body| {
                 debug!("KR price response: {}", body);
 
-                let resp: KisKrPriceResponse = serde_json::from_str(body)
-                    .map_err(|e| ExchangeError::ParseError(format!("Failed to parse price response: {}", e)))?;
+                let resp: KisKrPriceResponse = serde_json::from_str(body).map_err(|e| {
+                    ExchangeError::ParseError(format!("Failed to parse price response: {}", e))
+                })?;
 
                 if resp.rt_cd != "0" {
                     return Err(ExchangeError::ApiError {
@@ -372,7 +376,10 @@ impl KisKrClient {
             .client
             .get(&url)
             .headers(headers)
-            .query(&[("FID_COND_MRKT_DIV_CODE", "J"), ("FID_INPUT_ISCD", stock_code)])
+            .query(&[
+                ("FID_COND_MRKT_DIV_CODE", "J"),
+                ("FID_INPUT_ISCD", stock_code),
+            ])
             .send()
             .await
             .map_err(|e| ExchangeError::NetworkError(e.to_string()))?;
@@ -391,8 +398,9 @@ impl KisKrClient {
             });
         }
 
-        let resp: KisKrOrderBookResponse = serde_json::from_str(&body)
-            .map_err(|e| ExchangeError::ParseError(format!("Failed to parse orderbook response: {}", e)))?;
+        let resp: KisKrOrderBookResponse = serde_json::from_str(&body).map_err(|e| {
+            ExchangeError::ParseError(format!("Failed to parse orderbook response: {}", e))
+        })?;
 
         if resp.rt_cd != "0" {
             return Err(ExchangeError::ApiError {
@@ -422,7 +430,8 @@ impl KisKrClient {
         price: Decimal,
         order_type: &str,
     ) -> Result<KrOrderResponse, ExchangeError> {
-        self.place_order(stock_code, quantity, price, order_type, true).await
+        self.place_order(stock_code, quantity, price, order_type, true)
+            .await
     }
 
     /// 현금 매도 주문.
@@ -439,7 +448,8 @@ impl KisKrClient {
         price: Decimal,
         order_type: &str,
     ) -> Result<KrOrderResponse, ExchangeError> {
-        self.place_order(stock_code, quantity, price, order_type, false).await
+        self.place_order(stock_code, quantity, price, order_type, false)
+            .await
     }
 
     /// 내부 주문 실행.
@@ -510,8 +520,9 @@ impl KisKrClient {
 
         debug!("KR order response: {}", response_body);
 
-        let resp: KisKrOrderApiResponse = serde_json::from_str(&response_body)
-            .map_err(|e| ExchangeError::ParseError(format!("Failed to parse order response: {}", e)))?;
+        let resp: KisKrOrderApiResponse = serde_json::from_str(&response_body).map_err(|e| {
+            ExchangeError::ParseError(format!("Failed to parse order response: {}", e))
+        })?;
 
         if resp.rt_cd != "0" {
             return Err(ExchangeError::ApiError {
@@ -540,7 +551,8 @@ impl KisKrClient {
         stock_code: &str,
         quantity: u32,
     ) -> Result<KrOrderResponse, ExchangeError> {
-        self.modify_or_cancel_order(order_no, stock_code, quantity, Decimal::ZERO, "02").await
+        self.modify_or_cancel_order(order_no, stock_code, quantity, Decimal::ZERO, "02")
+            .await
     }
 
     /// 주문 정정.
@@ -557,7 +569,8 @@ impl KisKrClient {
         quantity: u32,
         price: Decimal,
     ) -> Result<KrOrderResponse, ExchangeError> {
-        self.modify_or_cancel_order(order_no, stock_code, quantity, price, "01").await
+        self.modify_or_cancel_order(order_no, stock_code, quantity, price, "01")
+            .await
     }
 
     /// 내부 정정/취소 주문.
@@ -593,7 +606,11 @@ impl KisKrClient {
 
         info!(
             "KR order {}: order_no={}, stock={}",
-            if rvse_cncl_dvsn_cd == "02" { "CANCEL" } else { "MODIFY" },
+            if rvse_cncl_dvsn_cd == "02" {
+                "CANCEL"
+            } else {
+                "MODIFY"
+            },
             order_no,
             stock_code
         );
@@ -614,7 +631,10 @@ impl KisKrClient {
             .map_err(|e| ExchangeError::NetworkError(e.to_string()))?;
 
         if !status.is_success() {
-            error!("KR order modify/cancel failed: {} - {}", status, response_body);
+            error!(
+                "KR order modify/cancel failed: {} - {}",
+                status, response_body
+            );
             return Err(ExchangeError::ApiError {
                 code: status.as_u16() as i32,
                 message: response_body,
@@ -685,8 +705,9 @@ impl KisKrClient {
 
         debug!("KR balance response: {}", body);
 
-        let resp: KisKrBalanceResponse = serde_json::from_str(&body)
-            .map_err(|e| ExchangeError::ParseError(format!("Failed to parse balance response: {}", e)))?;
+        let resp: KisKrBalanceResponse = serde_json::from_str(&body).map_err(|e| {
+            ExchangeError::ParseError(format!("Failed to parse balance response: {}", e))
+        })?;
 
         if resp.rt_cd != "0" {
             return Err(ExchangeError::ApiError {
@@ -737,7 +758,7 @@ impl KisKrClient {
             .get(&url)
             .headers(headers)
             .query(&[
-                ("FID_COND_MRKT_DIV_CODE", "J"),  // J=주식
+                ("FID_COND_MRKT_DIV_CODE", "J"), // J=주식
                 ("FID_INPUT_ISCD", stock_code),
                 ("FID_INPUT_DATE_1", start_date),
                 ("FID_INPUT_DATE_2", end_date),
@@ -764,8 +785,9 @@ impl KisKrClient {
 
         debug!("KR daily price response: {}", body);
 
-        let resp: KisKrDailyPriceResponse = serde_json::from_str(&body)
-            .map_err(|e| ExchangeError::ParseError(format!("Failed to parse daily price response: {}", e)))?;
+        let resp: KisKrDailyPriceResponse = serde_json::from_str(&body).map_err(|e| {
+            ExchangeError::ParseError(format!("Failed to parse daily price response: {}", e))
+        })?;
 
         if resp.rt_cd != "0" {
             return Err(ExchangeError::ApiError {
@@ -808,7 +830,7 @@ impl KisKrClient {
                 ("FID_COND_MRKT_DIV_CODE", "J"),
                 ("FID_INPUT_ISCD", stock_code),
                 ("FID_INPUT_HOUR_1", &time_str),
-                ("FID_PW_DATA_INCU_YN", "Y"),  // 과거 데이터 포함
+                ("FID_PW_DATA_INCU_YN", "Y"), // 과거 데이터 포함
             ])
             .send()
             .await
@@ -830,8 +852,9 @@ impl KisKrClient {
 
         debug!("KR minute chart response: {}", body);
 
-        let resp: KisKrMinuteChartResponse = serde_json::from_str(&body)
-            .map_err(|e| ExchangeError::ParseError(format!("Failed to parse minute chart response: {}", e)))?;
+        let resp: KisKrMinuteChartResponse = serde_json::from_str(&body).map_err(|e| {
+            ExchangeError::ParseError(format!("Failed to parse minute chart response: {}", e))
+        })?;
 
         if resp.rt_cd != "0" {
             return Err(ExchangeError::ApiError {
@@ -908,8 +931,9 @@ impl KisKrClient {
             });
         }
 
-        let resp: KisKrBuyPowerResponse = serde_json::from_str(&body)
-            .map_err(|e| ExchangeError::ParseError(format!("Failed to parse buy power response: {}", e)))?;
+        let resp: KisKrBuyPowerResponse = serde_json::from_str(&body).map_err(|e| {
+            ExchangeError::ParseError(format!("Failed to parse buy power response: {}", e))
+        })?;
 
         if resp.rt_cd != "0" {
             return Err(ExchangeError::ApiError {
@@ -972,17 +996,17 @@ impl KisKrClient {
                 ("INQR_STRT_DT", start_date),
                 ("INQR_END_DT", end_date),
                 ("SLL_BUY_DVSN_CD", side),
-                ("INQR_DVSN", "00"),  // 00=역순
-                ("PDNO", ""),  // 전 종목
-                ("CCLD_DVSN", "00"),  // 00=전체, 01=체결, 02=미체결
+                ("INQR_DVSN", "00"), // 00=역순
+                ("PDNO", ""),        // 전 종목
+                ("CCLD_DVSN", "00"), // 00=전체, 01=체결, 02=미체결
                 ("ORD_GNO_BRNO", ""),
                 ("ODNO", ""),
-                ("INQR_DVSN_3", "00"),  // 00=전체, 01=현금, 02=신용
+                ("INQR_DVSN_3", "00"), // 00=전체, 01=현금, 02=신용
                 ("INQR_DVSN_1", ""),
-                ("INQR_DVSN_2", ""),  // Python 레퍼런스에 있음
+                ("INQR_DVSN_2", ""), // Python 레퍼런스에 있음
                 ("CTX_AREA_FK100", ctx_area_fk100),
                 ("CTX_AREA_NK100", ctx_area_nk100),
-                ("EXCG_ID_DVSN_CD", "KRX"),  // 거래소 구분 코드 (Python 레퍼런스)
+                ("EXCG_ID_DVSN_CD", "KRX"), // 거래소 구분 코드 (Python 레퍼런스)
             ])
             .send()
             .await
@@ -1003,10 +1027,14 @@ impl KisKrClient {
         }
 
         // 디버깅용: 실제 API 응답 출력
-        info!("KR order history response (first 2000 chars): {}", &body[..body.len().min(2000)]);
+        info!(
+            "KR order history response (first 2000 chars): {}",
+            &body[..body.len().min(2000)]
+        );
 
-        let resp: KisKrOrderHistoryResponse = serde_json::from_str(&body)
-            .map_err(|e| ExchangeError::ParseError(format!("Failed to parse order history response: {}", e)))?;
+        let resp: KisKrOrderHistoryResponse = serde_json::from_str(&body).map_err(|e| {
+            ExchangeError::ParseError(format!("Failed to parse order history response: {}", e))
+        })?;
 
         if resp.rt_cd != "0" {
             return Err(ExchangeError::ApiError {
@@ -1038,6 +1066,85 @@ impl KisKrClient {
             ctx_area_nk100: ctx_nk,
             has_more,
         })
+    }
+
+    /// 미체결 주문 조회.
+    ///
+    /// 당일 미체결 주문만 조회합니다.
+    pub async fn get_pending_orders(&self) -> Result<Vec<KrOrderExecution>, ExchangeError> {
+        // 당일 날짜 생성 (KST 기준)
+        let now = chrono::Utc::now() + chrono::Duration::hours(9);
+        let today = now.format("%Y%m%d").to_string();
+
+        // ISA 계좌인 경우 CTSC9115R, 일반 계좌인 경우 TTTC0081R 사용
+        let tr_id = match self.oauth.config().account_type {
+            KisAccountType::RealIsa => tr_id::KR_ORDER_HISTORY_ISA_REAL,
+            _ => self.get_tr_id(tr_id::KR_ORDER_HISTORY_REAL, tr_id::KR_ORDER_HISTORY_PAPER),
+        };
+
+        let url = format!(
+            "{}/uapi/domestic-stock/v1/trading/inquire-daily-ccld",
+            self.oauth.config().rest_base_url()
+        );
+
+        let headers = self.oauth.build_headers(tr_id, None).await?;
+
+        let response = self
+            .client
+            .get(&url)
+            .headers(headers)
+            .query(&[
+                ("CANO", self.oauth.config().cano()),
+                ("ACNT_PRDT_CD", self.oauth.config().acnt_prdt_cd()),
+                ("INQR_STRT_DT", today.as_str()),
+                ("INQR_END_DT", today.as_str()),
+                ("SLL_BUY_DVSN_CD", "00"), // 00=전체 (매수+매도)
+                ("INQR_DVSN", "00"),       // 00=역순
+                ("PDNO", ""),              // 전 종목
+                ("CCLD_DVSN", "02"),       // 02=미체결 ← 핵심
+                ("ORD_GNO_BRNO", ""),
+                ("ODNO", ""),
+                ("INQR_DVSN_3", "00"), // 00=전체
+                ("INQR_DVSN_1", ""),
+                ("INQR_DVSN_2", ""),
+                ("CTX_AREA_FK100", ""),
+                ("CTX_AREA_NK100", ""),
+                ("EXCG_ID_DVSN_CD", "KRX"),
+            ])
+            .send()
+            .await
+            .map_err(|e| ExchangeError::NetworkError(e.to_string()))?;
+
+        let status = response.status();
+        let body = response
+            .text()
+            .await
+            .map_err(|e| ExchangeError::NetworkError(e.to_string()))?;
+
+        if !status.is_success() {
+            error!("KR pending orders inquiry failed: {} - {}", status, body);
+            return Err(ExchangeError::ApiError {
+                code: status.as_u16() as i32,
+                message: body,
+            });
+        }
+
+        debug!("KR pending orders response: {}", body);
+
+        let resp: KisKrOrderHistoryResponse = serde_json::from_str(&body).map_err(|e| {
+            ExchangeError::ParseError(format!("Failed to parse pending orders response: {}", e))
+        })?;
+
+        if resp.rt_cd != "0" {
+            return Err(ExchangeError::ApiError {
+                code: resp.msg_cd.parse().unwrap_or(-1),
+                message: resp.msg1,
+            });
+        }
+
+        info!("KR pending orders loaded: {} orders", resp.output1.len());
+
+        Ok(resp.output1)
     }
 }
 
@@ -1162,7 +1269,10 @@ pub struct KrAccountSummary {
     #[serde(rename = "tot_evlu_amt", deserialize_with = "deserialize_decimal")]
     pub total_eval_amount: Decimal,
     /// 총 평가손익
-    #[serde(rename = "evlu_pfls_smtl_amt", deserialize_with = "deserialize_decimal")]
+    #[serde(
+        rename = "evlu_pfls_smtl_amt",
+        deserialize_with = "deserialize_decimal"
+    )]
     pub total_profit_loss: Decimal,
 }
 
@@ -1197,13 +1307,25 @@ pub struct KrOhlcv {
     #[serde(rename = "acml_vol", deserialize_with = "deserialize_decimal")]
     pub volume: Decimal,
     /// 거래대금 (일부 API 응답에서 누락될 수 있음)
-    #[serde(rename = "acml_tr_pbmn", default, deserialize_with = "deserialize_decimal")]
+    #[serde(
+        rename = "acml_tr_pbmn",
+        default,
+        deserialize_with = "deserialize_decimal"
+    )]
     pub trading_value: Decimal,
     /// 전일 대비 (일부 API 응답에서 누락될 수 있음)
-    #[serde(rename = "prdy_vrss", default, deserialize_with = "deserialize_decimal")]
+    #[serde(
+        rename = "prdy_vrss",
+        default,
+        deserialize_with = "deserialize_decimal"
+    )]
     pub change: Decimal,
     /// 등락률 (%) (일부 API 응답에서 누락될 수 있음)
-    #[serde(rename = "prdy_ctrt", default, deserialize_with = "deserialize_decimal")]
+    #[serde(
+        rename = "prdy_ctrt",
+        default,
+        deserialize_with = "deserialize_decimal"
+    )]
     pub change_rate: Decimal,
 }
 
@@ -1337,13 +1459,14 @@ impl KrOrderExecution {
         // 주문 일시 파싱 (YYYYMMDD + HHMMSS)
         let ordered_at = chrono::NaiveDateTime::parse_from_str(
             &format!("{} {}", self.order_date, self.order_time),
-            "%Y%m%d %H%M%S"
+            "%Y%m%d %H%M%S",
         )
         .map(|ndt| {
             use chrono::{TimeZone, Utc};
             use chrono_tz::Asia::Seoul;
             // KST -> UTC 변환
-            Seoul.from_local_datetime(&ndt)
+            Seoul
+                .from_local_datetime(&ndt)
                 .single()
                 .map(|kst| kst.with_timezone(&Utc))
                 .unwrap_or_else(Utc::now)
@@ -1387,7 +1510,11 @@ impl KrOrderHistory {
     /// 거래소 중립적 ExecutionHistory로 변환.
     pub fn to_execution_history(&self) -> ExecutionHistory {
         ExecutionHistory {
-            records: self.executions.iter().map(|e| e.to_execution_record()).collect(),
+            records: self
+                .executions
+                .iter()
+                .map(|e| e.to_execution_record())
+                .collect(),
             has_more: self.has_more,
             next_cursor: if self.has_more {
                 Some(format!("{}|{}", self.ctx_area_fk100, self.ctx_area_nk100))
@@ -1457,7 +1584,7 @@ struct KisKrMinuteChartResponse {
     msg_cd: String,
     msg1: String,
     #[serde(default)]
-    output1: serde_json::Value,  // 종목 기본 정보 (필요시 사용)
+    output1: serde_json::Value, // 종목 기본 정보 (필요시 사용)
     output2: Vec<KrMinuteOhlcv>,
 }
 

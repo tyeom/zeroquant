@@ -29,8 +29,10 @@ use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::VecDeque;
-use trader_core::{MarketData, MarketDataType, MarketType, Order, Position, Side, Signal, SignalType, Symbol};
 use tracing::{debug, info};
+use trader_core::{
+    MarketData, MarketDataType, MarketType, Order, Position, Side, Signal, SignalType, Symbol,
+};
 
 /// 캔들 데이터
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -401,10 +403,7 @@ impl MarketInterestDayStrategy {
             let drop_from_high =
                 (self.state.highest_price - current_price) / self.state.highest_price * dec!(100);
             if drop_from_high >= config.trailing_stop_pct && profit_pct > Decimal::ZERO {
-                return Some(format!(
-                    "트레일링 스톱: 고점 대비 -{:.2}%",
-                    drop_from_high
-                ));
+                return Some(format!("트레일링 스톱: 고점 대비 -{:.2}%", drop_from_high));
             }
         }
 
@@ -418,11 +417,7 @@ impl MarketInterestDayStrategy {
 
         // 5. 모멘텀 약화 (음봉 연속)
         if self.candles.len() >= 2 {
-            let last_two_bearish = self
-                .candles
-                .iter()
-                .take(2)
-                .all(|k| k.close < k.open);
+            let last_two_bearish = self.candles.iter().take(2).all(|k| k.close < k.open);
 
             if last_two_bearish && profit_pct > Decimal::ZERO {
                 return Some("모멘텀 약화: 연속 음봉".to_string());
@@ -434,8 +429,14 @@ impl MarketInterestDayStrategy {
 
     /// 신호 생성
     fn generate_signals(&mut self, candle: &CandleData) -> Vec<Signal> {
-        let config = self.config.as_ref().unwrap();
-        let symbol = self.symbol.as_ref().unwrap();
+        let config = match &self.config {
+            Some(c) => c,
+            None => return Vec::new(),
+        };
+        let symbol = match &self.symbol {
+            Some(s) => s,
+            None => return Vec::new(),
+        };
         let mut signals = Vec::new();
 
         // 최고가 업데이트 (포지션 있을 때)
@@ -564,7 +565,10 @@ impl Strategy for MarketInterestDayStrategy {
             return Ok(vec![]);
         }
 
-        let config = self.config.as_ref().unwrap();
+        let config = match &self.config {
+            Some(c) => c,
+            None => return Ok(vec![]),
+        };
 
         // 심볼 확인
         if data.symbol.to_string() != config.symbol {
@@ -616,7 +620,8 @@ impl Strategy for MarketInterestDayStrategy {
         &mut self,
         order: &Order,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let fill_price = order.average_fill_price
+        let fill_price = order
+            .average_fill_price
             .or(order.price)
             .unwrap_or(Decimal::ZERO);
 

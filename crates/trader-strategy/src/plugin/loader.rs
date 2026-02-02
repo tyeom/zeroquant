@@ -97,24 +97,23 @@ impl LoadedPlugin {
             .map_err(|e| PluginError::LoadError(format!("{}: {}", path.display(), e)))?;
 
         // Try to get metadata (optional)
-        let metadata = if let Ok(get_metadata) =
-            library.get::<Symbol<GetMetadataFn>>(b"get_metadata")
-        {
-            get_metadata()
-        } else {
-            // Default metadata if not provided
-            PluginMetadata {
-                name: path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("unknown")
-                    .to_string(),
-                version: "1.0.0".to_string(),
-                description: "Strategy plugin".to_string(),
-                required_config: Vec::new(),
-                supported_symbols: Vec::new(),
-            }
-        };
+        let metadata =
+            if let Ok(get_metadata) = library.get::<Symbol<GetMetadataFn>>(b"get_metadata") {
+                get_metadata()
+            } else {
+                // Default metadata if not provided
+                PluginMetadata {
+                    name: path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("unknown")
+                        .to_string(),
+                    version: "1.0.0".to_string(),
+                    description: "Strategy plugin".to_string(),
+                    required_config: Vec::new(),
+                    supported_symbols: Vec::new(),
+                }
+            };
 
         // Verify required symbols exist
         let _: Symbol<CreateStrategyFn> = library
@@ -259,7 +258,10 @@ impl PluginLoader {
     }
 
     /// 파일에서 플러그인 로드.
-    pub async fn load_plugin<P: AsRef<Path>>(&self, path: P) -> Result<PluginMetadata, PluginError> {
+    pub async fn load_plugin<P: AsRef<Path>>(
+        &self,
+        path: P,
+    ) -> Result<PluginMetadata, PluginError> {
         let path = path.as_ref();
 
         // Resolve relative paths
@@ -305,7 +307,10 @@ impl PluginLoader {
     }
 
     /// 로드된 플러그인에서 전략 인스턴스 생성.
-    pub async fn create_strategy(&self, plugin_name: &str) -> Result<Box<dyn Strategy>, PluginError> {
+    pub async fn create_strategy(
+        &self,
+        plugin_name: &str,
+    ) -> Result<Box<dyn Strategy>, PluginError> {
         let plugins = self.plugins.read().await;
 
         let plugin = plugins
@@ -421,8 +426,14 @@ impl BuiltinStrategyFactory {
     /// 사용 가능한 내장 전략 목록 반환.
     pub fn list() -> Vec<(&'static str, &'static str)> {
         vec![
-            ("grid_trading", "Grid Trading - Places buy/sell orders at regular intervals"),
-            ("rsi_mean_reversion", "RSI Mean Reversion - Buys oversold, sells overbought"),
+            (
+                "grid_trading",
+                "Grid Trading - Places buy/sell orders at regular intervals",
+            ),
+            (
+                "rsi_mean_reversion",
+                "RSI Mean Reversion - Buys oversold, sells overbought",
+            ),
         ]
     }
 }

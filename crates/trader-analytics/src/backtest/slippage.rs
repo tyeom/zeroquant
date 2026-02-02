@@ -14,8 +14,8 @@
 //! 모든 모델은 거래소에 독립적으로 동작합니다.
 //! Kline 데이터만으로 슬리피지를 계산할 수 있습니다.
 
-use rust_decimal::Decimal;
 use rust_decimal::prelude::*;
+use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use trader_core::{Kline, Side};
@@ -85,16 +85,30 @@ pub struct SlippageTier {
 }
 
 // 기본값 함수들
-fn default_fixed_rate() -> Decimal { dec!(0.0005) }  // 0.05%
-fn default_linear_base() -> Decimal { dec!(0.0003) }  // 0.03%
-fn default_linear_impact() -> Decimal { dec!(0.1) }   // 10% 충격 계수
-fn default_volatility_multiplier() -> f64 { 0.5 }
-fn default_min_slippage() -> Decimal { dec!(0.0001) }  // 0.01%
-fn default_max_slippage() -> Decimal { dec!(0.01) }    // 1%
+fn default_fixed_rate() -> Decimal {
+    dec!(0.0005)
+} // 0.05%
+fn default_linear_base() -> Decimal {
+    dec!(0.0003)
+} // 0.03%
+fn default_linear_impact() -> Decimal {
+    dec!(0.1)
+} // 10% 충격 계수
+fn default_volatility_multiplier() -> f64 {
+    0.5
+}
+fn default_min_slippage() -> Decimal {
+    dec!(0.0001)
+} // 0.01%
+fn default_max_slippage() -> Decimal {
+    dec!(0.01)
+} // 1%
 
 impl Default for SlippageModel {
     fn default() -> Self {
-        Self::Fixed { rate: default_fixed_rate() }
+        Self::Fixed {
+            rate: default_fixed_rate(),
+        }
     }
 }
 
@@ -149,8 +163,8 @@ impl SlippageModel {
         let slippage_amount = price * slippage_rate;
 
         let execution_price = match side {
-            Side::Buy => price + slippage_amount,   // 매수는 높은 가격
-            Side::Sell => price - slippage_amount,  // 매도는 낮은 가격
+            Side::Buy => price + slippage_amount,  // 매수는 높은 가격
+            Side::Sell => price - slippage_amount, // 매도는 낮은 가격
         };
 
         SlippageResult {
@@ -173,9 +187,7 @@ impl SlippageModel {
 
             SlippageModel::Linear { base, impact } => {
                 // 일일 거래량 기반 시장 충격
-                let daily_volume_value = kline
-                    .map(|k| k.volume * k.close)
-                    .unwrap_or(Decimal::MAX);
+                let daily_volume_value = kline.map(|k| k.volume * k.close).unwrap_or(Decimal::MAX);
 
                 if daily_volume_value > Decimal::ZERO {
                     let volume_impact = (order_value / daily_volume_value) * *impact;
@@ -185,11 +197,16 @@ impl SlippageModel {
                 }
             }
 
-            SlippageModel::VolatilityBased { multiplier, min_rate, max_rate } => {
+            SlippageModel::VolatilityBased {
+                multiplier,
+                min_rate,
+                max_rate,
+            } => {
                 let volatility_rate = kline
                     .map(|k| {
                         if k.close > Decimal::ZERO {
-                            (k.high - k.low) / k.close * Decimal::from_f64(*multiplier).unwrap_or(dec!(0.5))
+                            (k.high - k.low) / k.close
+                                * Decimal::from_f64(*multiplier).unwrap_or(dec!(0.5))
                         } else {
                             *min_rate
                         }
@@ -244,39 +261,29 @@ mod tests {
 
     #[test]
     fn test_fixed_slippage() {
-        let model = SlippageModel::fixed(dec!(0.001));  // 0.1%
-        let result = model.calculate_execution_price(
-            dec!(100),
-            Side::Buy,
-            dec!(10000),
-            None,
-        );
+        let model = SlippageModel::fixed(dec!(0.001)); // 0.1%
+        let result = model.calculate_execution_price(dec!(100), Side::Buy, dec!(10000), None);
 
         assert_eq!(result.base_price, dec!(100));
         assert_eq!(result.slippage_rate, dec!(0.001));
-        assert_eq!(result.slippage_amount, dec!(0.1));  // 100 * 0.001
-        assert_eq!(result.execution_price, dec!(100.1));  // 100 + 0.1
+        assert_eq!(result.slippage_amount, dec!(0.1)); // 100 * 0.001
+        assert_eq!(result.execution_price, dec!(100.1)); // 100 + 0.1
     }
 
     #[test]
     fn test_fixed_slippage_sell() {
         let model = SlippageModel::fixed(dec!(0.001));
-        let result = model.calculate_execution_price(
-            dec!(100),
-            Side::Sell,
-            dec!(10000),
-            None,
-        );
+        let result = model.calculate_execution_price(dec!(100), Side::Sell, dec!(10000), None);
 
-        assert_eq!(result.execution_price, dec!(99.9));  // 100 - 0.1
+        assert_eq!(result.execution_price, dec!(99.9)); // 100 - 0.1
     }
 
     #[test]
     fn test_tiered_slippage() {
         let model = SlippageModel::tiered(vec![
-            (dec!(10000), dec!(0.0003)),    // < 10000: 0.03%
-            (dec!(100000), dec!(0.0005)),   // < 100000: 0.05%
-            (dec!(1000000), dec!(0.001)),   // < 1000000: 0.1%
+            (dec!(10000), dec!(0.0003)),  // < 10000: 0.03%
+            (dec!(100000), dec!(0.0005)), // < 100000: 0.05%
+            (dec!(1000000), dec!(0.001)), // < 1000000: 0.1%
         ]);
 
         // 소액 주문
@@ -298,7 +305,7 @@ mod tests {
         assert!(matches!(model, SlippageModel::Fixed { .. }));
 
         if let SlippageModel::Fixed { rate } = model {
-            assert_eq!(rate, dec!(0.0005));  // 0.05%
+            assert_eq!(rate, dec!(0.0005)); // 0.05%
         }
     }
 }

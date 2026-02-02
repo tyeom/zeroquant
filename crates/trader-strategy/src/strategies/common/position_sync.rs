@@ -29,8 +29,8 @@
 
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use trader_core::{Order, OrderStatusType, Side, Symbol};
 use tracing::{debug, info, warn};
+use trader_core::{unrealized_pnl, Order, OrderStatusType, Side, Symbol};
 
 /// 동기화된 포지션 상태.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,11 +77,7 @@ impl SyncedPosition {
 
     /// 미실현 손익 계산.
     pub fn unrealized_pnl(&self, current_price: Decimal) -> Decimal {
-        let value_diff = (current_price - self.entry_price) * self.quantity;
-        match self.side {
-            Side::Buy => value_diff,
-            Side::Sell => -value_diff,
-        }
+        unrealized_pnl(self.entry_price, current_price, self.quantity, self.side)
     }
 
     /// 포지션 추가 (물타기/추가 진입).
@@ -115,9 +111,7 @@ impl SyncedPosition {
 #[derive(Debug, Clone)]
 pub enum FillResult {
     /// 새 포지션 진입.
-    PositionOpened {
-        position: SyncedPosition,
-    },
+    PositionOpened { position: SyncedPosition },
     /// 포지션 완전 청산.
     PositionClosed {
         /// 실현 손익.
@@ -236,12 +230,8 @@ impl PositionSync {
         match (&mut self.position, order.side) {
             // 포지션 없는 상태에서 매수 → 롱 포지션 진입
             (None, Side::Buy) => {
-                let position = SyncedPosition::new(
-                    order.symbol.clone(),
-                    Side::Buy,
-                    fill_qty,
-                    fill_price,
-                );
+                let position =
+                    SyncedPosition::new(order.symbol.clone(), Side::Buy, fill_qty, fill_price);
                 info!(
                     symbol = %order.symbol,
                     side = "Buy",
@@ -255,12 +245,8 @@ impl PositionSync {
 
             // 포지션 없는 상태에서 매도 → 숏 포지션 진입
             (None, Side::Sell) => {
-                let position = SyncedPosition::new(
-                    order.symbol.clone(),
-                    Side::Sell,
-                    fill_qty,
-                    fill_price,
-                );
+                let position =
+                    SyncedPosition::new(order.symbol.clone(), Side::Sell, fill_qty, fill_price);
                 info!(
                     symbol = %order.symbol,
                     side = "Sell",
@@ -441,7 +427,7 @@ mod tests {
         } else {
             (symbol, "USD")
         };
-        
+
         Order {
             id: Uuid::new_v4(),
             exchange: "test".to_string(),
@@ -538,7 +524,10 @@ mod tests {
         let result = sync.process_fill(&sell_order);
 
         match result {
-            FillResult::PositionUpdated { position, partial_pnl } => {
+            FillResult::PositionUpdated {
+                position,
+                partial_pnl,
+            } => {
                 assert_eq!(position.quantity, dec!(1));
                 assert_eq!(partial_pnl, Some(dec!(5000)));
             }

@@ -90,7 +90,11 @@ impl IndicatorEngine {
     ///
     /// # 반환
     /// 계산된 SMA 값들의 벡터 (처음 period-1개는 None)
-    pub fn sma(&self, prices: &[Decimal], params: SmaParams) -> IndicatorResult<Vec<Option<Decimal>>> {
+    pub fn sma(
+        &self,
+        prices: &[Decimal],
+        params: SmaParams,
+    ) -> IndicatorResult<Vec<Option<Decimal>>> {
         self.trend.sma(prices, params)
     }
 
@@ -102,7 +106,11 @@ impl IndicatorEngine {
     ///
     /// # 반환
     /// 계산된 EMA 값들의 벡터
-    pub fn ema(&self, prices: &[Decimal], params: EmaParams) -> IndicatorResult<Vec<Option<Decimal>>> {
+    pub fn ema(
+        &self,
+        prices: &[Decimal],
+        params: EmaParams,
+    ) -> IndicatorResult<Vec<Option<Decimal>>> {
         self.trend.ema(prices, params)
     }
 
@@ -128,7 +136,11 @@ impl IndicatorEngine {
     ///
     /// # 반환
     /// 0-100 사이의 RSI 값들
-    pub fn rsi(&self, prices: &[Decimal], params: RsiParams) -> IndicatorResult<Vec<Option<Decimal>>> {
+    pub fn rsi(
+        &self,
+        prices: &[Decimal],
+        params: RsiParams,
+    ) -> IndicatorResult<Vec<Option<Decimal>>> {
         self.momentum.rsi(prices, params)
     }
 

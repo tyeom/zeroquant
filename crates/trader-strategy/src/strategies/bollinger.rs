@@ -23,8 +23,10 @@ use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::VecDeque;
-use trader_core::{MarketData, MarketDataType, MarketType, Order, OrderStatusType, Position, Side, Signal, Symbol};
 use tracing::{debug, info, warn};
+use trader_core::{
+    MarketData, MarketDataType, MarketType, Order, OrderStatusType, Position, Side, Signal, Symbol,
+};
 
 /// 볼린저 밴드 전략 설정.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -78,17 +80,39 @@ pub struct BollingerConfig {
     pub max_positions: usize,
 }
 
-fn default_period() -> usize { 20 }
-fn default_std_multiplier() -> f64 { 2.0 }
-fn default_rsi_period() -> usize { 14 }
-fn default_rsi_oversold() -> f64 { 30.0 }
-fn default_rsi_overbought() -> f64 { 70.0 }
-fn default_use_rsi() -> bool { true }
-fn default_exit_middle() -> bool { true }
-fn default_stop_loss() -> f64 { 2.0 }
-fn default_take_profit() -> f64 { 4.0 }
-fn default_min_bandwidth() -> f64 { 1.0 }
-fn default_max_positions() -> usize { 1 }
+fn default_period() -> usize {
+    20
+}
+fn default_std_multiplier() -> f64 {
+    2.0
+}
+fn default_rsi_period() -> usize {
+    14
+}
+fn default_rsi_oversold() -> f64 {
+    30.0
+}
+fn default_rsi_overbought() -> f64 {
+    70.0
+}
+fn default_use_rsi() -> bool {
+    true
+}
+fn default_exit_middle() -> bool {
+    true
+}
+fn default_stop_loss() -> f64 {
+    2.0
+}
+fn default_take_profit() -> f64 {
+    4.0
+}
+fn default_min_bandwidth() -> f64 {
+    1.0
+}
+fn default_max_positions() -> usize {
+    1
+}
 
 impl Default for BollingerConfig {
     fn default() -> Self {
@@ -187,14 +211,16 @@ impl BollingerStrategy {
         self.middle_band = Some(sma);
 
         // 표준편차 계산
-        let variance: Decimal = self.prices
+        let variance: Decimal = self
+            .prices
             .iter()
             .take(config.period)
             .map(|p| {
                 let diff = *p - sma;
                 diff * diff
             })
-            .sum::<Decimal>() / Decimal::from(config.period);
+            .sum::<Decimal>()
+            / Decimal::from(config.period);
 
         // 뉴턴 방법을 사용한 제곱근 근사
         let std_dev = self.sqrt_decimal(variance);
@@ -233,10 +259,10 @@ impl BollingerStrategy {
 
             // 충분한 데이터가 있으면 RSI 계산
             if self.gains.len() >= config.rsi_period {
-                let avg_gain: Decimal = self.gains.iter().sum::<Decimal>()
-                    / Decimal::from(config.rsi_period);
-                let avg_loss: Decimal = self.losses.iter().sum::<Decimal>()
-                    / Decimal::from(config.rsi_period);
+                let avg_gain: Decimal =
+                    self.gains.iter().sum::<Decimal>() / Decimal::from(config.rsi_period);
+                let avg_loss: Decimal =
+                    self.losses.iter().sum::<Decimal>() / Decimal::from(config.rsi_period);
 
                 if avg_loss == Decimal::ZERO {
                     self.rsi = Some(dec!(100));
@@ -355,15 +381,19 @@ impl BollingerStrategy {
                     Side::Sell => Side::Buy,
                 };
 
-                let reason = if hit_stop { "stop_loss" }
-                    else if hit_tp { "take_profit" }
-                    else { "middle_band" };
+                let reason = if hit_stop {
+                    "stop_loss"
+                } else if hit_tp {
+                    "take_profit"
+                } else {
+                    "middle_band"
+                };
 
                 signals.push(
                     Signal::exit("bollinger_bands", symbol.clone(), exit_side)
                         .with_strength(1.0)
                         .with_prices(Some(current_price), None, None)
-                        .with_metadata("exit_reason", json!(reason))
+                        .with_metadata("exit_reason", json!(reason)),
                 );
 
                 // 예상 손익 계산 (로깅용, 실제 통계는 on_order_filled에서 업데이트)
@@ -392,10 +422,10 @@ impl BollingerStrategy {
 
         // 매수 신호: 가격이 하단 밴드 이하
         if current_price <= lower && self.rsi_confirms(Side::Buy) {
-            let stop_loss_pct = Decimal::from_f64_retain(config.stop_loss_pct / 100.0)
-                .unwrap_or(dec!(0.02));
-            let take_profit_pct = Decimal::from_f64_retain(config.take_profit_pct / 100.0)
-                .unwrap_or(dec!(0.04));
+            let stop_loss_pct =
+                Decimal::from_f64_retain(config.stop_loss_pct / 100.0).unwrap_or(dec!(0.02));
+            let take_profit_pct =
+                Decimal::from_f64_retain(config.take_profit_pct / 100.0).unwrap_or(dec!(0.04));
             let stop_loss = current_price * (Decimal::ONE - stop_loss_pct);
             let take_profit = current_price * (Decimal::ONE + take_profit_pct);
 
@@ -404,7 +434,7 @@ impl BollingerStrategy {
                     .with_strength(0.5)
                     .with_prices(Some(current_price), Some(stop_loss), Some(take_profit))
                     .with_metadata("rsi", json!(self.rsi.map(|r| r.to_string())))
-                    .with_metadata("lower_band", json!(lower.to_string()))
+                    .with_metadata("lower_band", json!(lower.to_string())),
             );
 
             // 낙관적 포지션 설정 (중복 신호 방지용)
@@ -426,10 +456,10 @@ impl BollingerStrategy {
 
         // 매도 신호: 가격이 상단 밴드 이상
         if current_price >= upper && self.rsi_confirms(Side::Sell) {
-            let stop_loss_pct = Decimal::from_f64_retain(config.stop_loss_pct / 100.0)
-                .unwrap_or(dec!(0.02));
-            let take_profit_pct = Decimal::from_f64_retain(config.take_profit_pct / 100.0)
-                .unwrap_or(dec!(0.04));
+            let stop_loss_pct =
+                Decimal::from_f64_retain(config.stop_loss_pct / 100.0).unwrap_or(dec!(0.02));
+            let take_profit_pct =
+                Decimal::from_f64_retain(config.take_profit_pct / 100.0).unwrap_or(dec!(0.04));
             let stop_loss = current_price * (Decimal::ONE + stop_loss_pct);
             let take_profit = current_price * (Decimal::ONE - take_profit_pct);
 
@@ -438,7 +468,7 @@ impl BollingerStrategy {
                     .with_strength(0.5)
                     .with_prices(Some(current_price), Some(stop_loss), Some(take_profit))
                     .with_metadata("rsi", json!(self.rsi.map(|r| r.to_string())))
-                    .with_metadata("upper_band", json!(upper.to_string()))
+                    .with_metadata("upper_band", json!(upper.to_string())),
             );
 
             // 낙관적 포지션 설정 (중복 신호 방지용)
@@ -585,10 +615,10 @@ impl Strategy for BollingerStrategy {
         match (&self.position, order.side) {
             // 포지션 없는 상태에서 매수 → 롱 포지션 진입
             (None, Side::Buy) => {
-                let stop_loss_pct = Decimal::from_f64(config.stop_loss_pct / 100.0)
-                    .unwrap_or(dec!(0.02));
-                let take_profit_pct = Decimal::from_f64(config.take_profit_pct / 100.0)
-                    .unwrap_or(dec!(0.04));
+                let stop_loss_pct =
+                    Decimal::from_f64(config.stop_loss_pct / 100.0).unwrap_or(dec!(0.02));
+                let take_profit_pct =
+                    Decimal::from_f64(config.take_profit_pct / 100.0).unwrap_or(dec!(0.04));
 
                 let stop_loss = fill_price * (Decimal::ONE - stop_loss_pct);
                 let take_profit = fill_price * (Decimal::ONE + take_profit_pct);
@@ -611,10 +641,10 @@ impl Strategy for BollingerStrategy {
 
             // 포지션 없는 상태에서 매도 → 숏 포지션 진입
             (None, Side::Sell) => {
-                let stop_loss_pct = Decimal::from_f64(config.stop_loss_pct / 100.0)
-                    .unwrap_or(dec!(0.02));
-                let take_profit_pct = Decimal::from_f64(config.take_profit_pct / 100.0)
-                    .unwrap_or(dec!(0.04));
+                let stop_loss_pct =
+                    Decimal::from_f64(config.stop_loss_pct / 100.0).unwrap_or(dec!(0.02));
+                let take_profit_pct =
+                    Decimal::from_f64(config.take_profit_pct / 100.0).unwrap_or(dec!(0.04));
 
                 let stop_loss = fill_price * (Decimal::ONE + stop_loss_pct);
                 let take_profit = fill_price * (Decimal::ONE - take_profit_pct);
@@ -739,10 +769,9 @@ impl Strategy for BollingerStrategy {
                     .map(|c| (c.stop_loss_pct, c.take_profit_pct))
                     .unwrap_or((2.0, 4.0));
 
-                let stop_loss_pct = Decimal::from_f64(stop_loss_pct / 100.0)
-                    .unwrap_or(dec!(0.02));
-                let take_profit_pct = Decimal::from_f64(take_profit_pct / 100.0)
-                    .unwrap_or(dec!(0.04));
+                let stop_loss_pct = Decimal::from_f64(stop_loss_pct / 100.0).unwrap_or(dec!(0.02));
+                let take_profit_pct =
+                    Decimal::from_f64(take_profit_pct / 100.0).unwrap_or(dec!(0.04));
 
                 let (stop_loss, take_profit) = match position.side {
                     Side::Buy => (

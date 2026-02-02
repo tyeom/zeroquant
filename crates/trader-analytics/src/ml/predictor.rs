@@ -8,9 +8,9 @@ use crate::ml::{FeatureVector, MlError, MlResult, Prediction, PredictionDirectio
 #[cfg(feature = "ml")]
 use ort::session::Session;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 #[cfg(feature = "ml")]
 use std::path::Path;
+use std::path::PathBuf;
 #[cfg(feature = "ml")]
 use tracing::{debug, info};
 
@@ -130,10 +130,7 @@ impl OnnxPredictor {
             .commit_from_file(path)
             .map_err(|e| MlError::ModelLoad(format!("Failed to load model: {}", e)))?;
 
-        info!(
-            "ONNX model loaded successfully: {}",
-            config.model_name
-        );
+        info!("ONNX model loaded successfully: {}", config.model_name);
 
         Ok(Self { session, config })
     }
@@ -165,8 +162,9 @@ impl OnnxPredictor {
         let input_shape = [1i64, self.config.input_size as i64];
 
         // 텐서 값 생성
-        let input_tensor = ort::value::Tensor::from_array((input_shape, input_data.into_boxed_slice()))
-            .map_err(|e| MlError::Inference(format!("Failed to create input tensor: {}", e)))?;
+        let input_tensor =
+            ort::value::Tensor::from_array((input_shape, input_data.into_boxed_slice()))
+                .map_err(|e| MlError::Inference(format!("Failed to create input tensor: {}", e)))?;
 
         // 입력으로 추론 실행
         let outputs = self
@@ -175,11 +173,14 @@ impl OnnxPredictor {
             .map_err(|e| MlError::Inference(format!("Inference failed: {}", e)))?;
 
         // 첫 번째 출력 가져오기 ("output" 이름 또는 첫 번째 사용 가능한 것)
-        let output_name = outputs.iter().next()
+        let output_name = outputs
+            .iter()
+            .next()
             .map(|(name, _)| name.to_string())
             .ok_or_else(|| MlError::Inference("No output tensor found".to_string()))?;
 
-        let output = outputs.get(&output_name)
+        let output = outputs
+            .get(&output_name)
             .ok_or_else(|| MlError::Inference("Failed to get output by name".to_string()))?;
 
         // 텐서 데이터 추출 - (&Shape, &[f32]) 반환
@@ -205,7 +206,10 @@ impl OnnxPredictor {
         let sum: f32 = probabilities.iter().sum();
         let probs = if (sum - 1.0).abs() > 0.01 {
             // softmax 적용
-            let max_val = probabilities.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+            let max_val = probabilities
+                .iter()
+                .cloned()
+                .fold(f32::NEG_INFINITY, f32::max);
             let exp_vals: Vec<f32> = probabilities.iter().map(|x| (x - max_val).exp()).collect();
             let exp_sum: f32 = exp_vals.iter().sum();
             [
@@ -238,13 +242,13 @@ impl OnnxPredictor {
     }
 
     /// feature vector 배치에 대해 방향 예측.
-    pub fn predict_batch(&mut self, features_batch: &[FeatureVector]) -> MlResult<Vec<PredictionResult>> {
+    pub fn predict_batch(
+        &mut self,
+        features_batch: &[FeatureVector],
+    ) -> MlResult<Vec<PredictionResult>> {
         // 단순함을 위해 한 번에 하나씩 처리
         // 더 최적화된 버전은 단일 텐서로 배치 처리
-        features_batch
-            .iter()
-            .map(|f| self.predict(f))
-            .collect()
+        features_batch.iter().map(|f| self.predict(f)).collect()
     }
 
     /// 확률 분포를 해석하여 방향과 신뢰도 반환.

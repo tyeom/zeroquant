@@ -55,24 +55,22 @@ impl YahooFinanceProvider {
         Ok(Self { connector })
     }
 
-    
-
     /// 타임프레임을 Yahoo Finance 간격 문자열로 변환.
     pub fn timeframe_to_interval(timeframe: Timeframe) -> &'static str {
         match timeframe {
             Timeframe::M1 => "1m",
-            Timeframe::M3 => "5m",  // Yahoo는 3분봉이 없으므로 5분봉 사용
+            Timeframe::M3 => "5m", // Yahoo는 3분봉이 없으므로 5분봉 사용
             Timeframe::M5 => "5m",
             Timeframe::M15 => "15m",
             Timeframe::M30 => "30m",
             Timeframe::H1 => "1h",
-            Timeframe::H2 => "1h",  // Yahoo는 2시간봉이 없으므로 1시간봉 사용
-            Timeframe::H4 => "1h",  // Yahoo는 4시간봉이 없으므로 1시간봉 사용
+            Timeframe::H2 => "1h", // Yahoo는 2시간봉이 없으므로 1시간봉 사용
+            Timeframe::H4 => "1h", // Yahoo는 4시간봉이 없으므로 1시간봉 사용
             Timeframe::H6 => "1h",
             Timeframe::H8 => "1h",
             Timeframe::H12 => "1h",
             Timeframe::D1 => "1d",
-            Timeframe::D3 => "1d",  // Yahoo는 3일봉이 없음
+            Timeframe::D3 => "1d", // Yahoo는 3일봉이 없음
             Timeframe::W1 => "1wk",
             Timeframe::MN1 => "1mo",
         }
@@ -85,52 +83,91 @@ impl YahooFinanceProvider {
     pub fn calculate_range_string(timeframe: Timeframe, limit: usize) -> &'static str {
         match timeframe {
             // 분봉/시간봉: 최대 60일이므로 1mo~2mo 범위 사용
-            Timeframe::M1 | Timeframe::M3 | Timeframe::M5 |
-            Timeframe::M15 | Timeframe::M30 => {
-                if limit <= 100 { "5d" }
-                else if limit <= 500 { "1mo" }
-                else { "3mo" }  // 60일 제한이 있으므로 더 늘려도 의미 없음
+            Timeframe::M1 | Timeframe::M3 | Timeframe::M5 | Timeframe::M15 | Timeframe::M30 => {
+                if limit <= 100 {
+                    "5d"
+                } else if limit <= 500 {
+                    "1mo"
+                } else {
+                    "3mo"
+                } // 60일 제한이 있으므로 더 늘려도 의미 없음
             }
 
-            Timeframe::H1 | Timeframe::H2 | Timeframe::H4 |
-            Timeframe::H6 | Timeframe::H8 | Timeframe::H12 => {
-                if limit <= 50 { "5d" }
-                else if limit <= 200 { "1mo" }
-                else { "3mo" }
+            Timeframe::H1
+            | Timeframe::H2
+            | Timeframe::H4
+            | Timeframe::H6
+            | Timeframe::H8
+            | Timeframe::H12 => {
+                if limit <= 50 {
+                    "5d"
+                } else if limit <= 200 {
+                    "1mo"
+                } else {
+                    "3mo"
+                }
             }
 
             // 일봉 이상: 제한 없음
             Timeframe::D1 => {
-                if limit <= 5 { "5d" }
-                else if limit <= 20 { "1mo" }
-                else if limit <= 60 { "3mo" }
-                else if limit <= 120 { "6mo" }
-                else if limit <= 250 { "1y" }
-                else if limit <= 500 { "2y" }
-                else if limit <= 1250 { "5y" }
-                else { "10y" }
+                if limit <= 5 {
+                    "5d"
+                } else if limit <= 20 {
+                    "1mo"
+                } else if limit <= 60 {
+                    "3mo"
+                } else if limit <= 120 {
+                    "6mo"
+                } else if limit <= 250 {
+                    "1y"
+                } else if limit <= 500 {
+                    "2y"
+                } else if limit <= 1250 {
+                    "5y"
+                } else {
+                    "10y"
+                }
             }
             Timeframe::D3 => {
-                if limit <= 10 { "1mo" }
-                else if limit <= 30 { "3mo" }
-                else if limit <= 60 { "6mo" }
-                else { "1y" }
+                if limit <= 10 {
+                    "1mo"
+                } else if limit <= 30 {
+                    "3mo"
+                } else if limit <= 60 {
+                    "6mo"
+                } else {
+                    "1y"
+                }
             }
             Timeframe::W1 => {
-                if limit <= 4 { "1mo" }
-                else if limit <= 12 { "3mo" }
-                else if limit <= 26 { "6mo" }
-                else if limit <= 52 { "1y" }
-                else if limit <= 104 { "2y" }
-                else { "5y" }
+                if limit <= 4 {
+                    "1mo"
+                } else if limit <= 12 {
+                    "3mo"
+                } else if limit <= 26 {
+                    "6mo"
+                } else if limit <= 52 {
+                    "1y"
+                } else if limit <= 104 {
+                    "2y"
+                } else {
+                    "5y"
+                }
             }
             Timeframe::MN1 => {
-                if limit <= 3 { "3mo" }
-                else if limit <= 6 { "6mo" }
-                else if limit <= 12 { "1y" }
-                else if limit <= 24 { "2y" }
-                else if limit <= 60 { "5y" }
-                else { "10y" }
+                if limit <= 3 {
+                    "3mo"
+                } else if limit <= 6 {
+                    "6mo"
+                } else if limit <= 12 {
+                    "1y"
+                } else if limit <= 24 {
+                    "2y"
+                } else if limit <= 60 {
+                    "5y"
+                } else {
+                    "10y"
+                }
             }
         }
     }
@@ -175,14 +212,10 @@ impl YahooFinanceProvider {
     }
 
     /// Yahoo Quote를 Kline으로 변환.
-    fn quote_to_kline(
-        &self,
-        symbol: &Symbol,
-        timeframe: Timeframe,
-        quote: &yahoo::Quote,
-    ) -> Kline {
+    fn quote_to_kline(&self, symbol: &Symbol, timeframe: Timeframe, quote: &yahoo::Quote) -> Kline {
         // Unix timestamp를 DateTime으로 변환
-        let open_time = Utc.timestamp_opt(quote.timestamp as i64, 0)
+        let open_time = Utc
+            .timestamp_opt(quote.timestamp as i64, 0)
             .single()
             .unwrap_or_else(|| Utc::now());
         let close_time = open_time + Self::timeframe_duration(timeframe);
@@ -243,16 +276,14 @@ impl HistoricalDataProvider for YahooFinanceProvider {
             .connector
             .get_quote_range(&yahoo_symbol, interval, range)
             .await
-            .map_err(|e| {
-                ExchangeError::ApiError {
-                    code: 0,
-                    message: format!("Yahoo Finance API 오류 ({}): {}", yahoo_symbol, e),
-                }
+            .map_err(|e| ExchangeError::ApiError {
+                code: 0,
+                message: format!("Yahoo Finance API 오류 ({}): {}", yahoo_symbol, e),
             })?;
 
-        let quotes = response.quotes().map_err(|e| {
-            ExchangeError::ParseError(format!("Quote 파싱 오류: {}", e))
-        })?;
+        let quotes = response
+            .quotes()
+            .map_err(|e| ExchangeError::ParseError(format!("Quote 파싱 오류: {}", e)))?;
 
         if quotes.is_empty() {
             warn!("Yahoo Finance: {} 데이터 없음", yahoo_symbol);
@@ -295,12 +326,30 @@ mod tests {
 
     #[test]
     fn test_timeframe_to_interval() {
-        assert_eq!(YahooFinanceProvider::timeframe_to_interval(Timeframe::M1), "1m");
-        assert_eq!(YahooFinanceProvider::timeframe_to_interval(Timeframe::M5), "5m");
-        assert_eq!(YahooFinanceProvider::timeframe_to_interval(Timeframe::H1), "1h");
-        assert_eq!(YahooFinanceProvider::timeframe_to_interval(Timeframe::D1), "1d");
-        assert_eq!(YahooFinanceProvider::timeframe_to_interval(Timeframe::W1), "1wk");
-        assert_eq!(YahooFinanceProvider::timeframe_to_interval(Timeframe::MN1), "1mo");
+        assert_eq!(
+            YahooFinanceProvider::timeframe_to_interval(Timeframe::M1),
+            "1m"
+        );
+        assert_eq!(
+            YahooFinanceProvider::timeframe_to_interval(Timeframe::M5),
+            "5m"
+        );
+        assert_eq!(
+            YahooFinanceProvider::timeframe_to_interval(Timeframe::H1),
+            "1h"
+        );
+        assert_eq!(
+            YahooFinanceProvider::timeframe_to_interval(Timeframe::D1),
+            "1d"
+        );
+        assert_eq!(
+            YahooFinanceProvider::timeframe_to_interval(Timeframe::W1),
+            "1wk"
+        );
+        assert_eq!(
+            YahooFinanceProvider::timeframe_to_interval(Timeframe::MN1),
+            "1mo"
+        );
     }
 
     #[test]

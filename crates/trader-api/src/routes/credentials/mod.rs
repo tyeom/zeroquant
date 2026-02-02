@@ -36,11 +36,11 @@ pub mod types;
 
 // Re-export types for external use
 pub use types::{
-    ActiveAccountResponse, CreateExchangeCredentialRequest, CredentialField,
-    EncryptedCredentials, ExchangeCredentialResponse, ExchangeCredentialsListResponse,
-    ExchangeTestResponse, SaveTelegramSettingsRequest, SetActiveAccountRequest,
-    SupportedExchange, SupportedExchangesResponse, TelegramNotificationSettings,
-    TelegramSettingsResponse, TestNewCredentialRequest, UpdateExchangeCredentialRequest,
+    ActiveAccountResponse, CreateExchangeCredentialRequest, CredentialField, EncryptedCredentials,
+    ExchangeCredentialResponse, ExchangeCredentialsListResponse, ExchangeTestResponse,
+    SaveTelegramSettingsRequest, SetActiveAccountRequest, SupportedExchange,
+    SupportedExchangesResponse, TelegramNotificationSettings, TelegramSettingsResponse,
+    TestNewCredentialRequest, UpdateExchangeCredentialRequest,
 };
 
 use axum::{
@@ -58,8 +58,7 @@ use exchange::{
     update_exchange_credential,
 };
 use telegram::{
-    delete_telegram_settings, get_telegram_settings, save_telegram_settings,
-    test_telegram_settings,
+    delete_telegram_settings, get_telegram_settings, save_telegram_settings, test_telegram_settings,
 };
 
 /// 자격증명 관리 라우터.

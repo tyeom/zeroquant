@@ -548,7 +548,10 @@ impl OrderManager {
 
     /// 주문의 체결 내역을 가져온다.
     pub fn get_order_fills(&self, order_id: Uuid) -> Vec<&OrderFill> {
-        self.fills.iter().filter(|f| f.order_id == order_id).collect()
+        self.fills
+            .iter()
+            .filter(|f| f.order_id == order_id)
+            .collect()
     }
 
     // ==================== 통계 ====================
@@ -746,6 +749,10 @@ mod tests {
         let status = OrderStatus {
             order_id: "BINANCE123".to_string(),
             client_order_id: None,
+            symbol: None,
+            side: None,
+            quantity: None,
+            price: None,
             status: OrderStatusType::Filled,
             filled_quantity: dec!(0.1),
             average_price: Some(dec!(50000)),
@@ -831,6 +838,10 @@ mod tests {
         let status = OrderStatus {
             order_id: "BINANCE123".to_string(),
             client_order_id: None,
+            symbol: None,
+            side: None,
+            quantity: None,
+            price: None,
             status: OrderStatusType::Filled,
             filled_quantity: dec!(0.1),
             average_price: Some(dec!(50000)),
@@ -870,7 +881,8 @@ mod tests {
 
         let symbol = Symbol::crypto("BTC", "USDT");
 
-        let grid_request = OrderRequest::market_buy(symbol.clone(), dec!(0.1)).with_strategy("grid");
+        let grid_request =
+            OrderRequest::market_buy(symbol.clone(), dec!(0.1)).with_strategy("grid");
         let rsi_request = OrderRequest::market_sell(symbol, dec!(0.2)).with_strategy("rsi");
 
         manager.create_order(grid_request, "binance").unwrap();
@@ -894,6 +906,10 @@ mod tests {
         let status = OrderStatus {
             order_id: "BINANCE_ORDER_123".to_string(),
             client_order_id: None,
+            symbol: None,
+            side: None,
+            quantity: None,
+            price: None,
             status: OrderStatusType::Open,
             filled_quantity: Decimal::ZERO,
             average_price: None,
@@ -918,6 +934,10 @@ mod tests {
         let status = OrderStatus {
             order_id: "1".to_string(),
             client_order_id: None,
+            symbol: None,
+            side: None,
+            quantity: None,
+            price: None,
             status: OrderStatusType::Filled,
             filled_quantity: dec!(0.1),
             average_price: Some(dec!(50000)),
@@ -957,6 +977,10 @@ mod tests {
         let status_open = OrderStatus {
             order_id: "123".to_string(),
             client_order_id: None,
+            symbol: None,
+            side: None,
+            quantity: None,
+            price: None,
             status: OrderStatusType::Open,
             filled_quantity: Decimal::ZERO,
             average_price: None,
@@ -968,6 +992,10 @@ mod tests {
         let status_filled = OrderStatus {
             order_id: "123".to_string(),
             client_order_id: None,
+            symbol: None,
+            side: None,
+            quantity: None,
+            price: None,
             status: OrderStatusType::Filled,
             filled_quantity: dec!(0.1),
             average_price: Some(dec!(50000)),

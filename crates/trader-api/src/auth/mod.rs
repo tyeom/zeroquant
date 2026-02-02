@@ -25,7 +25,7 @@ mod middleware;
 mod password;
 mod roles;
 
-pub use jwt::{Claims, create_token, decode_token, TokenPair, RefreshClaims};
-pub use middleware::{JwtAuth, JwtAuthError, require_role};
+pub use jwt::{create_token, decode_token, Claims, RefreshClaims, TokenPair};
+pub use middleware::{require_role, JwtAuth, JwtAuthError};
 pub use password::{hash_password, verify_password, PasswordError};
-pub use roles::{Role, Permission};
+pub use roles::{Permission, Role};

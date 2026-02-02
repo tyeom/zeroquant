@@ -15,6 +15,7 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{FromRow, PgPool};
+use trader_core::{unrealized_pnl, Side};
 use uuid::Uuid;
 
 use super::cost_basis::{self, CostBasisSummary, CostBasisTracker};
@@ -31,7 +32,7 @@ pub struct TradeExecutionRecord {
     pub exchange: String,
     pub symbol: String,
     pub symbol_name: Option<String>,
-    pub side: String,
+    pub side: Side,
     pub order_type: String,
     pub quantity: Decimal,
     pub price: Decimal,
@@ -60,7 +61,7 @@ pub struct TradeExecutionInput {
     pub exchange: String,
     pub symbol: String,
     pub symbol_name: Option<String>,
-    pub side: String,
+    pub side: Side,
     pub order_type: String,
     pub quantity: Decimal,
     pub price: Decimal,
@@ -92,7 +93,7 @@ pub struct PositionSnapshotRecord {
     pub exchange: String,
     pub symbol: String,
     pub symbol_name: Option<String>,
-    pub side: String,
+    pub side: Side,
     pub quantity: Decimal,
     pub entry_price: Decimal,
     pub current_price: Option<Decimal>,
@@ -117,7 +118,7 @@ pub struct PositionSnapshotInput {
     pub exchange: String,
     pub symbol: String,
     pub symbol_name: Option<String>,
-    pub side: String,
+    pub side: Side,
     pub quantity: Decimal,
     pub entry_price: Decimal,
     pub current_price: Option<Decimal>,
@@ -174,7 +175,7 @@ pub struct CurrentPosition {
     pub exchange: String,
     pub symbol: String,
     pub symbol_name: Option<String>,
-    pub side: String,
+    pub side: Side,
     pub quantity: Decimal,
     pub entry_price: Decimal,
     pub current_price: Option<Decimal>,
@@ -224,7 +225,9 @@ impl JournalRepository {
         input: TradeExecutionInput,
     ) -> Result<TradeExecutionRecord, sqlx::Error> {
         let notional_value = input.quantity * input.price;
-        let tags_json: Option<Value> = input.tags.map(|t| serde_json::to_value(t).unwrap_or_default());
+        let tags_json: Option<Value> = input
+            .tags
+            .map(|t| serde_json::to_value(t).unwrap_or_default());
 
         let record = sqlx::query_as::<_, TradeExecutionRecord>(
             r#"
@@ -370,7 +373,7 @@ impl JournalRepository {
         let tags_json: Option<Value> = tags.map(|t| serde_json::to_value(t).unwrap_or_default());
 
         // 1. execution_cache에서 원본 데이터 조회
-        let cache_record = sqlx::query_as::<_, (Uuid, String, String, Option<String>,)>(
+        let cache_record = sqlx::query_as::<_, (Uuid, String, String, Option<String>)>(
             r#"
             SELECT credential_id, exchange, trade_id, symbol
             FROM execution_cache
@@ -434,9 +437,11 @@ impl JournalRepository {
     ) -> Result<PositionSnapshotRecord, sqlx::Error> {
         let cost_basis = input.entry_price * input.quantity;
         let market_value = input.current_price.map(|p| p * input.quantity);
-        let unrealized_pnl = market_value.map(|mv| mv - cost_basis);
+        let unrealized_pnl_value = input.current_price.map(|current_price| {
+            unrealized_pnl(input.entry_price, current_price, input.quantity, input.side)
+        });
         let unrealized_pnl_pct = if cost_basis > Decimal::ZERO {
-            unrealized_pnl.map(|pnl| (pnl / cost_basis) * Decimal::from(100))
+            unrealized_pnl_value.map(|pnl| (pnl / cost_basis) * Decimal::from(100))
         } else {
             None
         };
@@ -471,7 +476,7 @@ impl JournalRepository {
         .bind(input.current_price)
         .bind(cost_basis)
         .bind(market_value)
-        .bind(unrealized_pnl)
+        .bind(unrealized_pnl_value)
         .bind(unrealized_pnl_pct)
         .bind(input.realized_pnl)
         .bind(input.weight_pct)
@@ -696,7 +701,9 @@ impl JournalRepository {
 
             // 삽입
             let notional_value = input.quantity * input.price;
-            let tags_json: Option<Value> = input.tags.map(|t| serde_json::to_value(t).unwrap_or_default());
+            let tags_json: Option<Value> = input
+                .tags
+                .map(|t| serde_json::to_value(t).unwrap_or_default());
 
             sqlx::query(
                 r#"
@@ -1082,7 +1089,8 @@ impl JournalRepository {
 
         for (symbol,) in symbols {
             let current_price = current_prices.get(&symbol).copied();
-            let summary = Self::calculate_cost_basis(pool, credential_id, &symbol, current_price).await?;
+            let summary =
+                Self::calculate_cost_basis(pool, credential_id, &symbol, current_price).await?;
 
             // 보유 수량이 있는 종목만 포함
             if summary.total_quantity > Decimal::ZERO {
@@ -1128,7 +1136,10 @@ impl JournalRepository {
             })
             .collect();
 
-        Ok(cost_basis::build_tracker_from_executions(symbol, trade_executions))
+        Ok(cost_basis::build_tracker_from_executions(
+            symbol,
+            trade_executions,
+        ))
     }
 }
 
@@ -1137,7 +1148,7 @@ impl JournalRepository {
 struct ExecutionRow {
     id: Uuid,
     symbol: String,
-    side: String,
+    side: Side,
     quantity: Decimal,
     price: Decimal,
     fee: Decimal,

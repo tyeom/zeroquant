@@ -87,10 +87,7 @@ impl MatchingEngine {
     }
 
     /// 호가 단위 제공자를 설정합니다.
-    pub fn with_tick_size_provider(
-        mut self,
-        provider: Arc<dyn TickSizeProvider>,
-    ) -> Self {
+    pub fn with_tick_size_provider(mut self, provider: Arc<dyn TickSizeProvider>) -> Self {
         self.tick_size_provider = Some(provider);
         self
     }
@@ -152,7 +149,7 @@ impl MatchingEngine {
             OrderType::Limit => {
                 // 지정가 주문: 즉시 체결 가능 여부 확인
                 let raw_limit_price = request.price.unwrap_or(current_price);
-                
+
                 // 지정가를 호가 단위로 라운딩 (매수는 내림, 매도는 올림)
                 let limit_price = match request.side {
                     Side::Buy => self.round_price(raw_limit_price, RoundMethod::Floor),

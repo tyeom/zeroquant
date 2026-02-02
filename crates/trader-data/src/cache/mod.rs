@@ -9,4 +9,4 @@ pub mod historical;
 
 pub use crate::storage::redis::{CacheStats, MetricsCache, RedisCache, RedisConfig};
 pub use fundamental::{FetchResult, FundamentalData, FundamentalFetcher};
-pub use historical::{CachedHistoricalDataProvider, CacheStats as HistoricalCacheStats};
+pub use historical::{CacheStats as HistoricalCacheStats, CachedHistoricalDataProvider};

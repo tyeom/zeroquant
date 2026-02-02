@@ -27,8 +27,10 @@ use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use trader_core::{MarketData, MarketDataType, MarketType, Order, Position, Side, Signal, SignalType, Symbol};
 use tracing::{debug, info};
+use trader_core::{
+    MarketData, MarketDataType, MarketType, Order, Position, Side, Signal, SignalType, Symbol,
+};
 
 /// 비중 할당 방식
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -239,7 +241,8 @@ impl MarketCapTopStrategy {
 
                 if total_inv_vol > Decimal::ZERO {
                     for symbol in &self.active_symbols {
-                        let weight = volatilities.get(symbol).unwrap_or(&Decimal::ZERO) / total_inv_vol;
+                        let weight =
+                            volatilities.get(symbol).unwrap_or(&Decimal::ZERO) / total_inv_vol;
                         weights.insert(symbol.clone(), weight);
                     }
                 } else {
@@ -406,8 +409,16 @@ impl MarketCapTopStrategy {
     }
 
     /// 신호 생성
-    fn generate_signals(&mut self, symbol_data: &str, current_price: Decimal, timestamp: i64) -> Vec<Signal> {
-        let config = self.config.as_ref().unwrap();
+    fn generate_signals(
+        &mut self,
+        symbol_data: &str,
+        current_price: Decimal,
+        timestamp: i64,
+    ) -> Vec<Signal> {
+        let config = match &self.config {
+            Some(c) => c,
+            None => return Vec::new(),
+        };
         let mut signals = Vec::new();
 
         // 날짜 업데이트
@@ -421,7 +432,13 @@ impl MarketCapTopStrategy {
         }
 
         // 첫 번째 심볼에서만 리밸런싱 체크
-        if symbol_data != self.active_symbols.first().map(|s| s.as_str()).unwrap_or("") {
+        if symbol_data
+            != self
+                .active_symbols
+                .first()
+                .map(|s| s.as_str())
+                .unwrap_or("")
+        {
             return signals;
         }
 
@@ -456,7 +473,9 @@ impl MarketCapTopStrategy {
 
                 let diff = target_quantity - current_quantity;
 
-                if diff.abs() * sym_current_price > config.total_amount * config.rebalance_threshold / dec!(100) {
+                if diff.abs() * sym_current_price
+                    > config.total_amount * config.rebalance_threshold / dec!(100)
+                {
                     // 포지션 업데이트
                     self.state.positions.insert(
                         sym.clone(),
@@ -480,17 +499,15 @@ impl MarketCapTopStrategy {
                         (Side::Sell, SignalType::Exit)
                     };
 
-                    let signal = Signal::new(
-                        "market_cap_top",
-                        symbol,
-                        side,
-                        signal_type,
-                    )
-                    .with_strength(1.0)
-                    .with_metadata("target_weight", json!(target_weight.to_string()))
-                    .with_metadata("current_quantity", json!(current_quantity.to_string()))
-                    .with_metadata("target_quantity", json!(target_quantity.to_string()))
-                    .with_metadata("weighting_method", json!(format!("{:?}", config.weighting_method)));
+                    let signal = Signal::new("market_cap_top", symbol, side, signal_type)
+                        .with_strength(1.0)
+                        .with_metadata("target_weight", json!(target_weight.to_string()))
+                        .with_metadata("current_quantity", json!(current_quantity.to_string()))
+                        .with_metadata("target_quantity", json!(target_quantity.to_string()))
+                        .with_metadata(
+                            "weighting_method",
+                            json!(format!("{:?}", config.weighting_method)),
+                        );
 
                     signals.push(signal);
 
@@ -541,7 +558,12 @@ impl Strategy for MarketCapTopStrategy {
                 .map(|s| s.to_string())
                 .collect()
         } else {
-            mct_config.symbols.clone().into_iter().take(mct_config.top_n).collect()
+            mct_config
+                .symbols
+                .clone()
+                .into_iter()
+                .take(mct_config.top_n)
+                .collect()
         };
 
         info!(
@@ -602,7 +624,8 @@ impl Strategy for MarketCapTopStrategy {
         &mut self,
         order: &Order,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let fill_price = order.average_fill_price
+        let fill_price = order
+            .average_fill_price
             .or(order.price)
             .unwrap_or(Decimal::ZERO);
 

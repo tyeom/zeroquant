@@ -20,15 +20,15 @@
 
 use crate::Strategy;
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::VecDeque;
-use chrono::{DateTime, Utc};
-use trader_core::{MarketData, MarketDataType, Order, Position, Side, Signal, Symbol};
 use tracing::{debug, info, warn};
+use trader_core::{MarketData, MarketDataType, Order, Position, Side, Signal, Symbol};
 
 /// 코스피 양방향 전략 설정.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -90,20 +90,48 @@ pub struct KospiBothSideConfig {
     pub stop_loss_pct: f64,
 }
 
-fn default_leverage_ticker() -> String { "122630".to_string() }
-fn default_inverse_ticker() -> String { "252670".to_string() }
-fn default_leverage_ratio() -> f64 { 0.7 }
-fn default_inverse_ratio() -> f64 { 0.3 }
-fn default_ma3() -> usize { 3 }
-fn default_ma6() -> usize { 6 }
-fn default_ma19() -> usize { 19 }
-fn default_ma60() -> usize { 60 }
-fn default_disparity_upper() -> f64 { 106.0 }
-fn default_disparity_lower() -> f64 { 94.0 }
-fn default_rsi_period() -> usize { 14 }
-fn default_rsi_oversold() -> f64 { 30.0 }
-fn default_rsi_overbought() -> f64 { 70.0 }
-fn default_stop_loss() -> f64 { 5.0 }
+fn default_leverage_ticker() -> String {
+    "122630".to_string()
+}
+fn default_inverse_ticker() -> String {
+    "252670".to_string()
+}
+fn default_leverage_ratio() -> f64 {
+    0.7
+}
+fn default_inverse_ratio() -> f64 {
+    0.3
+}
+fn default_ma3() -> usize {
+    3
+}
+fn default_ma6() -> usize {
+    6
+}
+fn default_ma19() -> usize {
+    19
+}
+fn default_ma60() -> usize {
+    60
+}
+fn default_disparity_upper() -> f64 {
+    106.0
+}
+fn default_disparity_lower() -> f64 {
+    94.0
+}
+fn default_rsi_period() -> usize {
+    14
+}
+fn default_rsi_oversold() -> f64 {
+    30.0
+}
+fn default_rsi_overbought() -> f64 {
+    70.0
+}
+fn default_stop_loss() -> f64 {
+    5.0
+}
 
 impl Default for KospiBothSideConfig {
     fn default() -> Self {
@@ -193,8 +221,10 @@ impl TechnicalIndicators {
             return None;
         }
 
-        let avg_gain: Decimal = self.gains.iter().take(period).sum::<Decimal>() / Decimal::from(period);
-        let avg_loss: Decimal = self.losses.iter().take(period).sum::<Decimal>() / Decimal::from(period);
+        let avg_gain: Decimal =
+            self.gains.iter().take(period).sum::<Decimal>() / Decimal::from(period);
+        let avg_loss: Decimal =
+            self.losses.iter().take(period).sum::<Decimal>() / Decimal::from(period);
 
         if avg_loss == Decimal::ZERO {
             return Some(dec!(100));
@@ -287,7 +317,10 @@ impl KospiBothSideStrategy {
             Some(v) => v,
             None => return false,
         };
-        let ma60_prev = match self.leverage_indicators.calculate_ma(config.ma60_period + 1) {
+        let ma60_prev = match self
+            .leverage_indicators
+            .calculate_ma(config.ma60_period + 1)
+        {
             Some(v) => v,
             None => return false,
         };
@@ -490,7 +523,12 @@ impl KospiBothSideStrategy {
 
         // 레버리지 신호
         if let Some(sym) = &self.leverage_symbol {
-            let price = self.leverage_indicators.prices.front().copied().unwrap_or(Decimal::ZERO);
+            let price = self
+                .leverage_indicators
+                .prices
+                .front()
+                .copied()
+                .unwrap_or(Decimal::ZERO);
 
             // 가격이 0인 경우 신호 생성 방지 (데이터 없음 - Division by zero 방지)
             if price == Decimal::ZERO {
@@ -501,7 +539,7 @@ impl KospiBothSideStrategy {
                         .with_strength(config.leverage_ratio)
                         .with_prices(Some(price), None, None)
                         .with_metadata("etf_type", json!("leverage"))
-                        .with_metadata("action", json!("buy_leverage"))
+                        .with_metadata("action", json!("buy_leverage")),
                 );
                 info!(price = %price, "레버리지 매수 신호");
             } else if self.leverage_position.is_some() && self.should_sell_leverage() {
@@ -510,7 +548,7 @@ impl KospiBothSideStrategy {
                         .with_strength(1.0)
                         .with_prices(Some(price), None, None)
                         .with_metadata("etf_type", json!("leverage"))
-                        .with_metadata("action", json!("sell_leverage"))
+                        .with_metadata("action", json!("sell_leverage")),
                 );
                 info!(price = %price, "레버리지 매도 신호");
             }
@@ -518,7 +556,12 @@ impl KospiBothSideStrategy {
 
         // 인버스 신호
         if let Some(sym) = &self.inverse_symbol {
-            let price = self.inverse_indicators.prices.front().copied().unwrap_or(Decimal::ZERO);
+            let price = self
+                .inverse_indicators
+                .prices
+                .front()
+                .copied()
+                .unwrap_or(Decimal::ZERO);
 
             // 가격이 0인 경우 신호 생성 방지 (데이터 없음 - Division by zero 방지)
             if price == Decimal::ZERO {
@@ -529,7 +572,7 @@ impl KospiBothSideStrategy {
                         .with_strength(config.inverse_ratio)
                         .with_prices(Some(price), None, None)
                         .with_metadata("etf_type", json!("inverse"))
-                        .with_metadata("action", json!("buy_inverse"))
+                        .with_metadata("action", json!("buy_inverse")),
                 );
                 info!(price = %price, "인버스 매수 신호");
             } else if self.inverse_position.is_some() && self.should_sell_inverse() {
@@ -538,7 +581,7 @@ impl KospiBothSideStrategy {
                         .with_strength(1.0)
                         .with_prices(Some(price), None, None)
                         .with_metadata("etf_type", json!("inverse"))
-                        .with_metadata("action", json!("sell_inverse"))
+                        .with_metadata("action", json!("sell_inverse")),
                 );
                 info!(price = %price, "인버스 매도 신호");
             }

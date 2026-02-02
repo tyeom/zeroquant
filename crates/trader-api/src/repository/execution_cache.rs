@@ -8,6 +8,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool, Row};
+use trader_core::{Side, TradeInfo};
 use uuid::Uuid;
 
 /// 거래소 중립적인 체결 내역 레코드.
@@ -31,7 +32,7 @@ pub struct CachedExecution {
     pub normalized_symbol: Option<String>,
 
     /// 매매 방향 (buy/sell)
-    pub side: String,
+    pub side: Side,
 
     /// 체결 수량
     pub quantity: Decimal,
@@ -63,6 +64,32 @@ pub struct CachedExecution {
     pub created_at: Option<DateTime<Utc>>,
 }
 
+impl TradeInfo for CachedExecution {
+    fn symbol(&self) -> &str {
+        // normalized_symbol이 있으면 사용, 없으면 원본 symbol 사용
+        self.normalized_symbol.as_deref().unwrap_or(&self.symbol)
+    }
+
+    fn pnl(&self) -> Option<Decimal> {
+        // CachedExecution은 단일 체결 내역이므로 pnl이 없음.
+        // 실현 손익은 여러 체결을 조합하여 계산해야 함.
+        None
+    }
+
+    fn fees(&self) -> Decimal {
+        self.fee.unwrap_or(Decimal::ZERO)
+    }
+
+    fn entry_time(&self) -> DateTime<Utc> {
+        self.executed_at
+    }
+
+    fn exit_time(&self) -> Option<DateTime<Utc>> {
+        // CachedExecution은 단일 체결이므로 청산 시각이 없음.
+        None
+    }
+}
+
 /// 새 체결 내역 삽입용 구조체.
 #[derive(Debug, Clone)]
 pub struct NewExecution {
@@ -71,7 +98,7 @@ pub struct NewExecution {
     pub executed_at: DateTime<Utc>,
     pub symbol: String,
     pub normalized_symbol: Option<String>,
-    pub side: String,
+    pub side: Side,
     pub quantity: Decimal,
     pub price: Decimal,
     pub amount: Decimal,
@@ -177,7 +204,7 @@ impl ExecutionCacheRepository {
                 last_sync_status, last_sync_message
             FROM execution_cache_meta
             WHERE credential_id = $1 AND exchange = $2
-            "#
+            "#,
         )
         .bind(credential_id)
         .bind(exchange)
@@ -221,7 +248,7 @@ impl ExecutionCacheRepository {
                     amount = EXCLUDED.amount,
                     fee = EXCLUDED.fee,
                     updated_at = NOW()
-                "#
+                "#,
             )
             .bind(&exec.credential_id)
             .bind(&exec.exchange)
@@ -286,7 +313,7 @@ impl ExecutionCacheRepository {
                 last_sync_status = $6,
                 last_sync_message = $7,
                 updated_at = NOW()
-            "#
+            "#,
         )
         .bind(credential_id)
         .bind(exchange)
@@ -324,7 +351,7 @@ impl ExecutionCacheRepository {
               AND executed_at >= $3
               AND executed_at <= $4
             ORDER BY executed_at DESC
-            "#
+            "#,
         )
         .bind(credential_id)
         .bind(exchange)
@@ -352,7 +379,7 @@ impl ExecutionCacheRepository {
             FROM execution_cache
             WHERE credential_id = $1 AND exchange = $2
             ORDER BY executed_at DESC
-            "#
+            "#,
         )
         .bind(credential_id)
         .bind(exchange)
@@ -374,20 +401,18 @@ impl ExecutionCacheRepository {
             .await?;
 
         // 캐시 데이터 삭제
-        let result = sqlx::query("DELETE FROM execution_cache WHERE credential_id = $1 AND exchange = $2")
-            .bind(credential_id)
-            .bind(exchange)
-            .execute(pool)
-            .await?;
+        let result =
+            sqlx::query("DELETE FROM execution_cache WHERE credential_id = $1 AND exchange = $2")
+                .bind(credential_id)
+                .bind(exchange)
+                .execute(pool)
+                .await?;
 
         Ok(result.rows_affected())
     }
 
     /// 모든 계좌의 캐시 삭제.
-    pub async fn clear_all_cache(
-        pool: &PgPool,
-        credential_id: Uuid,
-    ) -> Result<u64, sqlx::Error> {
+    pub async fn clear_all_cache(pool: &PgPool, credential_id: Uuid) -> Result<u64, sqlx::Error> {
         // 먼저 메타데이터 삭제
         sqlx::query("DELETE FROM execution_cache_meta WHERE credential_id = $1")
             .bind(credential_id)

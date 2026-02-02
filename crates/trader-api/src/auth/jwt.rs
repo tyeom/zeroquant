@@ -39,7 +39,12 @@ impl Claims {
     /// * `username` - 사용자 이름
     /// * `role` - 사용자 역할
     /// * `expires_in` - 만료 시간 (분)
-    pub fn new(user_id: impl Into<String>, username: impl Into<String>, role: Role, expires_in_minutes: i64) -> Self {
+    pub fn new(
+        user_id: impl Into<String>,
+        username: impl Into<String>,
+        role: Role,
+        expires_in_minutes: i64,
+    ) -> Self {
         let now = Utc::now();
         Self {
             sub: user_id.into(),
@@ -222,7 +227,10 @@ pub fn decode_token(token: &str, secret: &str) -> Result<TokenData<Claims>, JwtE
 }
 
 /// Refresh Token 디코딩 및 검증.
-pub fn decode_refresh_token(token: &str, secret: &str) -> Result<TokenData<RefreshClaims>, JwtError> {
+pub fn decode_refresh_token(
+    token: &str,
+    secret: &str,
+) -> Result<TokenData<RefreshClaims>, JwtError> {
     let mut validation = Validation::default();
     validation.validate_exp = true;
 
@@ -264,8 +272,8 @@ mod tests {
             "testuser",
             Role::Admin,
             TEST_SECRET,
-            30,  // 30분
-            7,   // 7일
+            30, // 30분
+            7,  // 7일
         )
         .unwrap();
 

@@ -28,8 +28,10 @@ use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::VecDeque;
-use trader_core::{MarketData, MarketDataType, MarketType, Order, Position, Side, Signal, SignalType, Symbol};
 use tracing::{debug, info, warn};
+use trader_core::{
+    MarketData, MarketDataType, MarketType, Order, Position, Side, Signal, SignalType, Symbol,
+};
 
 /// 라운드 상태
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -269,7 +271,8 @@ impl InfinityBotStrategy {
             21..=30 => {
                 // 21-30라운드: MA + 양봉 확인
                 if let Some(short_ma) = self.short_ma {
-                    self.last_candle_bullish && (current_price > short_ma || momentum > Decimal::ZERO)
+                    self.last_candle_bullish
+                        && (current_price > short_ma || momentum > Decimal::ZERO)
                 } else {
                     false
                 }
@@ -374,9 +377,16 @@ impl InfinityBotStrategy {
     }
 
     /// 신호 생성
-    fn generate_signals(&mut self, current_price: Decimal, open_price: Decimal, timestamp: i64) -> Vec<Signal> {
-        let _config = self.config.as_ref().unwrap().clone();
-        let symbol = self.symbol.as_ref().unwrap().clone();
+    fn generate_signals(
+        &mut self,
+        current_price: Decimal,
+        open_price: Decimal,
+        timestamp: i64,
+    ) -> Vec<Signal> {
+        let symbol = match &self.symbol {
+            Some(s) => s.clone(),
+            None => return Vec::new(),
+        };
         let mut signals = Vec::new();
 
         // 양봉 확인
@@ -391,17 +401,15 @@ impl InfinityBotStrategy {
             self.state.completed_cycles += 1;
             self.reset_cycle();
 
-            let signal = Signal::new(
-                "infinity_bot",
-                symbol.clone(),
-                Side::Sell,
-                SignalType::Exit,
-            )
-            .with_strength(1.0)
-            .with_metadata("reason", json!("take_profit"))
-            .with_metadata("completed_cycles", json!(self.state.completed_cycles))
-            .with_metadata("profit", json!(profit.to_string()))
-            .with_metadata("cumulative_profit", json!(self.state.cumulative_profit.to_string()));
+            let signal = Signal::new("infinity_bot", symbol.clone(), Side::Sell, SignalType::Exit)
+                .with_strength(1.0)
+                .with_metadata("reason", json!("take_profit"))
+                .with_metadata("completed_cycles", json!(self.state.completed_cycles))
+                .with_metadata("profit", json!(profit.to_string()))
+                .with_metadata(
+                    "cumulative_profit",
+                    json!(self.state.cumulative_profit.to_string()),
+                );
 
             signals.push(signal);
             info!(
@@ -431,7 +439,10 @@ impl InfinityBotStrategy {
             .with_metadata("reason", json!("stop_loss_half"))
             .with_metadata("current_round", json!(self.state.current_round))
             .with_metadata("loss", json!(loss.to_string()))
-            .with_metadata("remaining_quantity", json!(self.state.total_quantity.to_string()));
+            .with_metadata(
+                "remaining_quantity",
+                json!(self.state.total_quantity.to_string()),
+            );
 
             signals.push(signal);
             warn!(
@@ -462,17 +473,19 @@ impl InfinityBotStrategy {
                     timestamp,
                 });
 
-                let signal = Signal::new(
-                    "infinity_bot",
-                    symbol.clone(),
-                    Side::Buy,
-                    SignalType::Entry,
-                )
-                .with_strength(1.0)
-                .with_metadata("round", json!(next_round))
-                .with_metadata("avg_price", json!(self.state.avg_price.to_string()))
-                .with_metadata("total_invested", json!(self.state.total_invested.to_string()))
-                .with_metadata("momentum_score", json!(self.calculate_momentum_score().to_string()));
+                let signal =
+                    Signal::new("infinity_bot", symbol.clone(), Side::Buy, SignalType::Entry)
+                        .with_strength(1.0)
+                        .with_metadata("round", json!(next_round))
+                        .with_metadata("avg_price", json!(self.state.avg_price.to_string()))
+                        .with_metadata(
+                            "total_invested",
+                            json!(self.state.total_invested.to_string()),
+                        )
+                        .with_metadata(
+                            "momentum_score",
+                            json!(self.calculate_momentum_score().to_string()),
+                        );
 
                 signals.push(signal);
                 info!(
@@ -541,7 +554,10 @@ impl Strategy for InfinityBotStrategy {
             return Ok(vec![]);
         }
 
-        let config = self.config.as_ref().unwrap();
+        let config = match &self.config {
+            Some(c) => c,
+            None => return Ok(vec![]),
+        };
 
         // 심볼 확인
         if data.symbol.to_string() != config.symbol {
@@ -578,7 +594,8 @@ impl Strategy for InfinityBotStrategy {
         &mut self,
         order: &Order,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let fill_price = order.average_fill_price
+        let fill_price = order
+            .average_fill_price
             .or(order.price)
             .unwrap_or(Decimal::ZERO);
 

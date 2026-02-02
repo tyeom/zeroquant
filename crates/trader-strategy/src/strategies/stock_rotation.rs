@@ -35,8 +35,7 @@ use std::collections::{HashMap, HashSet};
 use tracing::{debug, info, warn};
 
 use crate::strategies::common::rebalance::{
-    PortfolioPosition, RebalanceCalculator, RebalanceConfig, RebalanceOrderSide,
-    TargetAllocation,
+    PortfolioPosition, RebalanceCalculator, RebalanceConfig, RebalanceOrderSide, TargetAllocation,
 };
 use crate::traits::Strategy;
 use trader_core::{MarketData, MarketDataType, Order, Position, Side, Signal, SignalType, Symbol};
@@ -254,7 +253,11 @@ impl StockRotationStrategy {
         let twelve_month = *prices.get(239)?;
 
         // 0으로 나누기 방지
-        if one_month.is_zero() || three_month.is_zero() || six_month.is_zero() || twelve_month.is_zero() {
+        if one_month.is_zero()
+            || three_month.is_zero()
+            || six_month.is_zero()
+            || twelve_month.is_zero()
+        {
             return None;
         }
 
@@ -304,7 +307,7 @@ impl StockRotationStrategy {
         }
 
         // 모멘텀 내림차순 정렬
-        stocks.sort_by(|a, b| b.momentum.partial_cmp(&a.momentum).unwrap());
+        stocks.sort_by(|a, b| b.momentum.cmp(&a.momentum));
 
         // 순위 부여
         for (i, stock) in stocks.iter_mut().enumerate() {
@@ -348,7 +351,11 @@ impl StockRotationStrategy {
     }
 
     /// 목표 비중 계산.
-    fn calculate_target_weights(&self, config: &StockRotationConfig, ranked_stocks: &[StockMomentum]) -> Vec<TargetAllocation> {
+    fn calculate_target_weights(
+        &self,
+        config: &StockRotationConfig,
+        ranked_stocks: &[StockMomentum],
+    ) -> Vec<TargetAllocation> {
         let mut allocations: Vec<TargetAllocation> = Vec::new();
 
         // 투자 가능 비율 (현금 보유분 제외)
@@ -365,7 +372,10 @@ impl StockRotationStrategy {
         let weight_per_stock = investable_rate / Decimal::from(top_n_count);
 
         for stock in ranked_stocks.iter().take(top_n_count) {
-            allocations.push(TargetAllocation::new(stock.symbol.clone(), weight_per_stock));
+            allocations.push(TargetAllocation::new(
+                stock.symbol.clone(),
+                weight_per_stock,
+            ));
             info!(
                 "[StockRotation] #{} {} (Momentum: {:.4}, 비중: {:.1}%)",
                 stock.rank,
@@ -411,7 +421,10 @@ impl StockRotationStrategy {
 
         // 로깅
         if !stocks_to_sell.is_empty() {
-            info!("[StockRotation] 매도 예정 (순위 이탈): {:?}", stocks_to_sell);
+            info!(
+                "[StockRotation] 매도 예정 (순위 이탈): {:?}",
+                stocks_to_sell
+            );
         }
         if !stocks_to_buy.is_empty() {
             info!("[StockRotation] 매수 예정 (순위 진입): {:?}", stocks_to_buy);
@@ -426,7 +439,11 @@ impl StockRotationStrategy {
         for (symbol, quantity) in &self.positions {
             if let Some(prices) = self.price_history.get(symbol) {
                 if let Some(current_price) = prices.first() {
-                    portfolio_positions.push(PortfolioPosition::new(symbol, *quantity, *current_price));
+                    portfolio_positions.push(PortfolioPosition::new(
+                        symbol,
+                        *quantity,
+                        *current_price,
+                    ));
                 }
             }
         }
@@ -439,10 +456,9 @@ impl StockRotationStrategy {
         portfolio_positions.push(PortfolioPosition::cash(self.cash_balance, cash_symbol));
 
         // 리밸런싱 계산
-        let result = self.rebalance_calculator.calculate_orders_with_cash_constraint(
-            &portfolio_positions,
-            &target_allocations,
-        );
+        let result = self
+            .rebalance_calculator
+            .calculate_orders_with_cash_constraint(&portfolio_positions, &target_allocations);
 
         // 신호 변환
         let mut signals = Vec::new();
@@ -494,7 +510,8 @@ impl StockRotationStrategy {
                 self.current_holdings.insert(symbol.clone());
             }
 
-            self.last_rebalance_ym = Some(format!("{}_{}", current_time.year(), current_time.month()));
+            self.last_rebalance_ym =
+                Some(format!("{}_{}", current_time.year(), current_time.month()));
             info!(
                 "[StockRotation] 리밸런싱 완료: {} 주문 생성 (매도: {}, 매수: {})",
                 signals.len(),
@@ -527,7 +544,10 @@ impl Strategy for StockRotationStrategy {
         "종목 갈아타기 전략. 모멘텀 순위 기반으로 상위 N개 종목을 보유하고, 순위 변동 시 교체."
     }
 
-    async fn initialize(&mut self, config: Value) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn initialize(
+        &mut self,
+        config: Value,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let parsed_config: StockRotationConfig = serde_json::from_value(config.clone())?;
 
         let rebalance_config = match parsed_config.market {
@@ -600,10 +620,7 @@ impl Strategy for StockRotationStrategy {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         info!(
             "[StockRotation] 주문 체결: {:?} {} {} @ {:?}",
-            order.side,
-            order.quantity,
-            order.symbol,
-            order.average_fill_price
+            order.side, order.quantity, order.symbol, order.average_fill_price
         );
         Ok(())
     }
@@ -624,9 +641,7 @@ impl Strategy for StockRotationStrategy {
 
         info!(
             "[StockRotation] 포지션 업데이트: {} = {} (PnL: {})",
-            symbol,
-            position.quantity,
-            position.unrealized_pnl
+            symbol, position.quantity, position.unrealized_pnl
         );
         Ok(())
     }
@@ -768,13 +783,28 @@ mod tests {
         });
 
         // AAPL: 높은 모멘텀, MSFT: 중간, GOOGL: 낮음
-        let aapl_prices: Vec<Decimal> = (0..250).rev().map(|i| dec!(100) + Decimal::from(i) * dec!(0.3)).collect();
-        let msft_prices: Vec<Decimal> = (0..250).rev().map(|i| dec!(100) + Decimal::from(i) * dec!(0.2)).collect();
-        let googl_prices: Vec<Decimal> = (0..250).rev().map(|i| dec!(100) + Decimal::from(i) * dec!(0.1)).collect();
+        let aapl_prices: Vec<Decimal> = (0..250)
+            .rev()
+            .map(|i| dec!(100) + Decimal::from(i) * dec!(0.3))
+            .collect();
+        let msft_prices: Vec<Decimal> = (0..250)
+            .rev()
+            .map(|i| dec!(100) + Decimal::from(i) * dec!(0.2))
+            .collect();
+        let googl_prices: Vec<Decimal> = (0..250)
+            .rev()
+            .map(|i| dec!(100) + Decimal::from(i) * dec!(0.1))
+            .collect();
 
-        strategy.price_history.insert("AAPL".to_string(), aapl_prices);
-        strategy.price_history.insert("MSFT".to_string(), msft_prices);
-        strategy.price_history.insert("GOOGL".to_string(), googl_prices);
+        strategy
+            .price_history
+            .insert("AAPL".to_string(), aapl_prices);
+        strategy
+            .price_history
+            .insert("MSFT".to_string(), msft_prices);
+        strategy
+            .price_history
+            .insert("GOOGL".to_string(), googl_prices);
 
         let config = strategy.config.as_ref().unwrap();
         let ranked = strategy.rank_all_stocks(config);
@@ -812,9 +842,21 @@ mod tests {
 
         // 새 순위: AAPL, GOOGL (MSFT 탈락)
         let ranked = vec![
-            StockMomentum { symbol: "AAPL".to_string(), momentum: dec!(0.3), rank: 1 },
-            StockMomentum { symbol: "GOOGL".to_string(), momentum: dec!(0.2), rank: 2 },
-            StockMomentum { symbol: "MSFT".to_string(), momentum: dec!(0.1), rank: 3 },
+            StockMomentum {
+                symbol: "AAPL".to_string(),
+                momentum: dec!(0.3),
+                rank: 1,
+            },
+            StockMomentum {
+                symbol: "GOOGL".to_string(),
+                momentum: dec!(0.2),
+                rank: 2,
+            },
+            StockMomentum {
+                symbol: "MSFT".to_string(),
+                momentum: dec!(0.1),
+                rank: 3,
+            },
         ];
 
         let (to_sell, to_buy) = strategy.calculate_rotation(&config, &ranked);
@@ -839,11 +881,21 @@ mod tests {
         });
 
         // AAPL: 높은 모멘텀 (통과), MSFT: 낮은 모멘텀 (필터)
-        let aapl_prices: Vec<Decimal> = (0..250).rev().map(|i| dec!(100) + Decimal::from(i) * dec!(0.3)).collect();
-        let msft_prices: Vec<Decimal> = (0..250).rev().map(|i| dec!(100) + Decimal::from(i) * dec!(0.01)).collect();
+        let aapl_prices: Vec<Decimal> = (0..250)
+            .rev()
+            .map(|i| dec!(100) + Decimal::from(i) * dec!(0.3))
+            .collect();
+        let msft_prices: Vec<Decimal> = (0..250)
+            .rev()
+            .map(|i| dec!(100) + Decimal::from(i) * dec!(0.01))
+            .collect();
 
-        strategy.price_history.insert("AAPL".to_string(), aapl_prices);
-        strategy.price_history.insert("MSFT".to_string(), msft_prices);
+        strategy
+            .price_history
+            .insert("AAPL".to_string(), aapl_prices);
+        strategy
+            .price_history
+            .insert("MSFT".to_string(), msft_prices);
 
         let config = strategy.config.as_ref().unwrap();
         let ranked = strategy.rank_all_stocks(config);

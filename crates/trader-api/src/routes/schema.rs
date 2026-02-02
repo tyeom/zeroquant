@@ -177,8 +177,8 @@ pub fn schema_router() -> axum::Router<Arc<AppState>> {
 
     axum::Router::new()
         .route("/fragments", get(list_fragments))
-        .route("/fragments/:category", get(list_fragments_by_category))
-        .route("/fragments/:fragment_id/detail", get(get_fragment_detail))
+        .route("/fragments/{:category}", get(list_fragments_by_category))
+        .route("/fragments/{:fragment_id}/detail", get(get_fragment_detail))
 }
 
 #[cfg(test)]

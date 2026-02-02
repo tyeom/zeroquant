@@ -45,11 +45,11 @@ pub struct RiskParams {
 impl Default for RiskParams {
     fn default() -> Self {
         Self {
-            max_position_ratio: dec!(0.1),      // 10%
-            max_daily_loss_ratio: dec!(0.03),   // 3%
-            stop_loss_ratio: dec!(0.03),        // 3%
-            take_profit_ratio: dec!(0.05),      // 5%
-            max_leverage: dec!(1),               // 1x (레버리지 없음)
+            max_position_ratio: dec!(0.1),    // 10%
+            max_daily_loss_ratio: dec!(0.03), // 3%
+            stop_loss_ratio: dec!(0.03),      // 3%
+            take_profit_ratio: dec!(0.05),    // 5%
+            max_leverage: dec!(1),            // 1x (레버리지 없음)
         }
     }
 }
@@ -73,11 +73,7 @@ pub trait RiskChecker: Send + Sync + std::fmt::Debug {
     ) -> Result<(), RiskCheckError>;
 
     /// 레버리지를 검증합니다.
-    fn check_leverage(
-        &self,
-        leverage: Decimal,
-        params: &RiskParams,
-    ) -> Result<(), RiskCheckError>;
+    fn check_leverage(&self, leverage: Decimal, params: &RiskParams) -> Result<(), RiskCheckError>;
 }
 
 /// 기본 리스크 체커 구현.
@@ -121,11 +117,7 @@ impl RiskChecker for DefaultRiskChecker {
         Ok(())
     }
 
-    fn check_leverage(
-        &self,
-        leverage: Decimal,
-        params: &RiskParams,
-    ) -> Result<(), RiskCheckError> {
+    fn check_leverage(&self, leverage: Decimal, params: &RiskParams) -> Result<(), RiskCheckError> {
         if leverage > params.max_leverage {
             return Err(RiskCheckError::ExceededLeverage {
                 current: leverage,

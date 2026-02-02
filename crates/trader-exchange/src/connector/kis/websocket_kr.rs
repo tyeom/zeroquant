@@ -236,7 +236,8 @@ impl KisKrWebSocket {
         let orderbooks = self.subscribed_orderbooks.clone();
 
         for symbol in &trades {
-            let msg = self.create_subscribe_message(&approval_key, tr_id::WS_KR_TRADE, symbol, true);
+            let msg =
+                self.create_subscribe_message(&approval_key, tr_id::WS_KR_TRADE, symbol, true);
             write
                 .send(Message::Text(msg))
                 .await

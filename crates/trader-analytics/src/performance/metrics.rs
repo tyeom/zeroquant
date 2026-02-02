@@ -33,7 +33,7 @@ use rust_decimal::prelude::*;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
-use trader_core::{Side, TradeInfo, TradeStatistics, realized_pnl, net_pnl};
+use trader_core::{net_pnl, realized_pnl, Side, TradeInfo, TradeStatistics};
 use uuid::Uuid;
 
 /// 연간 거래일 수 (연율화 계산에 사용)
@@ -515,11 +515,12 @@ impl PerformanceMetrics {
         };
 
         // === 회복 계수 ===
-        let max_drawdown_value = if initial_capital > Decimal::ZERO && max_drawdown_pct > Decimal::ZERO {
-            initial_capital * max_drawdown_pct / Decimal::from(100)
-        } else {
-            Decimal::ZERO
-        };
+        let max_drawdown_value =
+            if initial_capital > Decimal::ZERO && max_drawdown_pct > Decimal::ZERO {
+                initial_capital * max_drawdown_pct / Decimal::from(100)
+            } else {
+                Decimal::ZERO
+            };
 
         let recovery_factor = if max_drawdown_value > Decimal::ZERO {
             net_profit / max_drawdown_value
@@ -673,7 +674,11 @@ impl PerformanceMetrics {
     /// - 1.0 이상: 양호 (위험 대비 적절한 수익)
     /// - 2.0 이상: 우수 (위험 대비 높은 수익)
     /// - 3.0 이상: 매우 우수 (헤지펀드 수준)
-    pub fn calculate_sharpe_ratio(returns: &[Decimal], risk_free_rate: f64, trading_days: u32) -> Decimal {
+    pub fn calculate_sharpe_ratio(
+        returns: &[Decimal],
+        risk_free_rate: f64,
+        trading_days: u32,
+    ) -> Decimal {
         // 최소 2개의 수익률 데이터 필요 (표준편차 계산용)
         if returns.len() < 2 {
             return Decimal::ZERO;
@@ -709,7 +714,8 @@ impl PerformanceMetrics {
         }
 
         // 연율화 계수: √(거래일)
-        let annualization = Self::decimal_sqrt(Decimal::from(trading_days.min(TRADING_DAYS_PER_YEAR)));
+        let annualization =
+            Self::decimal_sqrt(Decimal::from(trading_days.min(TRADING_DAYS_PER_YEAR)));
 
         (excess_return / std_dev) * annualization
     }
@@ -729,7 +735,11 @@ impl PerformanceMetrics {
     ///
     /// 일반적으로 샤프 비율보다 높게 나옵니다 (수익 변동은 제외하므로).
     /// 손실 위험 대비 수익을 더 정확하게 측정합니다.
-    pub fn calculate_sortino_ratio(returns: &[Decimal], risk_free_rate: f64, trading_days: u32) -> Decimal {
+    pub fn calculate_sortino_ratio(
+        returns: &[Decimal],
+        risk_free_rate: f64,
+        trading_days: u32,
+    ) -> Decimal {
         if returns.len() < 2 {
             return Decimal::ZERO;
         }
@@ -773,7 +783,8 @@ impl PerformanceMetrics {
             return Decimal::ZERO;
         }
 
-        let annualization = Self::decimal_sqrt(Decimal::from(trading_days.min(TRADING_DAYS_PER_YEAR)));
+        let annualization =
+            Self::decimal_sqrt(Decimal::from(trading_days.min(TRADING_DAYS_PER_YEAR)));
 
         (excess_return / downside_dev) * annualization
     }
@@ -974,7 +985,8 @@ impl RollingMetrics {
         }
 
         if self.peak_equity > Decimal::ZERO {
-            self.current_drawdown = (self.peak_equity - new_equity) / self.peak_equity * Decimal::from(100);
+            self.current_drawdown =
+                (self.peak_equity - new_equity) / self.peak_equity * Decimal::from(100);
             if self.current_drawdown > self.max_drawdown {
                 self.max_drawdown = self.current_drawdown;
             }

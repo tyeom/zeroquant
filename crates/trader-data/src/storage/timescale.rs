@@ -10,8 +10,8 @@ use serde::Deserialize;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use sqlx::FromRow;
 use std::time::Duration;
-use trader_core::{Kline, Order, OrderStatusType, Side, Symbol, Timeframe, TradeTick};
 use tracing::{debug, info, instrument};
+use trader_core::{Kline, Order, OrderStatusType, Side, Symbol, Timeframe, TradeTick};
 use uuid::Uuid;
 
 /// 데이터베이스 설정.
@@ -452,14 +452,13 @@ impl KlineRepository {
         timeframe: Timeframe,
         before: DateTime<Utc>,
     ) -> Result<u64> {
-        let result = sqlx::query(
-            "DELETE FROM klines WHERE symbol_id = $1 AND timeframe = $2 AND time < $3",
-        )
-        .bind(symbol_id)
-        .bind(timeframe.to_string())
-        .bind(before)
-        .execute(self.db.pool())
-        .await?;
+        let result =
+            sqlx::query("DELETE FROM klines WHERE symbol_id = $1 AND timeframe = $2 AND time < $3")
+                .bind(symbol_id)
+                .bind(timeframe.to_string())
+                .bind(before)
+                .execute(self.db.pool())
+                .await?;
 
         Ok(result.rows_affected())
     }
@@ -486,17 +485,29 @@ impl KlineRecord {
         let timeframe = self.timeframe.parse().unwrap_or(Timeframe::D1);
         // close_time은 open_time(DB의 time 컬럼) + timeframe 기간으로 계산
         let close_time = match timeframe {
-            Timeframe::M1 => self.time + chrono::Duration::minutes(1) - chrono::Duration::seconds(1),
-            Timeframe::M3 => self.time + chrono::Duration::minutes(3) - chrono::Duration::seconds(1),
-            Timeframe::M5 => self.time + chrono::Duration::minutes(5) - chrono::Duration::seconds(1),
-            Timeframe::M15 => self.time + chrono::Duration::minutes(15) - chrono::Duration::seconds(1),
-            Timeframe::M30 => self.time + chrono::Duration::minutes(30) - chrono::Duration::seconds(1),
+            Timeframe::M1 => {
+                self.time + chrono::Duration::minutes(1) - chrono::Duration::seconds(1)
+            }
+            Timeframe::M3 => {
+                self.time + chrono::Duration::minutes(3) - chrono::Duration::seconds(1)
+            }
+            Timeframe::M5 => {
+                self.time + chrono::Duration::minutes(5) - chrono::Duration::seconds(1)
+            }
+            Timeframe::M15 => {
+                self.time + chrono::Duration::minutes(15) - chrono::Duration::seconds(1)
+            }
+            Timeframe::M30 => {
+                self.time + chrono::Duration::minutes(30) - chrono::Duration::seconds(1)
+            }
             Timeframe::H1 => self.time + chrono::Duration::hours(1) - chrono::Duration::seconds(1),
             Timeframe::H2 => self.time + chrono::Duration::hours(2) - chrono::Duration::seconds(1),
             Timeframe::H4 => self.time + chrono::Duration::hours(4) - chrono::Duration::seconds(1),
             Timeframe::H6 => self.time + chrono::Duration::hours(6) - chrono::Duration::seconds(1),
             Timeframe::H8 => self.time + chrono::Duration::hours(8) - chrono::Duration::seconds(1),
-            Timeframe::H12 => self.time + chrono::Duration::hours(12) - chrono::Duration::seconds(1),
+            Timeframe::H12 => {
+                self.time + chrono::Duration::hours(12) - chrono::Duration::seconds(1)
+            }
             Timeframe::D1 => self.time + chrono::Duration::days(1) - chrono::Duration::seconds(1),
             Timeframe::D3 => self.time + chrono::Duration::days(3) - chrono::Duration::seconds(1),
             Timeframe::W1 => self.time + chrono::Duration::weeks(1) - chrono::Duration::seconds(1),
@@ -736,13 +747,11 @@ impl OrderRepository {
         order_id: Uuid,
         exchange_order_id: &str,
     ) -> Result<()> {
-        sqlx::query(
-            "UPDATE orders SET exchange_order_id = $2, updated_at = NOW() WHERE id = $1",
-        )
-        .bind(order_id)
-        .bind(exchange_order_id)
-        .execute(self.db.pool())
-        .await?;
+        sqlx::query("UPDATE orders SET exchange_order_id = $2, updated_at = NOW() WHERE id = $1")
+            .bind(order_id)
+            .bind(exchange_order_id)
+            .execute(self.db.pool())
+            .await?;
 
         Ok(())
     }
@@ -772,13 +781,11 @@ impl OrderRepository {
 
     /// 전략별 주문을 조회합니다.
     pub async fn get_by_strategy(&self, strategy_id: &str) -> Result<Vec<OrderRecord>> {
-        sqlx::query_as(
-            "SELECT * FROM orders WHERE strategy_id = $1 ORDER BY created_at DESC",
-        )
-        .bind(strategy_id)
-        .fetch_all(self.db.pool())
-        .await
-        .map_err(Into::into)
+        sqlx::query_as("SELECT * FROM orders WHERE strategy_id = $1 ORDER BY created_at DESC")
+            .bind(strategy_id)
+            .fetch_all(self.db.pool())
+            .await
+            .map_err(Into::into)
     }
 
     /// 미체결 주문을 조회합니다.
@@ -810,11 +817,7 @@ impl OrderRepository {
     }
 
     /// 최근 주문을 조회합니다.
-    pub async fn get_recent(
-        &self,
-        exchange: Option<&str>,
-        limit: i32,
-    ) -> Result<Vec<OrderRecord>> {
+    pub async fn get_recent(&self, exchange: Option<&str>, limit: i32) -> Result<Vec<OrderRecord>> {
         if let Some(exchange) = exchange {
             sqlx::query_as(
                 "SELECT * FROM orders WHERE exchange = $1 ORDER BY created_at DESC LIMIT $2",

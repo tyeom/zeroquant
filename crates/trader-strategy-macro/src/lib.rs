@@ -82,7 +82,10 @@ pub fn derive_strategy_config(input: TokenStream) -> TokenStream {
         let field_name = field.ident.as_ref().unwrap();
 
         // fragment 속성 확인
-        let has_fragment = field.attrs.iter().any(|attr| attr.path().is_ident("fragment"));
+        let has_fragment = field
+            .attrs
+            .iter()
+            .any(|attr| attr.path().is_ident("fragment"));
 
         if has_fragment {
             // Fragment 속성 파싱
@@ -103,9 +106,7 @@ pub fn derive_strategy_config(input: TokenStream) -> TokenStream {
             let field_name_str = field_name.to_string();
 
             let default_label = field_name_str.clone();
-            let label = schema_attrs
-                .get("label")
-                .unwrap_or(&default_label);
+            let label = schema_attrs.get("label").unwrap_or(&default_label);
             let description = schema_attrs.get("description");
             let min = schema_attrs.get("min");
             let max = schema_attrs.get("max");
@@ -180,7 +181,9 @@ pub fn derive_strategy_config(input: TokenStream) -> TokenStream {
 }
 
 /// 구조체의 strategy 속성을 파싱합니다.
-fn parse_strategy_attributes(attrs: &[syn::Attribute]) -> std::collections::HashMap<String, String> {
+fn parse_strategy_attributes(
+    attrs: &[syn::Attribute],
+) -> std::collections::HashMap<String, String> {
     let mut result = std::collections::HashMap::new();
 
     for attr in attrs {

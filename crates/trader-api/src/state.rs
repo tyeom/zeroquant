@@ -6,16 +6,16 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use uuid::Uuid;
-use trader_strategy::StrategyEngine;
-use trader_risk::RiskManager;
-use trader_execution::OrderExecutor;
-use trader_exchange::connector::kis::{KisKrClient, KisUsClient, KisOAuth};
-use trader_core::crypto::CredentialEncryptor;
-use trader_data::{SymbolResolver, RedisCache, RedisConfig};
 use trader_analytics::ml::MlService;
+use trader_core::crypto::CredentialEncryptor;
+use trader_data::{RedisCache, RedisConfig, SymbolResolver};
+use trader_exchange::connector::kis::{KisKrClient, KisOAuth, KisUsClient};
+use trader_execution::OrderExecutor;
+use trader_risk::RiskManager;
+use trader_strategy::StrategyEngine;
+use uuid::Uuid;
 
-use crate::websocket::{SharedSubscriptionManager, ServerMessage};
+use crate::websocket::{ServerMessage, SharedSubscriptionManager};
 
 /// KIS 국내/해외 클라이언트 쌍.
 ///
@@ -115,8 +115,7 @@ impl AppState {
             .map(Arc::new);
 
         // ML 서비스 초기화 (기본 설정으로 시작, 필요시 ONNX 모델 로드)
-        let ml_service = MlService::with_defaults()
-            .expect("Failed to create MlService");
+        let ml_service = MlService::with_defaults().expect("Failed to create MlService");
 
         Self {
             strategy_engine: Arc::new(RwLock::new(strategy_engine)),
@@ -235,10 +234,7 @@ impl AppState {
     /// 데이터베이스 연결 상태 확인.
     pub async fn is_db_healthy(&self) -> bool {
         if let Some(pool) = &self.db_pool {
-            sqlx::query("SELECT 1")
-                .fetch_one(pool)
-                .await
-                .is_ok()
+            sqlx::query("SELECT 1").fetch_one(pool).await.is_ok()
         } else {
             false
         }
@@ -451,9 +447,9 @@ impl AppState {
 #[cfg(any(test, feature = "test-utils"))]
 pub fn create_test_state() -> AppState {
     use rust_decimal_macros::dec;
-    use trader_strategy::EngineConfig;
-    use trader_risk::RiskConfig;
     use trader_execution::ConversionConfig;
+    use trader_risk::RiskConfig;
+    use trader_strategy::EngineConfig;
 
     let strategy_engine = StrategyEngine::new(EngineConfig::default());
     let risk_manager = RiskManager::new(RiskConfig::default(), dec!(10000));
@@ -462,8 +458,7 @@ pub fn create_test_state() -> AppState {
         "test_exchange",
         ConversionConfig::default(),
     );
-    let ml_service = MlService::with_defaults()
-        .expect("Failed to create MlService for test");
+    let ml_service = MlService::with_defaults().expect("Failed to create MlService for test");
 
     let mut state = AppState::new(strategy_engine, risk_manager, executor);
     state.ml_service = Arc::new(RwLock::new(ml_service));

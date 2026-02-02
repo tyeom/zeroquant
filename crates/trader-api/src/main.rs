@@ -14,22 +14,26 @@ use tokio_util::sync::CancellationToken;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 use trader_api::metrics::setup_metrics_recorder;
-use trader_api::middleware::{rate_limit_middleware, metrics_layer, RateLimitConfig, RateLimitState};
+use trader_api::middleware::{
+    metrics_layer, rate_limit_middleware, RateLimitConfig, RateLimitState,
+};
 use trader_api::openapi::swagger_ui_router;
 use trader_api::repository::StrategyRepository;
 use trader_api::routes::create_api_router;
 use trader_api::state::AppState;
-use trader_api::tasks::{start_fundamental_collector, FundamentalCollectorConfig};
-use trader_api::websocket::{create_subscription_manager, start_aggregator, start_simulator, standalone_websocket_router, WsState};
+use trader_api::websocket::{
+    create_subscription_manager, standalone_websocket_router, start_aggregator, start_simulator,
+    WsState,
+};
 use trader_core::crypto::CredentialEncryptor;
 use trader_core::Symbol;
-use trader_execution::{ConversionConfig, OrderExecutor};
 use trader_exchange::connector::kis::{KisConfig, KisKrClient, KisOAuth, KisUsClient};
 use trader_exchange::stream::UnifiedMarketStream;
 use trader_exchange::traits::MarketStream;
+use trader_execution::{ConversionConfig, OrderExecutor};
 use trader_risk::{RiskConfig, RiskManager};
 use trader_strategy::{EngineConfig, StrategyEngine};
 
@@ -539,7 +543,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = Arc::new(
         create_app_state(&config)
             .await
-            .with_subscriptions(subscriptions)
+            .with_subscriptions(subscriptions),
     );
 
     info!(version = %state.version, "Application state initialized");
@@ -569,35 +573,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // 전역 종료 토큰 생성 (백그라운드 태스크용)
+    // 전역 종료 토큰 생성 (graceful shutdown용)
     let shutdown_token = CancellationToken::new();
-
-    // Fundamental 데이터 백그라운드 수집기 시작
-    // FUNDAMENTAL_COLLECT_ENABLED 환경변수로 활성화 제어 (기본: 비활성화)
-    let fundamental_enabled = std::env::var("FUNDAMENTAL_COLLECT_ENABLED")
-        .map(|v| v == "true" || v == "1")
-        .unwrap_or(false);
-
-    if fundamental_enabled {
-        if let Some(ref pool) = state.db_pool {
-            let collector_config = FundamentalCollectorConfig::from_env();
-            info!(
-                interval_secs = collector_config.collect_interval.as_secs(),
-                stale_days = collector_config.stale_days,
-                batch_size = collector_config.batch_size,
-                "Fundamental 데이터 수집기 활성화됨"
-            );
-            start_fundamental_collector(
-                pool.clone(),
-                collector_config,
-                shutdown_token.clone(),
-            );
-        } else {
-            warn!("FUNDAMENTAL_COLLECT_ENABLED=true but database not connected, skipping");
-        }
-    } else {
-        info!("Fundamental 데이터 수집기 비활성화됨 (FUNDAMENTAL_COLLECT_ENABLED=true로 활성화)");
-    }
 
     // 라우터 생성
     let app = create_router(state, metrics_handle, ws_state);
@@ -626,14 +603,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     shutdown_token.cancel();
 
     // 정리 작업에 최대 10초 대기
-    let cleanup_timeout = tokio::time::timeout(
-        Duration::from_secs(10),
-        async {
-            // 진행 중인 요청 완료 대기
-            tokio::time::sleep(Duration::from_millis(500)).await;
-            info!("Cleanup completed");
-        }
-    ).await;
+    let cleanup_timeout = tokio::time::timeout(Duration::from_secs(10), async {
+        // 진행 중인 요청 완료 대기
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        info!("Cleanup completed");
+    })
+    .await;
 
     if cleanup_timeout.is_err() {
         warn!("Cleanup timeout, forcing shutdown");

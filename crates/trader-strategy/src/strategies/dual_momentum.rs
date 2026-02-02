@@ -31,8 +31,7 @@ use std::collections::HashMap;
 use tracing::{debug, info};
 
 use crate::strategies::common::rebalance::{
-    PortfolioPosition, RebalanceCalculator, RebalanceConfig, RebalanceOrderSide,
-    TargetAllocation,
+    PortfolioPosition, RebalanceCalculator, RebalanceConfig, RebalanceOrderSide, TargetAllocation,
 };
 use crate::traits::Strategy;
 use trader_core::{MarketData, MarketDataType, Order, Position, Side, Signal, Symbol};
@@ -116,11 +115,21 @@ pub struct DualMomentumConfig {
     pub us_bonds: Option<Vec<DualAsset>>,
 }
 
-fn default_total_amount() -> Decimal { dec!(10000000) }
-fn default_momentum_period() -> usize { 63 } // 3개월
-fn default_rebalance_threshold() -> Decimal { dec!(5) }
-fn default_kr_allocation() -> f64 { 0.5 }
-fn default_use_absolute() -> bool { true }
+fn default_total_amount() -> Decimal {
+    dec!(10000000)
+}
+fn default_momentum_period() -> usize {
+    63
+} // 3개월
+fn default_rebalance_threshold() -> Decimal {
+    dec!(5)
+}
+fn default_kr_allocation() -> f64 {
+    0.5
+}
+fn default_use_absolute() -> bool {
+    true
+}
 
 impl Default for DualMomentumConfig {
     fn default() -> Self {
@@ -155,7 +164,9 @@ impl DualMomentumConfig {
     }
 
     pub fn get_kr_stocks(&self) -> Vec<DualAsset> {
-        self.kr_stocks.clone().unwrap_or_else(Self::default_kr_stocks)
+        self.kr_stocks
+            .clone()
+            .unwrap_or_else(Self::default_kr_stocks)
     }
 
     pub fn get_us_bonds(&self) -> Vec<DualAsset> {
@@ -249,7 +260,9 @@ impl DualMomentumStrategy {
 
     /// 클래스별 평균 모멘텀 계산.
     fn get_class_momentum(&self, class: DualAssetClass) -> Decimal {
-        let assets: Vec<_> = self.asset_data.values()
+        let assets: Vec<_> = self
+            .asset_data
+            .values()
             .filter(|a| a.asset_class == class)
             .collect();
 
@@ -263,7 +276,8 @@ impl DualMomentumStrategy {
 
     /// 클래스 내 최고 모멘텀 자산 선택.
     fn select_best_in_class(&self, class: DualAssetClass) -> Option<String> {
-        self.asset_data.values()
+        self.asset_data
+            .values()
             .filter(|a| a.asset_class == class)
             .max_by(|a, b| a.momentum.cmp(&b.momentum))
             .map(|a| a.symbol.clone())
@@ -366,7 +380,9 @@ impl DualMomentumStrategy {
         }
 
         // 현재 포지션
-        let mut current_positions: Vec<PortfolioPosition> = self.asset_data.values()
+        let mut current_positions: Vec<PortfolioPosition> = self
+            .asset_data
+            .values()
             .filter(|d| d.current_holdings > Decimal::ZERO)
             .map(|d| PortfolioPosition::new(&d.symbol, d.current_holdings, d.current_price))
             .collect();
@@ -388,7 +404,9 @@ impl DualMomentumStrategy {
 
         for order in result.orders {
             // 자산에 맞는 통화 결정
-            let quote = self.asset_data.get(&order.symbol)
+            let quote = self
+                .asset_data
+                .get(&order.symbol)
                 .map(|a| if a.market == "KR" { "KRW" } else { "USD" })
                 .unwrap_or("USD");
 
@@ -509,8 +527,7 @@ impl Strategy for DualMomentumStrategy {
         }
 
         if self.should_rebalance(timestamp) {
-            let all_have_data = self.asset_data.values()
-                .all(|a| !a.prices.is_empty());
+            let all_have_data = self.asset_data.values().all(|a| !a.prices.is_empty());
 
             if all_have_data {
                 return Ok(self.generate_rebalance_signals(timestamp));

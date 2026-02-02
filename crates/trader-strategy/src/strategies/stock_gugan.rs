@@ -19,13 +19,13 @@
 use crate::strategies::common::deserialize_symbol;
 use crate::Strategy;
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::VecDeque;
-use chrono::{DateTime, Utc};
-use trader_core::{MarketData, MarketDataType, MarketType, Order, Position, Side, Signal, Symbol};
 use tracing::{debug, info};
+use trader_core::{MarketData, MarketDataType, MarketType, Order, Position, Side, Signal, Symbol};
 
 /// 구간분할 전략 설정.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -63,12 +63,24 @@ pub struct StockGuganConfig {
     pub stop_loss_pct: f64,
 }
 
-fn default_div_num() -> usize { 15 }
-fn default_target_period() -> usize { 20 }
-fn default_use_ma_filter() -> bool { true }
-fn default_buy_ma_period() -> usize { 20 }
-fn default_sell_ma_period() -> usize { 5 }
-fn default_initial_buy_ratio() -> f64 { 1.0 }
+fn default_div_num() -> usize {
+    15
+}
+fn default_target_period() -> usize {
+    20
+}
+fn default_use_ma_filter() -> bool {
+    true
+}
+fn default_buy_ma_period() -> usize {
+    20
+}
+fn default_sell_ma_period() -> usize {
+    5
+}
+fn default_initial_buy_ratio() -> f64 {
+    1.0
+}
 
 impl Default for StockGuganConfig {
     fn default() -> Self {
@@ -165,7 +177,8 @@ impl StockGuganStrategy {
             return None;
         }
 
-        let sum: Decimal = self.daily_history
+        let sum: Decimal = self
+            .daily_history
             .iter()
             .take(period)
             .map(|d| d.close)
@@ -254,7 +267,11 @@ impl StockGuganStrategy {
     }
 
     /// 신호 생성.
-    fn generate_signals(&mut self, current_price: Decimal, _timestamp: DateTime<Utc>) -> Vec<Signal> {
+    fn generate_signals(
+        &mut self,
+        current_price: Decimal,
+        _timestamp: DateTime<Utc>,
+    ) -> Vec<Signal> {
         let config = match self.config.as_ref() {
             Some(c) => c.clone(),
             None => return Vec::new(),
@@ -290,7 +307,7 @@ impl StockGuganStrategy {
                     .with_strength(strength)
                     .with_prices(Some(current_price), None, None)
                     .with_metadata("zone", json!(current_zone))
-                    .with_metadata("action", json!("initial"))
+                    .with_metadata("action", json!("initial")),
             );
 
             info!(
@@ -338,7 +355,7 @@ impl StockGuganStrategy {
                         .with_metadata("zone", json!(current_zone))
                         .with_metadata("prev_zone", json!(prev_zone))
                         .with_metadata("zone_change", json!(zone_change))
-                        .with_metadata("action", json!("zone_up_buy"))
+                        .with_metadata("action", json!("zone_up_buy")),
                 );
 
                 info!(
@@ -376,7 +393,7 @@ impl StockGuganStrategy {
                         .with_metadata("zone", json!(current_zone))
                         .with_metadata("prev_zone", json!(prev_zone))
                         .with_metadata("zone_change", json!(zone_change))
-                        .with_metadata("action", json!("zone_down_sell"))
+                        .with_metadata("action", json!("zone_down_sell")),
                 );
 
                 info!(
@@ -434,13 +451,23 @@ impl Strategy for StockGuganStrategy {
         );
 
         // 시장 타입 결정 (숫자로 시작하면 한국, 아니면 미국)
-        let market_type = if gugan_config.symbol.chars().next().map(|c| c.is_numeric()).unwrap_or(false) {
+        let market_type = if gugan_config
+            .symbol
+            .chars()
+            .next()
+            .map(|c| c.is_numeric())
+            .unwrap_or(false)
+        {
             MarketType::KrStock
         } else {
             MarketType::UsStock
         };
 
-        let quote = if market_type == MarketType::KrStock { "KRW" } else { "USD" };
+        let quote = if market_type == MarketType::KrStock {
+            "KRW"
+        } else {
+            "USD"
+        };
         self.symbol = Some(Symbol::stock(&gugan_config.symbol, quote));
         self.config = Some(gugan_config);
         self.initialized = true;
@@ -467,12 +494,7 @@ impl Strategy for StockGuganStrategy {
 
         // kline에서 OHLCV 추출
         let (high, low, close, timestamp) = match &data.data {
-            MarketDataType::Kline(kline) => (
-                kline.high,
-                kline.low,
-                kline.close,
-                kline.open_time,
-            ),
+            MarketDataType::Kline(kline) => (kline.high, kline.low, kline.close, kline.open_time),
             _ => return Ok(vec![]),
         };
 
@@ -570,7 +592,13 @@ mod tests {
     use rust_decimal_macros::dec;
     use trader_core::{Kline, Timeframe};
 
-    fn create_daily_kline(symbol: &Symbol, high: Decimal, low: Decimal, close: Decimal, day: u32) -> MarketData {
+    fn create_daily_kline(
+        symbol: &Symbol,
+        high: Decimal,
+        low: Decimal,
+        close: Decimal,
+        day: u32,
+    ) -> MarketData {
         let timestamp = Utc.with_ymd_and_hms(2024, 1, day, 9, 0, 0).unwrap();
         let kline = Kline::new(
             symbol.clone(),

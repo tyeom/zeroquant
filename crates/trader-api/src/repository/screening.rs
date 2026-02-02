@@ -596,11 +596,10 @@ pub async fn refresh_latest_prices(pool: &PgPool) -> Result<(), sqlx::Error> {
 
 /// Materialized View 존재 여부 확인.
 pub async fn check_latest_prices_view_exists(pool: &PgPool) -> Result<bool, sqlx::Error> {
-    let result: Option<(i32,)> = sqlx::query_as(
-        "SELECT 1 FROM pg_matviews WHERE matviewname = 'mv_latest_prices'"
-    )
-    .fetch_optional(pool)
-    .await?;
+    let result: Option<(i32,)> =
+        sqlx::query_as("SELECT 1 FROM pg_matviews WHERE matviewname = 'mv_latest_prices'")
+            .fetch_optional(pool)
+            .await?;
 
     Ok(result.is_some())
 }

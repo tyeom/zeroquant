@@ -240,9 +240,9 @@ mod tests {
     #[test]
     fn test_kelly_sizer() {
         let sizer = KellyPositionSizer::new(
-            dec!(0.6),   // 60% 승률
-            dec!(2),     // 2:1 손익비
-            dec!(0.25),  // 켈리 분수 25%
+            dec!(0.6),  // 60% 승률
+            dec!(2),    // 2:1 손익비
+            dec!(0.25), // 켈리 분수 25%
         );
         let result = sizer.calculate_size(dec!(10000), dec!(100), None);
 

@@ -36,6 +36,5 @@ pub use manager::{RiskManager, RiskValidation};
 pub use position_sizing::{PositionSizer, SizingValidation};
 pub use stop_loss::{StopOrder, StopOrderGenerator, StopType, TrailingStopState};
 pub use trailing_stop::{
-    EnhancedTrailingStop, ProfitLevel, StepTrailingStopBuilder, TrailingStopMode,
-    TrailingStopStats,
+    EnhancedTrailingStop, ProfitLevel, StepTrailingStopBuilder, TrailingStopMode, TrailingStopStats,
 };

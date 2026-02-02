@@ -30,8 +30,7 @@ use std::collections::HashMap;
 use tracing::{debug, info};
 
 use crate::strategies::common::rebalance::{
-    PortfolioPosition, RebalanceCalculator, RebalanceConfig, RebalanceOrderSide,
-    TargetAllocation,
+    PortfolioPosition, RebalanceCalculator, RebalanceConfig, RebalanceOrderSide, TargetAllocation,
 };
 use crate::traits::Strategy;
 use trader_core::{MarketData, MarketDataType, Order, Position, Side, Signal, Symbol};
@@ -68,7 +67,11 @@ pub struct PensionAsset {
 }
 
 impl PensionAsset {
-    pub fn new(symbol: impl Into<String>, asset_type: PensionAssetType, target_rate: Decimal) -> Self {
+    pub fn new(
+        symbol: impl Into<String>,
+        asset_type: PensionAssetType,
+        target_rate: Decimal,
+    ) -> Self {
         Self {
             symbol: symbol.into(),
             asset_type,
@@ -249,30 +252,44 @@ fn default_pension_portfolio() -> Vec<PensionAsset> {
         PensionAsset::stock("161510", dec!(2)),  // TIGER 베트남VN30
         PensionAsset::stock("445910", dec!(2)),  // TIGER 필리핀MSCI
         // 안전자산 (SAFE) - 30%
-        PensionAsset::safe("305080", dec!(9)),   // TIGER 미국달러단기채권액티브
-        PensionAsset::safe("148070", dec!(9)),   // KOSEF 달러선물
-        PensionAsset::safe("385560", dec!(3)),   // KODEX 미국30년국채커버드콜
-        PensionAsset::safe("304660", dec!(3)),   // KODEX 미국채울트라30년선물(H)
-        PensionAsset::safe("114470", dec!(3)),   // KOSEF 국고채10년
-        PensionAsset::safe("329750", dec!(3)),   // TIGER 미국채10년선물
+        PensionAsset::safe("305080", dec!(9)), // TIGER 미국달러단기채권액티브
+        PensionAsset::safe("148070", dec!(9)), // KOSEF 달러선물
+        PensionAsset::safe("385560", dec!(3)), // KODEX 미국30년국채커버드콜
+        PensionAsset::safe("304660", dec!(3)), // KODEX 미국채울트라30년선물(H)
+        PensionAsset::safe("114470", dec!(3)), // KOSEF 국고채10년
+        PensionAsset::safe("329750", dec!(3)), // TIGER 미국채10년선물
         // 원자재 (MAT) - 14%
-        PensionAsset::mat("319640", dec!(6)),    // TIGER 골드선물(H)
-        PensionAsset::mat("276000", dec!(2)),    // KBSTAR 원유선물
-        PensionAsset::mat("261220", dec!(2)),    // KODEX 원유선물
-        PensionAsset::mat("139310", dec!(2)),    // TIGER 금속선물
-        PensionAsset::mat("137610", dec!(2)),    // TIGER 농산물선물
+        PensionAsset::mat("319640", dec!(6)), // TIGER 골드선물(H)
+        PensionAsset::mat("276000", dec!(2)), // KBSTAR 원유선물
+        PensionAsset::mat("261220", dec!(2)), // KODEX 원유선물
+        PensionAsset::mat("139310", dec!(2)), // TIGER 금속선물
+        PensionAsset::mat("137610", dec!(2)), // TIGER 농산물선물
         // 현금 (CASH) - 0% (남은 비중으로 자동 조절)
-        PensionAsset::cash("130730"),            // KOSEF 단기자금
+        PensionAsset::cash("130730"), // KOSEF 단기자금
     ]
 }
 
-fn default_total_amount() -> Decimal { dec!(10000000) }
-fn default_avg_momentum_period() -> usize { 10 }
-fn default_top_bonus_count() -> usize { 12 }
-fn default_cash_to_short_term() -> Decimal { dec!(0.45) }
-fn default_cash_to_bonus() -> Decimal { dec!(0.45) }
-fn default_rebalance_threshold() -> Decimal { dec!(3) }
-fn default_min_trade_amount() -> Decimal { dec!(50000) }
+fn default_total_amount() -> Decimal {
+    dec!(10000000)
+}
+fn default_avg_momentum_period() -> usize {
+    10
+}
+fn default_top_bonus_count() -> usize {
+    12
+}
+fn default_cash_to_short_term() -> Decimal {
+    dec!(0.45)
+}
+fn default_cash_to_bonus() -> Decimal {
+    dec!(0.45)
+}
+fn default_rebalance_threshold() -> Decimal {
+    dec!(3)
+}
+fn default_min_trade_amount() -> Decimal {
+    dec!(50000)
+}
 
 impl Default for PensionBotConfig {
     fn default() -> Self {
@@ -314,11 +331,8 @@ impl PensionBotStrategy {
 
     fn init_from_config(&mut self, config: &PensionBotConfig) {
         for asset in &config.portfolio {
-            let momentum = AssetMomentum::new(
-                asset.symbol.clone(),
-                asset.asset_type,
-                asset.target_rate,
-            );
+            let momentum =
+                AssetMomentum::new(asset.symbol.clone(), asset.asset_type, asset.target_rate);
             self.asset_data.insert(asset.symbol.clone(), momentum);
         }
     }
@@ -330,9 +344,7 @@ impl PensionBotStrategy {
             None => return,
         };
 
-        let total_rate: Decimal = self.asset_data.values()
-            .map(|m| m.adjusted_rate)
-            .sum();
+        let total_rate: Decimal = self.asset_data.values().map(|m| m.adjusted_rate).sum();
 
         let remaining_rate = dec!(100) - total_rate;
 
@@ -344,7 +356,9 @@ impl PensionBotStrategy {
 
         // 1. 45%는 단기자금(CASH)에 배분
         let to_short_term = remaining_rate * config.cash_to_short_term_rate;
-        let cash_symbol = self.asset_data.values()
+        let cash_symbol = self
+            .asset_data
+            .values()
             .find(|m| m.asset_type == PensionAssetType::Cash)
             .map(|m| m.symbol.clone());
 
@@ -359,14 +373,17 @@ impl PensionBotStrategy {
         let to_bonus = remaining_rate * config.cash_to_bonus_rate;
 
         // 모멘텀 스코어로 정렬
-        let mut sorted: Vec<_> = self.asset_data.values()
+        let mut sorted: Vec<_> = self
+            .asset_data
+            .values()
             .filter(|m| m.asset_type != PensionAssetType::Cash && m.momentum_score > dec!(0))
             .map(|m| (m.symbol.clone(), m.momentum_score))
             .collect();
-        sorted.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        sorted.sort_by(|a, b| b.1.cmp(&a.1));
 
         // 상위 12개에 차등 보너스 (3-3-3-3-2-2-2-2-1-1-1-1 = 24등분)
-        let bonus_symbols: Vec<String> = sorted.iter()
+        let bonus_symbols: Vec<String> = sorted
+            .iter()
             .take(config.top_bonus_count)
             .map(|(s, _)| s.clone())
             .collect();
@@ -390,15 +407,14 @@ impl PensionBotStrategy {
 
     /// 목표 배분 계산
     fn calculate_target_allocations(&self) -> Vec<TargetAllocation> {
-        let total_rate: Decimal = self.asset_data.values()
-            .map(|m| m.adjusted_rate)
-            .sum();
+        let total_rate: Decimal = self.asset_data.values().map(|m| m.adjusted_rate).sum();
 
         if total_rate <= dec!(0) {
             return vec![];
         }
 
-        self.asset_data.values()
+        self.asset_data
+            .values()
             .filter(|m| m.adjusted_rate > dec!(0))
             .map(|m| {
                 let weight = m.adjusted_rate / total_rate;
@@ -478,10 +494,7 @@ impl PensionBotStrategy {
         let current_month = Utc::now().month();
         self.last_rebalance_month = Some(current_month);
 
-        info!(
-            signals = signals.len(),
-            "Pension Bot: 리밸런싱 시그널 생성"
-        );
+        info!(signals = signals.len(), "Pension Bot: 리밸런싱 시그널 생성");
 
         signals
     }
@@ -507,7 +520,10 @@ impl Strategy for PensionBotStrategy {
         "개인연금 자동화 전략 - 정적+동적 자산배분 조합"
     }
 
-    async fn initialize(&mut self, config: Value) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn initialize(
+        &mut self,
+        config: Value,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let cfg: PensionBotConfig = serde_json::from_value(config)?;
         self.init_from_config(&cfg);
         self.config = Some(cfg);
@@ -531,6 +547,11 @@ impl Strategy for PensionBotStrategy {
         if let Some(momentum) = self.asset_data.get_mut(&symbol_str) {
             momentum.candles.push(close);
             momentum.current_price = close;
+
+            // 최대 300개 유지 (메모리 누수 방지)
+            if momentum.candles.len() > 300 {
+                momentum.candles.drain(0..momentum.candles.len() - 300);
+            }
         }
 
         // 월간 리밸런싱 체크
@@ -604,11 +625,8 @@ mod tests {
 
     #[test]
     fn test_momentum_score_calculation() {
-        let mut momentum = AssetMomentum::new(
-            "TEST".to_string(),
-            PensionAssetType::Stock,
-            dec!(10),
-        );
+        let mut momentum =
+            AssetMomentum::new("TEST".to_string(), PensionAssetType::Stock, dec!(10));
 
         // 상승 추세 데이터 생성 (250일)
         for i in 0..250 {
@@ -616,16 +634,16 @@ mod tests {
         }
 
         momentum.calculate_momentum_score();
-        assert!(momentum.momentum_score > dec!(0), "상승 추세에서 모멘텀 스코어는 양수");
+        assert!(
+            momentum.momentum_score > dec!(0),
+            "상승 추세에서 모멘텀 스코어는 양수"
+        );
     }
 
     #[test]
     fn test_avg_momentum_calculation() {
-        let mut momentum = AssetMomentum::new(
-            "TEST".to_string(),
-            PensionAssetType::Stock,
-            dec!(10),
-        );
+        let mut momentum =
+            AssetMomentum::new("TEST".to_string(), PensionAssetType::Stock, dec!(10));
 
         // 꾸준히 상승하는 데이터 (200일)
         for i in 0..200 {
@@ -633,7 +651,10 @@ mod tests {
         }
 
         momentum.calculate_avg_momentum(10);
-        assert!(momentum.avg_momentum > dec!(0.5), "상승 추세에서 평균 모멘텀은 0.5 이상");
+        assert!(
+            momentum.avg_momentum > dec!(0.5),
+            "상승 추세에서 평균 모멘텀은 0.5 이상"
+        );
     }
 
     #[test]
@@ -668,10 +689,22 @@ mod tests {
         assert!(!portfolio.is_empty());
 
         // 자산 유형별 개수 확인
-        let stock_count = portfolio.iter().filter(|a| a.asset_type == PensionAssetType::Stock).count();
-        let safe_count = portfolio.iter().filter(|a| a.asset_type == PensionAssetType::Safe).count();
-        let mat_count = portfolio.iter().filter(|a| a.asset_type == PensionAssetType::Mat).count();
-        let cash_count = portfolio.iter().filter(|a| a.asset_type == PensionAssetType::Cash).count();
+        let stock_count = portfolio
+            .iter()
+            .filter(|a| a.asset_type == PensionAssetType::Stock)
+            .count();
+        let safe_count = portfolio
+            .iter()
+            .filter(|a| a.asset_type == PensionAssetType::Safe)
+            .count();
+        let mat_count = portfolio
+            .iter()
+            .filter(|a| a.asset_type == PensionAssetType::Mat)
+            .count();
+        let cash_count = portfolio
+            .iter()
+            .filter(|a| a.asset_type == PensionAssetType::Cash)
+            .count();
 
         assert!(stock_count > 0, "주식 자산이 있어야 함");
         assert!(safe_count > 0, "안전 자산이 있어야 함");

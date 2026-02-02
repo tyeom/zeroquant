@@ -12,7 +12,7 @@ use rust_decimal_macros::dec;
 use tokio::time::interval;
 use tracing::{debug, info};
 
-use super::messages::{TickerData, ServerMessage};
+use super::messages::{ServerMessage, TickerData};
 use super::subscriptions::SharedSubscriptionManager;
 
 /// 심볼별 가격 정보.
@@ -37,112 +37,156 @@ impl MockDataSimulator {
         let mut prices = HashMap::new();
 
         // 한국 ETF
-        prices.insert("KODEX-200".to_string(), SymbolPrice {
-            base_price: dec!(36500),
-            current_price: dec!(36500),
-            high_24h: dec!(37000),
-            low_24h: dec!(36000),
-            volume_24h: dec!(1500000),
-        });
+        prices.insert(
+            "KODEX-200".to_string(),
+            SymbolPrice {
+                base_price: dec!(36500),
+                current_price: dec!(36500),
+                high_24h: dec!(37000),
+                low_24h: dec!(36000),
+                volume_24h: dec!(1500000),
+            },
+        );
 
-        prices.insert("KODEX-레버리지".to_string(), SymbolPrice {
-            base_price: dec!(18250),
-            current_price: dec!(18250),
-            high_24h: dec!(18500),
-            low_24h: dec!(18000),
-            volume_24h: dec!(2500000),
-        });
+        prices.insert(
+            "KODEX-레버리지".to_string(),
+            SymbolPrice {
+                base_price: dec!(18250),
+                current_price: dec!(18250),
+                high_24h: dec!(18500),
+                low_24h: dec!(18000),
+                volume_24h: dec!(2500000),
+            },
+        );
 
         // 한국 주요 주식
-        prices.insert("005930".to_string(), SymbolPrice {  // 삼성전자
-            base_price: dec!(161500),
-            current_price: dec!(161500),
-            high_24h: dec!(163000),
-            low_24h: dec!(160000),
-            volume_24h: dec!(12000000),
-        });
+        prices.insert(
+            "005930".to_string(),
+            SymbolPrice {
+                // 삼성전자
+                base_price: dec!(161500),
+                current_price: dec!(161500),
+                high_24h: dec!(163000),
+                low_24h: dec!(160000),
+                volume_24h: dec!(12000000),
+            },
+        );
 
-        prices.insert("삼성전자".to_string(), SymbolPrice {  // 삼성전자 (이름)
-            base_price: dec!(161500),
-            current_price: dec!(161500),
-            high_24h: dec!(163000),
-            low_24h: dec!(160000),
-            volume_24h: dec!(12000000),
-        });
+        prices.insert(
+            "삼성전자".to_string(),
+            SymbolPrice {
+                // 삼성전자 (이름)
+                base_price: dec!(161500),
+                current_price: dec!(161500),
+                high_24h: dec!(163000),
+                low_24h: dec!(160000),
+                volume_24h: dec!(12000000),
+            },
+        );
 
-        prices.insert("000660".to_string(), SymbolPrice {  // SK하이닉스
-            base_price: dec!(178000),
-            current_price: dec!(178000),
-            high_24h: dec!(180000),
-            low_24h: dec!(175000),
-            volume_24h: dec!(3500000),
-        });
+        prices.insert(
+            "000660".to_string(),
+            SymbolPrice {
+                // SK하이닉스
+                base_price: dec!(178000),
+                current_price: dec!(178000),
+                high_24h: dec!(180000),
+                low_24h: dec!(175000),
+                volume_24h: dec!(3500000),
+            },
+        );
 
-        prices.insert("SK하이닉스".to_string(), SymbolPrice {
-            base_price: dec!(178000),
-            current_price: dec!(178000),
-            high_24h: dec!(180000),
-            low_24h: dec!(175000),
-            volume_24h: dec!(3500000),
-        });
+        prices.insert(
+            "SK하이닉스".to_string(),
+            SymbolPrice {
+                base_price: dec!(178000),
+                current_price: dec!(178000),
+                high_24h: dec!(180000),
+                low_24h: dec!(175000),
+                volume_24h: dec!(3500000),
+            },
+        );
 
-        prices.insert("035720".to_string(), SymbolPrice {  // 카카오
-            base_price: dec!(42500),
-            current_price: dec!(42500),
-            high_24h: dec!(43500),
-            low_24h: dec!(41500),
-            volume_24h: dec!(2800000),
-        });
+        prices.insert(
+            "035720".to_string(),
+            SymbolPrice {
+                // 카카오
+                base_price: dec!(42500),
+                current_price: dec!(42500),
+                high_24h: dec!(43500),
+                low_24h: dec!(41500),
+                volume_24h: dec!(2800000),
+            },
+        );
 
-        prices.insert("035420".to_string(), SymbolPrice {  // 네이버
-            base_price: dec!(185000),
-            current_price: dec!(185000),
-            high_24h: dec!(188000),
-            low_24h: dec!(182000),
-            volume_24h: dec!(1200000),
-        });
+        prices.insert(
+            "035420".to_string(),
+            SymbolPrice {
+                // 네이버
+                base_price: dec!(185000),
+                current_price: dec!(185000),
+                high_24h: dec!(188000),
+                low_24h: dec!(182000),
+                volume_24h: dec!(1200000),
+            },
+        );
 
         // 미국 ETF (2026년 1월 기준)
-        prices.insert("SPY".to_string(), SymbolPrice {
-            base_price: dec!(605.50),
-            current_price: dec!(605.50),
-            high_24h: dec!(608.00),
-            low_24h: dec!(602.00),
-            volume_24h: dec!(50000000),
-        });
+        prices.insert(
+            "SPY".to_string(),
+            SymbolPrice {
+                base_price: dec!(605.50),
+                current_price: dec!(605.50),
+                high_24h: dec!(608.00),
+                low_24h: dec!(602.00),
+                volume_24h: dec!(50000000),
+            },
+        );
 
-        prices.insert("QQQ".to_string(), SymbolPrice {
-            base_price: dec!(528.30),
-            current_price: dec!(528.30),
-            high_24h: dec!(532.00),
-            low_24h: dec!(525.00),
-            volume_24h: dec!(35000000),
-        });
+        prices.insert(
+            "QQQ".to_string(),
+            SymbolPrice {
+                base_price: dec!(528.30),
+                current_price: dec!(528.30),
+                high_24h: dec!(532.00),
+                low_24h: dec!(525.00),
+                volume_24h: dec!(35000000),
+            },
+        );
 
-        prices.insert("TQQQ".to_string(), SymbolPrice {
-            base_price: dec!(85.40),
-            current_price: dec!(85.40),
-            high_24h: dec!(87.00),
-            low_24h: dec!(84.00),
-            volume_24h: dec!(80000000),
-        });
+        prices.insert(
+            "TQQQ".to_string(),
+            SymbolPrice {
+                base_price: dec!(85.40),
+                current_price: dec!(85.40),
+                high_24h: dec!(87.00),
+                low_24h: dec!(84.00),
+                volume_24h: dec!(80000000),
+            },
+        );
 
         // 암호화폐 (2026년 1월 기준)
-        prices.insert("BTC-USDT".to_string(), SymbolPrice {
-            base_price: dec!(105000),
-            current_price: dec!(105000),
-            high_24h: dec!(107000),
-            low_24h: dec!(103000),
-            volume_24h: dec!(500000000),
-        });
+        prices.insert(
+            "BTC-USDT".to_string(),
+            SymbolPrice {
+                base_price: dec!(105000),
+                current_price: dec!(105000),
+                high_24h: dec!(107000),
+                low_24h: dec!(103000),
+                volume_24h: dec!(500000000),
+            },
+        );
 
-        prices.insert("ETH-USDT".to_string(), SymbolPrice {
-            base_price: dec!(3350),
-            current_price: dec!(3350),
-            high_24h: dec!(3400),
-            low_24h: dec!(3300),
-            volume_24h: dec!(200000000),
-        });
+        prices.insert(
+            "ETH-USDT".to_string(),
+            SymbolPrice {
+                base_price: dec!(3350),
+                current_price: dec!(3350),
+                high_24h: dec!(3400),
+                low_24h: dec!(3300),
+                volume_24h: dec!(200000000),
+            },
+        );
 
         Self {
             subscriptions,
@@ -173,13 +217,16 @@ impl MockDataSimulator {
 
             info!(symbol = %symbol, base_price = %base_price, "Created dynamic price for new symbol");
 
-            self.prices.insert(symbol.to_string(), SymbolPrice {
-                base_price,
-                current_price: base_price,
-                high_24h: high,
-                low_24h: low,
-                volume_24h: dec!(1000000),
-            });
+            self.prices.insert(
+                symbol.to_string(),
+                SymbolPrice {
+                    base_price,
+                    current_price: base_price,
+                    high_24h: high,
+                    low_24h: low,
+                    volume_24h: dec!(1000000),
+                },
+            );
         }
         self.prices.get_mut(symbol).unwrap()
     }
@@ -188,7 +235,10 @@ impl MockDataSimulator {
     ///
     /// 백그라운드에서 주기적으로 가격 데이터를 업데이트하고 브로드캐스트합니다.
     pub async fn run(mut self, update_interval: Duration) {
-        info!("Mock data simulator started with interval {:?}", update_interval);
+        info!(
+            "Mock data simulator started with interval {:?}",
+            update_interval
+        );
 
         let mut ticker = interval(update_interval);
 
@@ -247,8 +297,8 @@ impl MockDataSimulator {
 
         for (symbol, price) in &self.prices {
             // 24시간 변화율 계산
-            let change_24h = ((price.current_price - price.base_price) / price.base_price)
-                * dec!(100);
+            let change_24h =
+                ((price.current_price - price.base_price) / price.base_price) * dec!(100);
 
             let ticker = TickerData {
                 symbol: symbol.clone(),

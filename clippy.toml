@@ -16,8 +16,8 @@ too-many-lines-threshold = 150
 # 컬렉션 리터럴의 최대 요소 수 (단일 라인 유지)
 single-char-binding-names-threshold = 5
 
-# 문서화 필요 여부 (공개 API)
-missing-docs-in-private-items = false
+# 문서화 필요 여부 (크레이트 레벨)
+missing-docs-in-crate-items = false
 
 # unwrap() 사용 허용 여부 (테스트 코드에서만)
 allow-unwrap-in-tests = true

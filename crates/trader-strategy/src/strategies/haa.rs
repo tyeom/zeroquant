@@ -36,8 +36,7 @@ use std::collections::HashMap;
 use tracing::{debug, info, warn};
 
 use crate::strategies::common::rebalance::{
-    PortfolioPosition, RebalanceCalculator, RebalanceConfig, RebalanceOrderSide,
-    TargetAllocation,
+    PortfolioPosition, RebalanceCalculator, RebalanceConfig, RebalanceOrderSide, TargetAllocation,
 };
 use crate::traits::Strategy;
 use trader_core::{MarketData, MarketDataType, Order, Position, Side, Signal, SignalType, Symbol};
@@ -68,7 +67,11 @@ pub struct AssetInfo {
 
 impl AssetInfo {
     /// 새 자산 정보 생성.
-    pub fn new(symbol: impl Into<String>, asset_type: AssetType, description: impl Into<String>) -> Self {
+    pub fn new(
+        symbol: impl Into<String>,
+        asset_type: AssetType,
+        description: impl Into<String>,
+    ) -> Self {
         Self {
             symbol: symbol.into(),
             asset_type,
@@ -148,9 +151,7 @@ impl HaaConfig {
     pub fn us_default() -> Self {
         Self {
             market: HaaMarketType::US,
-            canary_assets: vec![
-                AssetInfo::canary("TIP", "iShares TIPS Bond ETF"),
-            ],
+            canary_assets: vec![AssetInfo::canary("TIP", "iShares TIPS Bond ETF")],
             offensive_assets: vec![
                 AssetInfo::offensive("SPY", "S&P 500 ETF"),
                 AssetInfo::offensive("IWM", "Russell 2000 ETF"),
@@ -327,13 +328,17 @@ impl HaaStrategy {
         }
 
         let now_price = *prices.first()?;
-        let one_month = *prices.get(20)?;   // 1개월 전 (20거래일)
-        let three_month = *prices.get(60)?;  // 3개월 전 (60거래일)
-        let six_month = *prices.get(120)?;   // 6개월 전 (120거래일)
+        let one_month = *prices.get(20)?; // 1개월 전 (20거래일)
+        let three_month = *prices.get(60)?; // 3개월 전 (60거래일)
+        let six_month = *prices.get(120)?; // 6개월 전 (120거래일)
         let twelve_month = *prices.get(239)?; // 12개월 전 (240거래일)
 
         // 0으로 나누기 방지
-        if one_month.is_zero() || three_month.is_zero() || six_month.is_zero() || twelve_month.is_zero() {
+        if one_month.is_zero()
+            || three_month.is_zero()
+            || six_month.is_zero()
+            || twelve_month.is_zero()
+        {
             return None;
         }
 
@@ -372,10 +377,7 @@ impl HaaStrategy {
                 }
             } else {
                 // 데이터 부족 시 방어적으로 처리
-                warn!(
-                    "[HAA] 카나리아 {} 데이터 부족 → 방어 모드",
-                    asset.symbol
-                );
+                warn!("[HAA] 카나리아 {} 데이터 부족 → 방어 모드", asset.symbol);
                 return PortfolioMode::Defensive;
             }
         }
@@ -399,7 +401,7 @@ impl HaaStrategy {
         }
 
         // 모멘텀 스코어 내림차순 정렬
-        ranked.sort_by(|a, b| b.momentum_score.partial_cmp(&a.momentum_score).unwrap());
+        ranked.sort_by(|a, b| b.momentum_score.cmp(&a.momentum_score));
 
         ranked
     }
@@ -430,10 +432,7 @@ impl HaaStrategy {
                 for (i, asset) in ranked.iter().take(top_n).enumerate() {
                     if asset.momentum_score > Decimal::ZERO {
                         // 모멘텀 양수 → 투자
-                        allocations.push(TargetAllocation::new(
-                            asset.symbol.clone(),
-                            base_weight,
-                        ));
+                        allocations.push(TargetAllocation::new(asset.symbol.clone(), base_weight));
                         info!(
                             "[HAA] 공격자산 #{}: {} (모멘텀: {:.4}, 비중: {:.1}%)",
                             i + 1,
@@ -486,7 +485,9 @@ impl HaaStrategy {
                 );
             } else {
                 // 기존 할당에 추가하거나 새로 생성
-                let existing = allocations.iter_mut().find(|a| a.symbol == top_asset.symbol);
+                let existing = allocations
+                    .iter_mut()
+                    .find(|a| a.symbol == top_asset.symbol);
 
                 if let Some(existing) = existing {
                     existing.weight += weight;
@@ -496,10 +497,7 @@ impl HaaStrategy {
                         existing.weight * dec!(100)
                     );
                 } else {
-                    allocations.push(TargetAllocation::new(
-                        top_asset.symbol.clone(),
-                        weight,
-                    ));
+                    allocations.push(TargetAllocation::new(top_asset.symbol.clone(), weight));
                     info!(
                         "[HAA] 방어자산: {} (모멘텀: {:.4}, 비중: {:.1}%)",
                         top_asset.symbol,
@@ -540,7 +538,11 @@ impl HaaStrategy {
         for (symbol, quantity) in &self.positions {
             if let Some(prices) = self.price_history.get(symbol) {
                 if let Some(current_price) = prices.first() {
-                    portfolio_positions.push(PortfolioPosition::new(symbol, *quantity, *current_price));
+                    portfolio_positions.push(PortfolioPosition::new(
+                        symbol,
+                        *quantity,
+                        *current_price,
+                    ));
                 }
             }
         }
@@ -553,10 +555,9 @@ impl HaaStrategy {
         portfolio_positions.push(PortfolioPosition::cash(self.cash_balance, cash_symbol));
 
         // 리밸런싱 계산
-        let result = self.rebalance_calculator.calculate_orders_with_cash_constraint(
-            &portfolio_positions,
-            &target_allocations,
-        );
+        let result = self
+            .rebalance_calculator
+            .calculate_orders_with_cash_constraint(&portfolio_positions, &target_allocations);
 
         // 신호 변환
         let mut signals = Vec::new();
@@ -590,7 +591,8 @@ impl HaaStrategy {
 
         // 리밸런싱 시간 기록
         if !signals.is_empty() {
-            self.last_rebalance_ym = Some(format!("{}_{}", current_time.year(), current_time.month()));
+            self.last_rebalance_ym =
+                Some(format!("{}_{}", current_time.year(), current_time.month()));
             info!(
                 "[HAA] 리밸런싱 완료: {} 주문 생성 (모드: {:?})",
                 signals.len(),
@@ -622,7 +624,10 @@ impl Strategy for HaaStrategy {
         "계층적 자산배분(HAA) 전략. 카나리아 자산으로 위험 감지, 모멘텀 기반 자산 선택, 월간 리밸런싱."
     }
 
-    async fn initialize(&mut self, config: Value) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn initialize(
+        &mut self,
+        config: Value,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let parsed_config: HaaConfig = serde_json::from_value(config.clone())?;
 
         let rebalance_config = match parsed_config.market {
@@ -696,10 +701,7 @@ impl Strategy for HaaStrategy {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         info!(
             "[HAA] 주문 체결: {:?} {} {} @ {:?}",
-            order.side,
-            order.quantity,
-            order.symbol,
-            order.average_fill_price
+            order.side, order.quantity, order.symbol, order.average_fill_price
         );
         Ok(())
     }
@@ -712,9 +714,7 @@ impl Strategy for HaaStrategy {
         self.positions.insert(symbol.clone(), position.quantity);
         info!(
             "[HAA] 포지션 업데이트: {} = {} (PnL: {})",
-            symbol,
-            position.quantity,
-            position.unrealized_pnl
+            symbol, position.quantity, position.unrealized_pnl
         );
         Ok(())
     }
@@ -857,9 +857,18 @@ mod tests {
         let mut strategy = HaaStrategy::new();
 
         // 테스트 데이터: SPY > VEA > IWM
-        let spy_prices: Vec<Decimal> = (0..250).rev().map(|i| dec!(100) + Decimal::from(i) * dec!(0.2)).collect();
-        let vea_prices: Vec<Decimal> = (0..250).rev().map(|i| dec!(100) + Decimal::from(i) * dec!(0.1)).collect();
-        let iwm_prices: Vec<Decimal> = (0..250).rev().map(|i| dec!(100) + Decimal::from(i) * dec!(0.05)).collect();
+        let spy_prices: Vec<Decimal> = (0..250)
+            .rev()
+            .map(|i| dec!(100) + Decimal::from(i) * dec!(0.2))
+            .collect();
+        let vea_prices: Vec<Decimal> = (0..250)
+            .rev()
+            .map(|i| dec!(100) + Decimal::from(i) * dec!(0.1))
+            .collect();
+        let iwm_prices: Vec<Decimal> = (0..250)
+            .rev()
+            .map(|i| dec!(100) + Decimal::from(i) * dec!(0.05))
+            .collect();
 
         strategy.price_history.insert("SPY".to_string(), spy_prices);
         strategy.price_history.insert("VEA".to_string(), vea_prices);
@@ -885,7 +894,10 @@ mod tests {
         let config = HaaConfig::us_default();
 
         // TIP 상승 추세 데이터
-        let tip_prices: Vec<Decimal> = (0..250).rev().map(|i| dec!(100) + Decimal::from(i) * dec!(0.1)).collect();
+        let tip_prices: Vec<Decimal> = (0..250)
+            .rev()
+            .map(|i| dec!(100) + Decimal::from(i) * dec!(0.1))
+            .collect();
         strategy.price_history.insert("TIP".to_string(), tip_prices);
 
         let mode = strategy.check_canary_assets(&config);
@@ -898,7 +910,9 @@ mod tests {
         let config = HaaConfig::us_default();
 
         // TIP 하락 추세 데이터
-        let tip_prices: Vec<Decimal> = (0..250).map(|i| dec!(100) + Decimal::from(i) * dec!(0.1)).collect();
+        let tip_prices: Vec<Decimal> = (0..250)
+            .map(|i| dec!(100) + Decimal::from(i) * dec!(0.1))
+            .collect();
         strategy.price_history.insert("TIP".to_string(), tip_prices);
 
         let mode = strategy.check_canary_assets(&config);

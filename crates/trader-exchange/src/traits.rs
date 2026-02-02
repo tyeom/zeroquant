@@ -70,7 +70,11 @@ pub trait Exchange: Send + Sync {
     async fn get_ticker(&self, symbol: &Symbol) -> ExchangeResult<Ticker>;
 
     /// 심볼의 호가창 조회.
-    async fn get_order_book(&self, symbol: &Symbol, limit: Option<u32>) -> ExchangeResult<OrderBook>;
+    async fn get_order_book(
+        &self,
+        symbol: &Symbol,
+        limit: Option<u32>,
+    ) -> ExchangeResult<OrderBook>;
 
     /// 심볼의 최근 체결 조회.
     async fn get_recent_trades(
@@ -146,8 +150,11 @@ pub trait MarketStream: Send + Sync {
     async fn subscribe_ticker(&mut self, symbol: &Symbol) -> ExchangeResult<()>;
 
     /// 캔들스틱 업데이트 구독.
-    async fn subscribe_kline(&mut self, symbol: &Symbol, timeframe: Timeframe)
-        -> ExchangeResult<()>;
+    async fn subscribe_kline(
+        &mut self,
+        symbol: &Symbol,
+        timeframe: Timeframe,
+    ) -> ExchangeResult<()>;
 
     /// 호가창 업데이트 구독.
     async fn subscribe_order_book(&mut self, symbol: &Symbol) -> ExchangeResult<()>;

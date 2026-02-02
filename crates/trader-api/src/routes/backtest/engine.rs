@@ -21,32 +21,17 @@ use super::types::{
 use trader_analytics::backtest::{BacktestConfig, BacktestEngine, BacktestReport};
 use trader_core::{Kline, MarketType, Symbol, Timeframe};
 use trader_strategy::strategies::{
-    AllWeatherStrategy, AllWeatherConfig,
-    BaaStrategy, BaaConfig,
-    BollingerStrategy,
-    CandlePatternStrategy, CandlePatternConfig,
-    DualMomentumStrategy, DualMomentumConfig,
-    GridStrategy,
-    HaaStrategy, HaaConfig,
-    InfinityBotStrategy, InfinityBotConfig,
-    KosdaqFireRainStrategy, KosdaqFireRainConfig,
-    KospiBothSideStrategy, KospiBothSideConfig,
-    MagicSplitStrategy,
-    MarketCapTopStrategy, MarketCapTopConfig,
-    MarketInterestDayStrategy, MarketInterestDayConfig,
-    PensionBotStrategy, PensionBotConfig,
-    RsiStrategy,
-    SectorMomentumStrategy, SectorMomentumConfig,
-    SectorVbStrategy, SectorVbConfig,
-    SimplePowerStrategy, SimplePowerConfig,
-    SmallCapQuantStrategy, SmallCapQuantConfig,
-    SmaStrategy,
-    SnowStrategy, SnowConfig,
-    StockGuganStrategy, StockGuganConfig,
-    StockRotationStrategy, StockRotationConfig,
-    Us3xLeverageStrategy, Us3xLeverageConfig,
-    VolatilityBreakoutStrategy,
-    XaaStrategy, XaaConfig,
+    AllWeatherConfig, AllWeatherStrategy, BaaConfig, BaaStrategy, BollingerStrategy,
+    CandlePatternConfig, CandlePatternStrategy, DualMomentumConfig, DualMomentumStrategy,
+    GridStrategy, HaaConfig, HaaStrategy, InfinityBotConfig, InfinityBotStrategy,
+    KosdaqFireRainConfig, KosdaqFireRainStrategy, KospiBothSideConfig, KospiBothSideStrategy,
+    MagicSplitStrategy, MarketCapTopConfig, MarketCapTopStrategy, MarketInterestDayConfig,
+    MarketInterestDayStrategy, PensionBotConfig, PensionBotStrategy, RsiStrategy,
+    SectorMomentumConfig, SectorMomentumStrategy, SectorVbConfig, SectorVbStrategy,
+    SimplePowerConfig, SimplePowerStrategy, SmaStrategy, SmallCapQuantConfig,
+    SmallCapQuantStrategy, SnowConfig, SnowStrategy, StockGuganConfig, StockGuganStrategy,
+    StockRotationConfig, StockRotationStrategy, Us3xLeverageConfig, Us3xLeverageStrategy,
+    VolatilityBreakoutStrategy, XaaConfig, XaaStrategy,
 };
 use trader_strategy::Strategy;
 
@@ -111,20 +96,20 @@ async fn run_strategy_backtest_inner(
     };
 
     // 사용자 파라미터와 기본 설정 병합
-    let merge_params =
-        |default: serde_json::Value, user_params: &Option<serde_json::Value>| -> serde_json::Value {
-            if let Some(user) = user_params {
-                if let (Some(default_obj), Some(user_obj)) = (default.as_object(), user.as_object())
-                {
-                    let mut merged = default_obj.clone();
-                    for (key, value) in user_obj {
-                        merged.insert(key.clone(), value.clone());
-                    }
-                    return serde_json::Value::Object(merged);
+    let merge_params = |default: serde_json::Value,
+                        user_params: &Option<serde_json::Value>|
+     -> serde_json::Value {
+        if let Some(user) = user_params {
+            if let (Some(default_obj), Some(user_obj)) = (default.as_object(), user.as_object()) {
+                let mut merged = default_obj.clone();
+                for (key, value) in user_obj {
+                    merged.insert(key.clone(), value.clone());
                 }
+                return serde_json::Value::Object(merged);
             }
-            default
-        };
+        }
+        default
+    };
 
     match strategy_id {
         "rsi_mean_reversion" | "rsi" => {
@@ -504,8 +489,8 @@ async fn run_strategy_backtest_inner(
         }
         "kosdaq_fire_rain" => {
             let mut strategy = KosdaqFireRainStrategy::new();
-            let default_cfg = serde_json::to_value(KosdaqFireRainConfig::default())
-                .map_err(|e| e.to_string())?;
+            let default_cfg =
+                serde_json::to_value(KosdaqFireRainConfig::default()).map_err(|e| e.to_string())?;
             let strategy_config = merge_params(default_cfg, params);
             strategy
                 .initialize(strategy_config)
@@ -603,20 +588,20 @@ async fn run_multi_strategy_backtest_inner(
     let mut engine = BacktestEngine::new(config);
 
     // 사용자 파라미터와 기본 설정 병합
-    let merge_params =
-        |default: serde_json::Value, user_params: &Option<serde_json::Value>| -> serde_json::Value {
-            if let Some(user) = user_params {
-                if let (Some(default_obj), Some(user_obj)) = (default.as_object(), user.as_object())
-                {
-                    let mut merged = default_obj.clone();
-                    for (key, value) in user_obj {
-                        merged.insert(key.clone(), value.clone());
-                    }
-                    return serde_json::Value::Object(merged);
+    let merge_params = |default: serde_json::Value,
+                        user_params: &Option<serde_json::Value>|
+     -> serde_json::Value {
+        if let Some(user) = user_params {
+            if let (Some(default_obj), Some(user_obj)) = (default.as_object(), user.as_object()) {
+                let mut merged = default_obj.clone();
+                for (key, value) in user_obj {
+                    merged.insert(key.clone(), value.clone());
                 }
+                return serde_json::Value::Object(merged);
             }
-            default
-        };
+        }
+        default
+    };
 
     // 심볼 목록 추출
     let symbols: Vec<String> = multi_klines.keys().cloned().collect();
@@ -849,7 +834,7 @@ pub fn convert_report_to_response(
             entry_price: rt.entry_price,
             exit_price: rt.exit_price,
             quantity: rt.quantity,
-            side: format!("{:?}", rt.side),
+            side: rt.side,
             pnl: rt.pnl,
             return_pct: rt.return_pct,
         })
@@ -934,7 +919,7 @@ pub fn convert_multi_report_to_response(
             entry_price: rt.entry_price,
             exit_price: rt.exit_price,
             quantity: rt.quantity,
-            side: format!("{:?}", rt.side),
+            side: rt.side,
             pnl: rt.pnl,
             return_pct: rt.return_pct,
         })

@@ -3,22 +3,17 @@
 //! This module provides handlers for managing Telegram notification settings
 //! with AES-256-GCM encryption for sensitive data (bot_token and chat_id).
 
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    Json,
-};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use std::sync::Arc;
 use tracing::{error, info};
 use uuid::Uuid;
 
-use crate::state::AppState;
-use crate::routes::strategies::ApiError;
 use super::types::{
-    SaveTelegramSettingsRequest, TelegramNotificationSettings, TelegramSettingsRow,
-    log_credential_access, mask_api_key,
+    log_credential_access, mask_api_key, SaveTelegramSettingsRequest, TelegramNotificationSettings,
+    TelegramSettingsRow,
 };
+use crate::routes::strategies::ApiError;
+use crate::state::AppState;
 
 // =============================================================================
 // Telegram Settings Handlers
@@ -37,7 +32,10 @@ pub async fn get_telegram_settings(
     let pool = state.db_pool.as_ref().ok_or_else(|| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("DB_NOT_CONFIGURED", "데이터베이스 연결이 설정되지 않았습니다.")),
+            Json(ApiError::new(
+                "DB_NOT_CONFIGURED",
+                "데이터베이스 연결이 설정되지 않았습니다.",
+            )),
         )
     })?;
 
@@ -45,7 +43,10 @@ pub async fn get_telegram_settings(
     let encryptor = state.encryptor.as_ref().ok_or_else(|| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("ENCRYPTOR_NOT_CONFIGURED", "암호화 설정이 없습니다.")),
+            Json(ApiError::new(
+                "ENCRYPTOR_NOT_CONFIGURED",
+                "암호화 설정이 없습니다.",
+            )),
         )
     })?;
 
@@ -59,7 +60,7 @@ pub async fn get_telegram_settings(
             last_message_at, last_verified_at, created_at, updated_at
         FROM telegram_settings
         LIMIT 1
-        "#
+        "#,
     )
     .fetch_optional(pool)
     .await
@@ -83,10 +84,9 @@ pub async fn get_telegram_settings(
             };
 
             // Decrypt and mask chat ID
-            let chat_id_masked = match encryptor.decrypt(
-                &settings.encrypted_chat_id,
-                &settings.encryption_nonce_chat,
-            ) {
+            let chat_id_masked = match encryptor
+                .decrypt(&settings.encrypted_chat_id, &settings.encryption_nonce_chat)
+            {
                 Ok(chat_id) => mask_api_key(&chat_id),
                 Err(_) => "***복호화 실패***".to_string(),
             };
@@ -112,12 +112,10 @@ pub async fn get_telegram_settings(
                 "updated_at": settings.updated_at.to_rfc3339()
             })))
         }
-        None => {
-            Ok(Json(serde_json::json!({
-                "configured": false,
-                "message": "텔레그램 설정이 없습니다. 설정해주세요."
-            })))
-        }
+        None => Ok(Json(serde_json::json!({
+            "configured": false,
+            "message": "텔레그램 설정이 없습니다. 설정해주세요."
+        }))),
     }
 }
 
@@ -137,7 +135,10 @@ pub async fn save_telegram_settings(
     let pool = state.db_pool.as_ref().ok_or_else(|| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("DB_NOT_CONFIGURED", "데이터베이스 연결이 설정되지 않았습니다.")),
+            Json(ApiError::new(
+                "DB_NOT_CONFIGURED",
+                "데이터베이스 연결이 설정되지 않았습니다.",
+            )),
         )
     })?;
 
@@ -145,7 +146,10 @@ pub async fn save_telegram_settings(
     let encryptor = state.encryptor.as_ref().ok_or_else(|| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("ENCRYPTOR_NOT_CONFIGURED", "암호화 설정이 없습니다.")),
+            Json(ApiError::new(
+                "ENCRYPTOR_NOT_CONFIGURED",
+                "암호화 설정이 없습니다.",
+            )),
         )
     })?;
 
@@ -165,13 +169,14 @@ pub async fn save_telegram_settings(
     }
 
     // Encrypt bot token
-    let (encrypted_bot_token, nonce_token) = encryptor.encrypt(&request.bot_token).map_err(|e| {
-        error!("Bot Token 암호화 실패: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("ENCRYPTION_FAILED", "암호화 실패")),
-        )
-    })?;
+    let (encrypted_bot_token, nonce_token) =
+        encryptor.encrypt(&request.bot_token).map_err(|e| {
+            error!("Bot Token 암호화 실패: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiError::new("ENCRYPTION_FAILED", "암호화 실패")),
+            )
+        })?;
 
     // Encrypt chat ID
     let (encrypted_chat_id, nonce_chat) = encryptor.encrypt(&request.chat_id).map_err(|e| {
@@ -203,7 +208,7 @@ pub async fn save_telegram_settings(
             encryption_nonce_chat = EXCLUDED.encryption_nonce_chat,
             notification_settings = EXCLUDED.notification_settings,
             updated_at = NOW()
-        "#
+        "#,
     )
     .bind(settings_id)
     .bind(&encrypted_bot_token)
@@ -251,7 +256,10 @@ pub async fn delete_telegram_settings(
     let pool = state.db_pool.as_ref().ok_or_else(|| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("DB_NOT_CONFIGURED", "데이터베이스 연결이 설정되지 않았습니다.")),
+            Json(ApiError::new(
+                "DB_NOT_CONFIGURED",
+                "데이터베이스 연결이 설정되지 않았습니다.",
+            )),
         )
     })?;
 
@@ -282,7 +290,10 @@ pub async fn delete_telegram_settings(
     if result.rows_affected() == 0 {
         return Err((
             StatusCode::NOT_FOUND,
-            Json(ApiError::new("NOT_FOUND", "삭제할 텔레그램 설정이 없습니다.")),
+            Json(ApiError::new(
+                "NOT_FOUND",
+                "삭제할 텔레그램 설정이 없습니다.",
+            )),
         ));
     }
 
@@ -314,7 +325,10 @@ pub async fn test_telegram_settings(
     let pool = state.db_pool.as_ref().ok_or_else(|| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("DB_NOT_CONFIGURED", "데이터베이스 연결이 설정되지 않았습니다.")),
+            Json(ApiError::new(
+                "DB_NOT_CONFIGURED",
+                "데이터베이스 연결이 설정되지 않았습니다.",
+            )),
         )
     })?;
 
@@ -322,7 +336,10 @@ pub async fn test_telegram_settings(
     let encryptor = state.encryptor.as_ref().ok_or_else(|| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("ENCRYPTOR_NOT_CONFIGURED", "암호화 설정이 없습니다.")),
+            Json(ApiError::new(
+                "ENCRYPTOR_NOT_CONFIGURED",
+                "암호화 설정이 없습니다.",
+            )),
         )
     })?;
 
@@ -336,7 +353,7 @@ pub async fn test_telegram_settings(
             last_message_at, last_verified_at, created_at, updated_at
         FROM telegram_settings
         LIMIT 1
-        "#
+        "#,
     )
     .fetch_optional(pool)
     .await
@@ -356,28 +373,29 @@ pub async fn test_telegram_settings(
     })?;
 
     // Decrypt bot token
-    let bot_token = encryptor.decrypt(
-        &settings.encrypted_bot_token,
-        &settings.encryption_nonce_token,
-    ).map_err(|e| {
-        error!("Bot Token 복호화 실패: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("DECRYPTION_FAILED", "복호화 실패")),
+    let bot_token = encryptor
+        .decrypt(
+            &settings.encrypted_bot_token,
+            &settings.encryption_nonce_token,
         )
-    })?;
+        .map_err(|e| {
+            error!("Bot Token 복호화 실패: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiError::new("DECRYPTION_FAILED", "복호화 실패")),
+            )
+        })?;
 
     // Decrypt chat ID
-    let chat_id = encryptor.decrypt(
-        &settings.encrypted_chat_id,
-        &settings.encryption_nonce_chat,
-    ).map_err(|e| {
-        error!("Chat ID 복호화 실패: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("DECRYPTION_FAILED", "복호화 실패")),
-        )
-    })?;
+    let chat_id = encryptor
+        .decrypt(&settings.encrypted_chat_id, &settings.encryption_nonce_chat)
+        .map_err(|e| {
+            error!("Chat ID 복호화 실패: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiError::new("DECRYPTION_FAILED", "복호화 실패")),
+            )
+        })?;
 
     // TODO: Send actual test message via Telegram API
     // Currently only performing format validation
@@ -390,12 +408,10 @@ pub async fn test_telegram_settings(
 
     // Update last_verified_at on success
     if success {
-        let _ = sqlx::query(
-            "UPDATE telegram_settings SET last_verified_at = NOW() WHERE id = $1"
-        )
-        .bind(settings.id)
-        .execute(pool)
-        .await;
+        let _ = sqlx::query("UPDATE telegram_settings SET last_verified_at = NOW() WHERE id = $1")
+            .bind(settings.id)
+            .execute(pool)
+            .await;
     }
 
     // Audit log
@@ -405,8 +421,9 @@ pub async fn test_telegram_settings(
         settings.id,
         "verify",
         success,
-        if success { None } else { Some(message) }
-    ).await;
+        if success { None } else { Some(message) },
+    )
+    .await;
 
     Ok(Json(serde_json::json!({
         "success": success,

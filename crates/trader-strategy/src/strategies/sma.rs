@@ -14,8 +14,10 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::VecDeque;
-use trader_core::{MarketData, MarketDataType, MarketType, Order, Position, Side, Signal, SignalType, Symbol};
 use tracing::info;
+use trader_core::{
+    MarketData, MarketDataType, MarketType, Order, Position, Side, Signal, SignalType, Symbol,
+};
 
 /// SMA 크로스오버 전략 설정.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -155,7 +157,10 @@ impl Strategy for SmaStrategy {
             return Ok(vec![]);
         }
 
-        let config = self.config.as_ref().unwrap();
+        let config = match &self.config {
+            Some(c) => c,
+            None => return Ok(vec![]),
+        };
 
         // 심볼 확인
         if data.symbol.to_string() != config.symbol {
@@ -206,11 +211,16 @@ impl Strategy for SmaStrategy {
                 );
 
                 signals.push(
-                    Signal::new("sma_crossover", data.symbol.clone(), Side::Buy, SignalType::Entry)
-                        .with_strength(1.0)
-                        .with_prices(Some(price), None, None)
-                        .with_metadata("short_sma", json!(short_sma.to_string()))
-                        .with_metadata("long_sma", json!(long_sma.to_string()))
+                    Signal::new(
+                        "sma_crossover",
+                        data.symbol.clone(),
+                        Side::Buy,
+                        SignalType::Entry,
+                    )
+                    .with_strength(1.0)
+                    .with_prices(Some(price), None, None)
+                    .with_metadata("short_sma", json!(short_sma.to_string()))
+                    .with_metadata("long_sma", json!(long_sma.to_string())),
                 );
                 self.position_open = true;
             } else if death_cross && self.position_open {
@@ -222,11 +232,16 @@ impl Strategy for SmaStrategy {
                 );
 
                 signals.push(
-                    Signal::new("sma_crossover", data.symbol.clone(), Side::Sell, SignalType::Exit)
-                        .with_strength(1.0)
-                        .with_prices(Some(price), None, None)
-                        .with_metadata("short_sma", json!(short_sma.to_string()))
-                        .with_metadata("long_sma", json!(long_sma.to_string()))
+                    Signal::new(
+                        "sma_crossover",
+                        data.symbol.clone(),
+                        Side::Sell,
+                        SignalType::Exit,
+                    )
+                    .with_strength(1.0)
+                    .with_prices(Some(price), None, None)
+                    .with_metadata("short_sma", json!(short_sma.to_string()))
+                    .with_metadata("long_sma", json!(long_sma.to_string())),
                 );
                 self.position_open = false;
             }

@@ -15,13 +15,33 @@ mod ui_schema;
 
 // Re-export public types
 pub use types::{
-    BacktestApiError, BacktestConfigSummary, BacktestMetricsResponse, BacktestMultiRunRequest,
-    BacktestMultiRunResponse, BacktestRunRequest, BacktestRunResponse, BacktestStrategiesResponse,
-    BacktestableStrategy, EquityCurvePoint, ExecutionSchedule, SymbolCategory, TradeHistoryItem,
-    UiCondition, UiConditionOperator, UiField, UiFieldGroup, UiFieldType, UiLayout, UiSchema,
-    UiSelectOption, UiValidation,
+    BacktestApiError,
+    BacktestConfigSummary,
+    BacktestMetricsResponse,
+    BacktestMultiRunRequest,
+    BacktestMultiRunResponse,
+    BacktestRunRequest,
+    BacktestRunResponse,
+    BacktestStrategiesResponse,
+    BacktestableStrategy,
+    BatchBacktestItem,
     // 배치 백테스트
-    BatchBacktestRequest, BatchBacktestResponse, BatchBacktestItem, BatchBacktestResultItem,
+    BatchBacktestRequest,
+    BatchBacktestResponse,
+    BatchBacktestResultItem,
+    EquityCurvePoint,
+    ExecutionSchedule,
+    SymbolCategory,
+    TradeHistoryItem,
+    UiCondition,
+    UiConditionOperator,
+    UiField,
+    UiFieldGroup,
+    UiFieldType,
+    UiLayout,
+    UiSchema,
+    UiSelectOption,
+    UiValidation,
 };
 
 // Re-export UI schema functions
@@ -64,7 +84,7 @@ pub async fn list_backtest_strategies(State(state): State<Arc<AppState>>) -> imp
     let all_statuses = {
         let engine = state.strategy_engine.read().await;
         engine.get_all_statuses().await
-    };  // 락 해제됨
+    }; // 락 해제됨
 
     // 락 없이 계산 수행
     let strategies: Vec<BacktestableStrategy> = all_statuses
@@ -580,7 +600,7 @@ pub fn backtest_router() -> Router<Arc<AppState>> {
         .route("/run-multi", post(run_multi_backtest))
         // 배치 백테스트 (병렬 실행)
         .route("/run-batch", post(run_batch_backtest))
-        // 백테스트 결과 조회는 backtest_results_router에서 처리
+    // 백테스트 결과 조회는 backtest_results_router에서 처리
 }
 
 /// 배치 백테스트 실행 (병렬).
@@ -593,8 +613,8 @@ pub async fn run_batch_backtest(
     State(state): State<Arc<AppState>>,
     Json(request): Json<BatchBacktestRequest>,
 ) -> Result<Json<BatchBacktestResponse>, (StatusCode, Json<BacktestApiError>)> {
-    use std::time::Instant;
     use futures::stream::{self, StreamExt};
+    use std::time::Instant;
     use validator::Validate;
 
     // 입력 유효성 검사
@@ -630,16 +650,24 @@ pub async fn run_batch_backtest(
     );
 
     // 날짜 파싱
-    let start_date = NaiveDate::parse_from_str(&request.start_date, "%Y-%m-%d")
-        .map_err(|e| (
+    let start_date = NaiveDate::parse_from_str(&request.start_date, "%Y-%m-%d").map_err(|e| {
+        (
             StatusCode::BAD_REQUEST,
-            Json(BacktestApiError::new("INVALID_DATE", format!("시작 날짜 파싱 실패: {}", e))),
-        ))?;
-    let end_date = NaiveDate::parse_from_str(&request.end_date, "%Y-%m-%d")
-        .map_err(|e| (
+            Json(BacktestApiError::new(
+                "INVALID_DATE",
+                format!("시작 날짜 파싱 실패: {}", e),
+            )),
+        )
+    })?;
+    let end_date = NaiveDate::parse_from_str(&request.end_date, "%Y-%m-%d").map_err(|e| {
+        (
             StatusCode::BAD_REQUEST,
-            Json(BacktestApiError::new("INVALID_DATE", format!("종료 날짜 파싱 실패: {}", e))),
-        ))?;
+            Json(BacktestApiError::new(
+                "INVALID_DATE",
+                format!("종료 날짜 파싱 실패: {}", e),
+            )),
+        )
+    })?;
 
     // 수수료/슬리피지 기본값
     let commission_rate = request.commission_rate.unwrap_or(Decimal::new(1, 3));
@@ -671,7 +699,8 @@ pub async fn run_batch_backtest(
                         commission_rate,
                         slippage_rate,
                         &item.parameters,
-                    ).await
+                    )
+                    .await
                 } else {
                     // 다중 심볼 백테스트
                     run_multi_strategy_internal(
@@ -684,7 +713,8 @@ pub async fn run_batch_backtest(
                         commission_rate,
                         slippage_rate,
                         &item.parameters,
-                    ).await
+                    )
+                    .await
                 };
 
                 let execution_time_ms = task_start.elapsed().as_millis() as u64;
@@ -820,16 +850,19 @@ async fn run_multi_strategy_internal(
         .with_slippage_rate(slippage_rate);
 
     // 백테스트 실행
-    let report = run_multi_strategy_backtest(strategy_id, config, &merged_klines, &multi_klines, params)
-        .await
-        .map_err(|e| e.to_string())?;
+    let report =
+        run_multi_strategy_backtest(strategy_id, config, &merged_klines, &multi_klines, params)
+            .await
+            .map_err(|e| e.to_string())?;
 
     // 메트릭만 반환
     Ok(convert_report_to_metrics(&report))
 }
 
 /// BacktestReport에서 메트릭만 추출.
-fn convert_report_to_metrics(report: &trader_analytics::backtest::BacktestReport) -> BacktestMetricsResponse {
+fn convert_report_to_metrics(
+    report: &trader_analytics::backtest::BacktestReport,
+) -> BacktestMetricsResponse {
     let metrics = &report.metrics;
     BacktestMetricsResponse {
         total_return_pct: metrics.total_return_pct,

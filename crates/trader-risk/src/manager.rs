@@ -196,10 +196,9 @@ impl RiskManager {
                 let mut adjusted_order = order.clone();
                 adjusted_order.quantity = suggested_qty;
                 validation = validation.with_modified_order(adjusted_order);
-                validation.messages.push(format!(
-                    "Suggested adjusted quantity: {}",
-                    suggested_qty
-                ));
+                validation
+                    .messages
+                    .push(format!("Suggested adjusted quantity: {}", suggested_qty));
             }
 
             return Ok(validation);
@@ -259,21 +258,14 @@ impl RiskManager {
     // ==================== Stop Orders ====================
 
     /// 포지션에 대한 Stop-loss 주문 생성.
-    pub fn generate_stop_loss(
-        &self,
-        position: &Position,
-        custom_pct: Option<f64>,
-    ) -> StopOrder {
+    pub fn generate_stop_loss(&self, position: &Position, custom_pct: Option<f64>) -> StopOrder {
         self.stop_generator.generate_stop_loss(position, custom_pct)
     }
 
     /// 포지션에 대한 Take-profit 주문 생성.
-    pub fn generate_take_profit(
-        &self,
-        position: &Position,
-        custom_pct: Option<f64>,
-    ) -> StopOrder {
-        self.stop_generator.generate_take_profit(position, custom_pct)
+    pub fn generate_take_profit(&self, position: &Position, custom_pct: Option<f64>) -> StopOrder {
+        self.stop_generator
+            .generate_take_profit(position, custom_pct)
     }
 
     /// Stop-loss와 Take-profit 주문 모두 생성.
@@ -294,7 +286,8 @@ impl RiskManager {
         atr: Decimal,
         multiplier: Option<f64>,
     ) -> StopOrder {
-        self.stop_generator.generate_atr_stop(position, atr, multiplier)
+        self.stop_generator
+            .generate_atr_stop(position, atr, multiplier)
     }
 
     /// 포지션에 대한 Trailing Stop 초기화.
@@ -304,15 +297,12 @@ impl RiskManager {
         trail_pct: f64,
         current_price: Decimal,
     ) -> StopOrder {
-        let (order, state) = self.stop_generator.generate_trailing_stop(
-            position,
-            trail_pct,
-            current_price,
-        );
+        let (order, state) =
+            self.stop_generator
+                .generate_trailing_stop(position, trail_pct, current_price);
 
         // Trailing Stop 상태 저장
-        self.trailing_stops
-            .insert(position.id.to_string(), state);
+        self.trailing_stops.insert(position.id.to_string(), state);
 
         order
     }
@@ -335,11 +325,7 @@ impl RiskManager {
     }
 
     /// Trailing Stop 발동 여부 확인.
-    pub fn should_trigger_trailing_stop(
-        &self,
-        position_id: &str,
-        current_price: Decimal,
-    ) -> bool {
+    pub fn should_trigger_trailing_stop(&self, position_id: &str, current_price: Decimal) -> bool {
         self.trailing_stops
             .get(position_id)
             .map(|state| state.should_trigger(current_price))
@@ -558,9 +544,7 @@ mod tests {
         let symbol = Symbol::crypto("BTC", "USDT");
         let order = OrderRequest::market_buy(symbol, dec!(0.01));
 
-        let result = manager
-            .validate_order(&order, &[], dec!(50000))
-            .unwrap();
+        let result = manager.validate_order(&order, &[], dec!(50000)).unwrap();
 
         assert!(!result.is_valid);
         assert!(result.messages[0].contains("volatility"));

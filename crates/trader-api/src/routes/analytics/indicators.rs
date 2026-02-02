@@ -71,9 +71,8 @@ pub async fn get_available_indicators() -> impl IntoResponse {
         IndicatorInfo {
             id: "stochastic".to_string(),
             name: "스토캐스틱".to_string(),
-            description:
-                "현재 가격이 일정 기간 가격 범위 내에서 어디에 위치하는지 측정합니다."
-                    .to_string(),
+            description: "현재 가격이 일정 기간 가격 범위 내에서 어디에 위치하는지 측정합니다."
+                .to_string(),
             category: "모멘텀".to_string(),
             default_params: serde_json::json!({ "k_period": 14, "d_period": 3 }),
             overlay: false,

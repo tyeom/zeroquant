@@ -83,8 +83,8 @@ impl Default for WeightedMomentumConfig {
         Self {
             period_weights: vec![
                 (TRADING_DAYS_PER_MONTH * 10, dec!(0.3)), // 10 months
-                (100, dec!(0.2)),                          // 100 days
-                (10, dec!(0.3)),                           // 10 days
+                (100, dec!(0.2)),                         // 100 days
+                (10, dec!(0.3)),                          // 10 days
             ],
             normalize_weights: false,
         }
@@ -172,10 +172,8 @@ impl MomentumCalculator {
 
     /// 사용자 정의 룩백 기간(월 단위)으로 계산기 생성.
     pub fn with_months(months: &[usize]) -> Self {
-        let lookback_periods: Vec<usize> = months
-            .iter()
-            .map(|m| m * TRADING_DAYS_PER_MONTH)
-            .collect();
+        let lookback_periods: Vec<usize> =
+            months.iter().map(|m| m * TRADING_DAYS_PER_MONTH).collect();
 
         Self::new(MomentumConfig {
             lookback_periods,
@@ -201,7 +199,13 @@ impl MomentumCalculator {
     /// # 반환값
     /// 평균 모멘텀 점수와 기간별 개별 점수를 포함하는 `MomentumResult`.
     pub fn calculate(&self, prices: &[Decimal]) -> MomentumResult {
-        let max_period = self.config.lookback_periods.iter().max().copied().unwrap_or(0);
+        let max_period = self
+            .config
+            .lookback_periods
+            .iter()
+            .max()
+            .copied()
+            .unwrap_or(0);
         let min_required = self.config.min_data_points.unwrap_or(max_period + 1);
 
         if prices.len() < min_required {
@@ -525,8 +529,8 @@ mod tests {
     #[test]
     fn test_weighted_momentum() {
         let calc = WeightedMomentumCalculator::with_weights(&[
-            (21, dec!(0.5)),  // 1 month, 50% weight
-            (63, dec!(0.5)),  // 3 months, 50% weight
+            (21, dec!(0.5)), // 1 month, 50% weight
+            (63, dec!(0.5)), // 3 months, 50% weight
         ]);
 
         let prices = sample_prices();
@@ -554,19 +558,25 @@ mod tests {
         // Asset A: strong uptrend
         asset_prices.insert(
             "A".to_string(),
-            (0..100).map(|i| dec!(100) - Decimal::from(i) * dec!(0.2)).collect(),
+            (0..100)
+                .map(|i| dec!(100) - Decimal::from(i) * dec!(0.2))
+                .collect(),
         );
 
         // Asset B: weak uptrend
         asset_prices.insert(
             "B".to_string(),
-            (0..100).map(|i| dec!(100) - Decimal::from(i) * dec!(0.05)).collect(),
+            (0..100)
+                .map(|i| dec!(100) - Decimal::from(i) * dec!(0.05))
+                .collect(),
         );
 
         // Asset C: downtrend
         asset_prices.insert(
             "C".to_string(),
-            (0..100).map(|i| dec!(80) + Decimal::from(i) * dec!(0.1)).collect(),
+            (0..100)
+                .map(|i| dec!(80) + Decimal::from(i) * dec!(0.1))
+                .collect(),
         );
 
         let ranked = calc.rank_assets(&asset_prices);

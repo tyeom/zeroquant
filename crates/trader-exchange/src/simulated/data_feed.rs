@@ -104,13 +104,12 @@ impl DataFeed {
         timeframe: Timeframe,
         path: impl AsRef<Path>,
     ) -> Result<usize, ExchangeError> {
-        let content = std::fs::read_to_string(path.as_ref()).map_err(|e| {
-            ExchangeError::ParseError(format!("Failed to read CSV file: {}", e))
-        })?;
+        let content = std::fs::read_to_string(path.as_ref())
+            .map_err(|e| ExchangeError::ParseError(format!("Failed to read CSV file: {}", e)))?;
 
         let mut klines = Vec::new();
-        let tf_duration = Duration::from_std(timeframe.duration())
-            .unwrap_or_else(|_| Duration::minutes(1));
+        let tf_duration =
+            Duration::from_std(timeframe.duration()).unwrap_or_else(|_| Duration::minutes(1));
 
         for (line_no, line) in content.lines().enumerate() {
             // 헤더 건너뛰기
@@ -128,7 +127,10 @@ impl DataFeed {
                 .parse::<i64>()
                 .map(|ts| DateTime::from_timestamp_millis(ts).unwrap_or_default())
                 .map_err(|e| {
-                    ExchangeError::ParseError(format!("Invalid timestamp at line {}: {}", line_no, e))
+                    ExchangeError::ParseError(format!(
+                        "Invalid timestamp at line {}: {}",
+                        line_no, e
+                    ))
                 })?;
 
             let close_time = open_time + tf_duration;
@@ -299,7 +301,11 @@ impl DataFeed {
         for ((symbol, _timeframe), data) in &self.data {
             if let Some(pos) = self.playback_position.get(symbol) {
                 // 현재 위치 이후에 더 많은 데이터가 있는지 확인
-                if data.range((std::ops::Bound::Excluded(*pos), std::ops::Bound::Unbounded)).next().is_some() {
+                if data
+                    .range((std::ops::Bound::Excluded(*pos), std::ops::Bound::Unbounded))
+                    .next()
+                    .is_some()
+                {
                     return false;
                 }
             } else {
@@ -344,8 +350,8 @@ pub fn generate_sample_klines(
     let mut rng = rand::thread_rng();
     let mut current_price = start_price;
 
-    let tf_duration = Duration::from_std(timeframe.duration())
-        .unwrap_or_else(|_| Duration::minutes(1));
+    let tf_duration =
+        Duration::from_std(timeframe.duration()).unwrap_or_else(|_| Duration::minutes(1));
     let mut current_time = Utc::now() - tf_duration * count as i32;
 
     let volatility_f64 = volatility.to_string().parse::<f64>().unwrap_or(0.02);
@@ -357,8 +363,10 @@ pub fn generate_sample_klines(
         let open = current_price;
         let close = current_price + change;
 
-        let high_extra = current_price.abs() * Decimal::from_f64_retain(rng.gen::<f64>() * 0.01).unwrap_or_default();
-        let low_extra = current_price.abs() * Decimal::from_f64_retain(rng.gen::<f64>() * 0.01).unwrap_or_default();
+        let high_extra = current_price.abs()
+            * Decimal::from_f64_retain(rng.gen::<f64>() * 0.01).unwrap_or_default();
+        let low_extra = current_price.abs()
+            * Decimal::from_f64_retain(rng.gen::<f64>() * 0.01).unwrap_or_default();
 
         let high = open.max(close) + high_extra;
         let low = open.min(close) - low_extra;
@@ -398,7 +406,8 @@ mod tests {
     fn test_load_klines() {
         let mut feed = DataFeed::new(DataFeedConfig::default());
         let symbol = create_test_symbol();
-        let klines = generate_sample_klines(symbol.clone(), Timeframe::M1, 100, dec!(50000), dec!(0.02));
+        let klines =
+            generate_sample_klines(symbol.clone(), Timeframe::M1, 100, dec!(50000), dec!(0.02));
 
         feed.load_klines(symbol.clone(), Timeframe::M1, klines);
 
@@ -410,7 +419,8 @@ mod tests {
     fn test_playback() {
         let mut feed = DataFeed::new(DataFeedConfig::default());
         let symbol = create_test_symbol();
-        let klines = generate_sample_klines(symbol.clone(), Timeframe::M1, 10, dec!(50000), dec!(0.02));
+        let klines =
+            generate_sample_klines(symbol.clone(), Timeframe::M1, 10, dec!(50000), dec!(0.02));
 
         feed.load_klines(symbol.clone(), Timeframe::M1, klines);
 
@@ -435,7 +445,8 @@ mod tests {
     fn test_historical_klines() {
         let mut feed = DataFeed::new(DataFeedConfig::default());
         let symbol = create_test_symbol();
-        let klines = generate_sample_klines(symbol.clone(), Timeframe::M1, 100, dec!(50000), dec!(0.02));
+        let klines =
+            generate_sample_klines(symbol.clone(), Timeframe::M1, 100, dec!(50000), dec!(0.02));
 
         feed.load_klines(symbol.clone(), Timeframe::M1, klines);
 
@@ -457,7 +468,8 @@ mod tests {
         };
         let mut feed = DataFeed::new(config);
         let symbol = create_test_symbol();
-        let klines = generate_sample_klines(symbol.clone(), Timeframe::M1, 5, dec!(50000), dec!(0.02));
+        let klines =
+            generate_sample_klines(symbol.clone(), Timeframe::M1, 5, dec!(50000), dec!(0.02));
 
         feed.load_klines(symbol.clone(), Timeframe::M1, klines);
 

@@ -52,7 +52,9 @@ impl IntoResponse for JwtAuthError {
             JwtAuthError::InvalidAuthHeader => (StatusCode::UNAUTHORIZED, "INVALID_AUTH_HEADER"),
             JwtAuthError::TokenExpired => (StatusCode::UNAUTHORIZED, "TOKEN_EXPIRED"),
             JwtAuthError::InvalidToken => (StatusCode::UNAUTHORIZED, "INVALID_TOKEN"),
-            JwtAuthError::InsufficientPermission => (StatusCode::FORBIDDEN, "INSUFFICIENT_PERMISSION"),
+            JwtAuthError::InsufficientPermission => {
+                (StatusCode::FORBIDDEN, "INSUFFICIENT_PERMISSION")
+            }
         };
 
         let body = Json(json!({
@@ -73,7 +75,6 @@ impl IntoResponse for JwtAuthError {
 pub struct JwtConfig {
     pub secret: String,
 }
-
 
 impl<S> FromRequestParts<S> for JwtAuth
 where
@@ -140,7 +141,6 @@ pub fn require_role(required_role: Role, claims: &Claims) -> Result<(), JwtAuthE
 #[derive(Debug, Clone)]
 pub struct OptionalJwtAuth(pub Option<Claims>);
 
-
 impl<S> FromRequestParts<S> for OptionalJwtAuth
 where
     S: Send + Sync,
@@ -159,7 +159,6 @@ where
 #[derive(Debug, Clone)]
 pub struct AdminAuth(pub Claims);
 
-
 impl<S> FromRequestParts<S> for AdminAuth
 where
     S: Send + Sync,
@@ -176,7 +175,6 @@ where
 /// Trader 이상 권한을 요구하는 추출기.
 #[derive(Debug, Clone)]
 pub struct TraderAuth(pub Claims);
-
 
 impl<S> FromRequestParts<S> for TraderAuth
 where

@@ -152,7 +152,9 @@ impl HolidayChecker {
         let client = Client::builder()
             .timeout(Duration::from_secs(oauth.config().timeout_secs))
             .build()
-            .map_err(|e| ExchangeError::NetworkError(format!("HTTP 클라이언트 생성 실패: {}", e)))?;
+            .map_err(|e| {
+                ExchangeError::NetworkError(format!("HTTP 클라이언트 생성 실패: {}", e))
+            })?;
 
         Ok(Self {
             oauth,
@@ -220,7 +222,9 @@ impl HolidayChecker {
         }
 
         // 캐시 미스 - API 호출
-        let holidays = self.fetch_overseas_holidays(country_code::USA, &year_month).await?;
+        let holidays = self
+            .fetch_overseas_holidays(country_code::USA, &year_month)
+            .await?;
         let is_holiday = holidays.contains(&date);
 
         // 캐시 업데이트
@@ -268,9 +272,8 @@ impl HolidayChecker {
         let minute = kst_now.minute();
 
         // 09:00 ~ 15:30
-        let is_open = (hour == 9 && minute >= 0)
-            || (hour >= 10 && hour < 15)
-            || (hour == 15 && minute <= 30);
+        let is_open =
+            (hour == 9 && minute >= 0) || (hour >= 10 && hour < 15) || (hour == 15 && minute <= 30);
 
         Ok(is_open)
     }
@@ -297,8 +300,7 @@ impl HolidayChecker {
             Ok(is_open)
         } else {
             // 정규 거래시간만: 09:30 ~ 16:00
-            let is_open = (hour == 9 && minute >= 30)
-                || (hour >= 10 && hour < 16);
+            let is_open = (hour == 9 && minute >= 30) || (hour >= 10 && hour < 16);
             Ok(is_open)
         }
     }
@@ -391,8 +393,9 @@ impl HolidayChecker {
             });
         }
 
-        let resp: KrHolidayResponse = serde_json::from_str(&body)
-            .map_err(|e| ExchangeError::ParseError(format!("Failed to parse holiday response: {}", e)))?;
+        let resp: KrHolidayResponse = serde_json::from_str(&body).map_err(|e| {
+            ExchangeError::ParseError(format!("Failed to parse holiday response: {}", e))
+        })?;
 
         if resp.rt_cd != "0" {
             return Err(ExchangeError::ApiError {
@@ -427,7 +430,10 @@ impl HolidayChecker {
             self.oauth.config().rest_base_url()
         );
 
-        let headers = self.oauth.build_headers(tr_id::OVERSEAS_HOLIDAY, None).await?;
+        let headers = self
+            .oauth
+            .build_headers(tr_id::OVERSEAS_HOLIDAY, None)
+            .await?;
 
         // 해당 월의 시작일과 종료일 계산
         let year: i32 = year_month[0..4].parse().unwrap_or(2026);
@@ -442,7 +448,13 @@ impl HolidayChecker {
             let last_day = match month {
                 1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
                 4 | 6 | 9 | 11 => 30,
-                2 => if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) { 29 } else { 28 },
+                2 => {
+                    if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) {
+                        29
+                    } else {
+                        28
+                    }
+                }
                 _ => 31,
             };
             format!("{}{:02}{:02}", year, month, last_day)
@@ -476,13 +488,17 @@ impl HolidayChecker {
             });
         }
 
-        let resp: OverseasHolidayResponse = serde_json::from_str(&body)
-            .map_err(|e| ExchangeError::ParseError(format!("Failed to parse holiday response: {}", e)))?;
+        let resp: OverseasHolidayResponse = serde_json::from_str(&body).map_err(|e| {
+            ExchangeError::ParseError(format!("Failed to parse holiday response: {}", e))
+        })?;
 
         if resp.rt_cd != "0" {
             // 에러가 아닌 경우도 있음 (데이터 없음)
             if resp.msg_cd == "40000000" {
-                warn!("No holiday data available for {} in {}", country, year_month);
+                warn!(
+                    "No holiday data available for {} in {}",
+                    country, year_month
+                );
                 return Ok(HashSet::new());
             }
             return Err(ExchangeError::ApiError {
@@ -497,12 +513,20 @@ impl HolidayChecker {
             if item.country_code == country {
                 if let Ok(date) = NaiveDate::parse_from_str(&item.holiday_date, "%Y%m%d") {
                     holidays.insert(date);
-                    debug!("{} Holiday: {} ({})", country, item.holiday_date, item.holiday_name);
+                    debug!(
+                        "{} Holiday: {} ({})",
+                        country, item.holiday_date, item.holiday_name
+                    );
                 }
             }
         }
 
-        info!("Loaded {} {} holidays for {}", holidays.len(), country, year_month);
+        info!(
+            "Loaded {} {} holidays for {}",
+            holidays.len(),
+            country,
+            year_month
+        );
         Ok(holidays)
     }
 
@@ -539,7 +563,9 @@ impl HolidayChecker {
         month: u32,
     ) -> Result<Vec<NaiveDate>, ExchangeError> {
         let year_month = format!("{}{:02}", year, month);
-        let holidays = self.fetch_overseas_holidays(country_code::USA, &year_month).await?;
+        let holidays = self
+            .fetch_overseas_holidays(country_code::USA, &year_month)
+            .await?;
         let mut sorted: Vec<_> = holidays.into_iter().collect();
         sorted.sort();
         Ok(sorted)
@@ -630,7 +656,11 @@ mod tests {
 
         // 2월 평년
         let year = 2025;
-        let last_day = if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) { 29 } else { 28 };
+        let last_day = if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) {
+            29
+        } else {
+            28
+        };
         assert_eq!(last_day, 28);
     }
 }

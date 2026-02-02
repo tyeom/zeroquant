@@ -160,10 +160,7 @@ impl BinanceTickSize {
     /// # Arguments
     /// * `tick_sizes` - 심볼별 tick_size 맵
     /// * `default_tick_size` - 기본 tick_size (옵션)
-    pub fn new(
-        tick_sizes: HashMap<String, Decimal>,
-        default_tick_size: Option<Decimal>,
-    ) -> Self {
+    pub fn new(tick_sizes: HashMap<String, Decimal>, default_tick_size: Option<Decimal>) -> Self {
         Self {
             tick_sizes: Arc::new(tick_sizes),
             default_tick_size: default_tick_size.unwrap_or(rust_decimal_macros::dec!(0.01)),

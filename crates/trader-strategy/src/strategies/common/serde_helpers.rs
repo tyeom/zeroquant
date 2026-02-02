@@ -39,9 +39,13 @@ where
                     return Ok(s.clone());
                 }
             }
-            Err(D::Error::custom("symbol array is empty or contains non-string"))
+            Err(D::Error::custom(
+                "symbol array is empty or contains non-string",
+            ))
         }
-        _ => Err(D::Error::custom("symbol must be a string or array of strings")),
+        _ => Err(D::Error::custom(
+            "symbol must be a string or array of strings",
+        )),
     }
 }
 
@@ -84,7 +88,9 @@ where
             }
             Ok(result)
         }
-        _ => Err(D::Error::custom("symbols must be a string or array of strings")),
+        _ => Err(D::Error::custom(
+            "symbols must be a string or array of strings",
+        )),
     }
 }
 
@@ -111,7 +117,9 @@ where
             }
             Err(D::Error::custom("symbol array contains non-string"))
         }
-        Some(_) => Err(D::Error::custom("symbol must be a string or array of strings")),
+        Some(_) => Err(D::Error::custom(
+            "symbol must be a string or array of strings",
+        )),
     }
 }
 

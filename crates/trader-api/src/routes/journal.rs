@@ -18,10 +18,11 @@ use axum::{
     routing::{get, patch, post},
     Json, Router,
 };
-use chrono::{DateTime, NaiveDate, Utc, TimeZone};
+use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use trader_core::Side;
 use uuid::Uuid;
 
 // ==================== 날짜 파싱 헬퍼 ====================
@@ -119,15 +120,14 @@ fn parse_date_flexible(s: &str, field_name: &str) -> Result<NaiveDate, DateParse
 }
 
 use crate::repository::{
-    CurrentPosition as RepoCurrentPosition, DailySummary, ExecutionFilter, JournalRepository,
-    PnLSummary, SymbolPnL, TradeExecutionRecord,
-    PositionRepository, ExecutionCacheRepository, NewExecution,
-    WeeklyPnL, MonthlyPnL, YearlyPnL, CumulativePnL, TradingInsights, StrategyPerformance,
+    CumulativePnL, CurrentPosition as RepoCurrentPosition, DailySummary, ExecutionCacheRepository,
+    ExecutionFilter, JournalRepository, MonthlyPnL, NewExecution, PnLSummary, PositionRepository,
+    StrategyPerformance, SymbolPnL, TradeExecutionRecord, TradingInsights, WeeklyPnL, YearlyPnL,
 };
 use crate::routes::portfolio::get_or_create_kis_client;
 use crate::routes::strategies::ApiError;
 use crate::state::AppState;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 // ==================== 요청 타입 ====================
 
@@ -221,7 +221,7 @@ impl From<RepoCurrentPosition> for JournalPositionResponse {
             exchange: p.exchange,
             symbol: p.symbol,
             symbol_name: p.symbol_name,
-            side: p.side,
+            side: p.side.as_str().to_string(),
             quantity: p.quantity.to_string(),
             entry_price: p.entry_price.to_string(),
             current_price: p.current_price.map(|v| v.to_string()),
@@ -291,7 +291,7 @@ impl From<TradeExecutionRecord> for ExecutionResponse {
             exchange: r.exchange,
             symbol: r.symbol,
             symbol_name: r.symbol_name,
-            side: r.side,
+            side: r.side.as_str().to_string(),
             order_type: r.order_type,
             quantity: r.quantity.to_string(),
             price: r.price.to_string(),
@@ -461,7 +461,10 @@ pub async fn get_journal_positions(
             warn!("Failed to get positions: {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("DB_ERROR", format!("Failed to get positions: {}", e))),
+                Json(ApiError::new(
+                    "DB_ERROR",
+                    format!("Failed to get positions: {}", e),
+                )),
             )
         })?;
 
@@ -484,7 +487,7 @@ pub async fn get_journal_positions(
                 exchange: p.exchange.clone(),
                 symbol: p.symbol.clone().unwrap_or_default(),
                 symbol_name: p.symbol_name.clone(),
-                side: p.side.clone(),
+                side: p.side.as_str().to_string(),
                 quantity: p.quantity.to_string(),
                 entry_price: p.entry_price.to_string(),
                 current_price: p.current_price.map(|v| v.to_string()),
@@ -504,18 +507,12 @@ pub async fn get_journal_positions(
         .collect();
 
     // 요약 계산
-    let total_cost_basis: Decimal = positions
-        .iter()
-        .map(|p| p.entry_price * p.quantity)
-        .sum();
+    let total_cost_basis: Decimal = positions.iter().map(|p| p.entry_price * p.quantity).sum();
     let total_market_value: Decimal = positions
         .iter()
         .filter_map(|p| p.current_price.map(|cp| cp * p.quantity))
         .sum();
-    let total_unrealized_pnl: Decimal = positions
-        .iter()
-        .filter_map(|p| p.unrealized_pnl)
-        .sum();
+    let total_unrealized_pnl: Decimal = positions.iter().filter_map(|p| p.unrealized_pnl).sum();
     let total_unrealized_pnl_pct = if total_cost_basis > Decimal::ZERO {
         (total_unrealized_pnl / total_cost_basis) * Decimal::from(100)
     } else {
@@ -552,16 +549,18 @@ pub async fn list_executions(
 
     // 날짜 파싱 - 유연한 형식 지원 + 에러 반환
     let start_date: Option<DateTime<Utc>> = match query.start_date {
-        Some(ref s) => Some(parse_datetime_flexible(s, "start_date").map_err(|e| {
-            (StatusCode::BAD_REQUEST, Json(e.to_api_error()))
-        })?),
+        Some(ref s) => Some(
+            parse_datetime_flexible(s, "start_date")
+                .map_err(|e| (StatusCode::BAD_REQUEST, Json(e.to_api_error())))?,
+        ),
         None => None,
     };
 
     let end_date: Option<DateTime<Utc>> = match query.end_date {
-        Some(ref s) => Some(parse_datetime_flexible(s, "end_date").map_err(|e| {
-            (StatusCode::BAD_REQUEST, Json(e.to_api_error()))
-        })?),
+        Some(ref s) => Some(
+            parse_datetime_flexible(s, "end_date")
+                .map_err(|e| (StatusCode::BAD_REQUEST, Json(e.to_api_error())))?,
+        ),
         None => None,
     };
 
@@ -580,7 +579,10 @@ pub async fn list_executions(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("DB_ERROR", format!("Failed to list executions: {}", e))),
+                Json(ApiError::new(
+                    "DB_ERROR",
+                    format!("Failed to list executions: {}", e),
+                )),
             )
         })?;
 
@@ -589,7 +591,10 @@ pub async fn list_executions(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("DB_ERROR", format!("Failed to count executions: {}", e))),
+                Json(ApiError::new(
+                    "DB_ERROR",
+                    format!("Failed to count executions: {}", e),
+                )),
             )
         })?;
 
@@ -618,7 +623,10 @@ pub async fn get_pnl_summary(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("DB_ERROR", format!("Failed to get PnL summary: {}", e))),
+                Json(ApiError::new(
+                    "DB_ERROR",
+                    format!("Failed to get PnL summary: {}", e),
+                )),
             )
         })?;
 
@@ -637,16 +645,18 @@ pub async fn get_daily_pnl(
 
     // 날짜 파싱 - 유연한 형식 지원 + 에러 반환
     let start_date: Option<NaiveDate> = match query.start_date {
-        Some(ref s) => Some(parse_date_flexible(s, "start_date").map_err(|e| {
-            (StatusCode::BAD_REQUEST, Json(e.to_api_error()))
-        })?),
+        Some(ref s) => Some(
+            parse_date_flexible(s, "start_date")
+                .map_err(|e| (StatusCode::BAD_REQUEST, Json(e.to_api_error())))?,
+        ),
         None => None,
     };
 
     let end_date: Option<NaiveDate> = match query.end_date {
-        Some(ref s) => Some(parse_date_flexible(s, "end_date").map_err(|e| {
-            (StatusCode::BAD_REQUEST, Json(e.to_api_error()))
-        })?),
+        Some(ref s) => Some(
+            parse_date_flexible(s, "end_date")
+                .map_err(|e| (StatusCode::BAD_REQUEST, Json(e.to_api_error())))?,
+        ),
         None => None,
     };
 
@@ -655,7 +665,10 @@ pub async fn get_daily_pnl(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("DB_ERROR", format!("Failed to get daily PnL: {}", e))),
+                Json(ApiError::new(
+                    "DB_ERROR",
+                    format!("Failed to get daily PnL: {}", e),
+                )),
             )
         })?;
 
@@ -682,7 +695,10 @@ pub async fn get_symbol_pnl(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("DB_ERROR", format!("Failed to get symbol PnL: {}", e))),
+                Json(ApiError::new(
+                    "DB_ERROR",
+                    format!("Failed to get symbol PnL: {}", e),
+                )),
             )
         })?;
 
@@ -971,7 +987,10 @@ pub async fn get_weekly_pnl(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("DB_ERROR", format!("Failed to get weekly PnL: {}", e))),
+                Json(ApiError::new(
+                    "DB_ERROR",
+                    format!("Failed to get weekly PnL: {}", e),
+                )),
             )
         })?;
 
@@ -998,7 +1017,10 @@ pub async fn get_monthly_pnl(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("DB_ERROR", format!("Failed to get monthly PnL: {}", e))),
+                Json(ApiError::new(
+                    "DB_ERROR",
+                    format!("Failed to get monthly PnL: {}", e),
+                )),
             )
         })?;
 
@@ -1025,7 +1047,10 @@ pub async fn get_yearly_pnl(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("DB_ERROR", format!("Failed to get yearly PnL: {}", e))),
+                Json(ApiError::new(
+                    "DB_ERROR",
+                    format!("Failed to get yearly PnL: {}", e),
+                )),
             )
         })?;
 
@@ -1052,14 +1077,20 @@ pub async fn get_cumulative_pnl(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("DB_ERROR", format!("Failed to get cumulative PnL: {}", e))),
+                Json(ApiError::new(
+                    "DB_ERROR",
+                    format!("Failed to get cumulative PnL: {}", e),
+                )),
             )
         })?;
 
     let total_points = cumulative.len();
     let curve: Vec<CumulativePnLPoint> = cumulative.into_iter().map(Into::into).collect();
 
-    Ok(Json(CumulativePnLResponse { curve, total_points }))
+    Ok(Json(CumulativePnLResponse {
+        curve,
+        total_points,
+    }))
 }
 
 /// 투자 인사이트 조회.
@@ -1076,7 +1107,10 @@ pub async fn get_trading_insights(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("DB_ERROR", format!("Failed to get trading insights: {}", e))),
+                Json(ApiError::new(
+                    "DB_ERROR",
+                    format!("Failed to get trading insights: {}", e),
+                )),
             )
         })?;
 
@@ -1119,7 +1153,10 @@ pub async fn get_strategy_performance(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("DB_ERROR", format!("Failed to get strategy performance: {}", e))),
+                Json(ApiError::new(
+                    "DB_ERROR",
+                    format!("Failed to get strategy performance: {}", e),
+                )),
             )
         })?;
 
@@ -1148,7 +1185,10 @@ pub async fn update_execution(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("DB_ERROR", format!("Failed to get execution: {}", e))),
+                Json(ApiError::new(
+                    "DB_ERROR",
+                    format!("Failed to get execution: {}", e),
+                )),
             )
         })?;
 
@@ -1159,7 +1199,10 @@ pub async fn update_execution(
                 .map_err(|e| {
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ApiError::new("DB_ERROR", format!("Failed to update execution: {}", e))),
+                        Json(ApiError::new(
+                            "DB_ERROR",
+                            format!("Failed to update execution: {}", e),
+                        )),
                     )
                 })?;
 
@@ -1167,11 +1210,17 @@ pub async fn update_execution(
         }
         Some(_) => Err((
             StatusCode::FORBIDDEN,
-            Json(ApiError::new("FORBIDDEN", "Execution belongs to another account")),
+            Json(ApiError::new(
+                "FORBIDDEN",
+                "Execution belongs to another account",
+            )),
         )),
         None => Err((
             StatusCode::NOT_FOUND,
-            Json(ApiError::new("NOT_FOUND", format!("Execution not found: {}", id))),
+            Json(ApiError::new(
+                "NOT_FOUND",
+                format!("Execution not found: {}", id),
+            )),
         )),
     }
 }
@@ -1204,15 +1253,16 @@ pub async fn sync_executions(
 
     // 날짜 설정 (기본: 30일 전 ~ 오늘)
     let today = chrono::Utc::now() + chrono::Duration::hours(9); // KST
-    let default_start = (today - chrono::Duration::days(30)).format("%Y%m%d").to_string();
+    let default_start = (today - chrono::Duration::days(30))
+        .format("%Y%m%d")
+        .to_string();
     let default_end = today.format("%Y%m%d").to_string();
 
     // 사용자가 입력한 날짜 파싱 (다양한 형식 지원) -> YYYYMMDD로 변환
     let start_date = match req.start_date {
         Some(ref s) => {
-            let parsed = parse_date_flexible(s, "start_date").map_err(|e| {
-                (StatusCode::BAD_REQUEST, Json(e.to_api_error()))
-            })?;
+            let parsed = parse_date_flexible(s, "start_date")
+                .map_err(|e| (StatusCode::BAD_REQUEST, Json(e.to_api_error())))?;
             parsed.format("%Y%m%d").to_string()
         }
         None => default_start,
@@ -1227,7 +1277,10 @@ pub async fn sync_executions(
             error!("체결 내역 조회 실패: {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("HISTORY_FETCH_ERROR", &format!("체결 내역 조회 실패: {}", e))),
+                Json(ApiError::new(
+                    "HISTORY_FETCH_ERROR",
+                    &format!("체결 내역 조회 실패: {}", e),
+                )),
             )
         })?;
 
@@ -1240,7 +1293,8 @@ pub async fn sync_executions(
         .iter()
         .filter(|r| r.filled_qty > Decimal::ZERO) // 체결된 것만
         .map(|r| {
-            let side = format!("{:?}", r.side).to_lowercase();
+            let side_str = format!("{:?}", r.side).to_lowercase();
+            let side = Side::from_str_flexible(&side_str).unwrap_or(Side::Buy);
             let amount = r.filled_qty * r.filled_price;
             let trade_id = format!("{}_{}", r.order_id, r.ordered_at.timestamp());
 
@@ -1273,7 +1327,10 @@ pub async fn sync_executions(
             error!("체결 내역 저장 실패: {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("DB_ERROR", &format!("체결 내역 저장 실패: {}", e))),
+                Json(ApiError::new(
+                    "DB_ERROR",
+                    &format!("체결 내역 저장 실패: {}", e),
+                )),
             )
         })?;
 
@@ -1319,7 +1376,10 @@ fn get_db_pool(state: &Arc<AppState>) -> Result<&sqlx::PgPool, (StatusCode, Json
     state.db_pool.as_ref().ok_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(ApiError::new("DB_NOT_CONNECTED", "Database connection is not available")),
+            Json(ApiError::new(
+                "DB_NOT_CONNECTED",
+                "Database connection is not available",
+            )),
         )
     })
 }
@@ -1339,7 +1399,10 @@ async fn get_active_credential_id(
     .map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("DB_ERROR", format!("Failed to get active account: {}", e))),
+            Json(ApiError::new(
+                "DB_ERROR",
+                format!("Failed to get active account: {}", e),
+            )),
         )
     })?;
 
@@ -1348,13 +1411,19 @@ async fn get_active_credential_id(
             Uuid::parse_str(&credential_id_str).map_err(|_| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ApiError::new("INVALID_UUID", "Invalid credential ID format")),
+                    Json(ApiError::new(
+                        "INVALID_UUID",
+                        "Invalid credential ID format",
+                    )),
                 )
             })
         }
         _ => Err((
             StatusCode::BAD_REQUEST,
-            Json(ApiError::new("NO_ACTIVE_ACCOUNT", "No active account selected. Please select an account in Settings.")),
+            Json(ApiError::new(
+                "NO_ACTIVE_ACCOUNT",
+                "No active account selected. Please select an account in Settings.",
+            )),
         )),
     }
 }

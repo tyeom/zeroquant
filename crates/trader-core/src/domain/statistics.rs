@@ -107,16 +107,16 @@ impl TradeStatistics {
             };
 
             // 수수료 누적
-            stats.total_fees = stats.total_fees + trade.fees();
+            stats.total_fees += trade.fees();
 
             // 순손익 계산
             let net = net_pnl(pnl, trade.fees());
-            stats.net_profit = stats.net_profit + net;
+            stats.net_profit += net;
 
             // 수익/손실 분류
             if net > Decimal::ZERO {
                 stats.winning_trades += 1;
-                stats.gross_profit = stats.gross_profit + net;
+                stats.gross_profit += net;
                 winning_pnls.push(net);
 
                 if net > stats.largest_win {
@@ -125,7 +125,7 @@ impl TradeStatistics {
             } else if net < Decimal::ZERO {
                 stats.losing_trades += 1;
                 let loss = net.abs();
-                stats.gross_loss = stats.gross_loss + loss;
+                stats.gross_loss += loss;
                 losing_pnls.push(loss);
 
                 if loss > stats.largest_loss {
@@ -135,14 +135,15 @@ impl TradeStatistics {
 
             // 보유 기간 누적
             if let Some(duration) = trade.holding_duration() {
-                total_holding_duration = total_holding_duration + duration;
+                total_holding_duration += duration;
             }
         }
 
         // 승률 계산
         if stats.total_trades > 0 {
-            stats.win_rate_pct =
-                (Decimal::from(stats.winning_trades) / Decimal::from(stats.total_trades)) * dec!(100);
+            stats.win_rate_pct = (Decimal::from(stats.winning_trades)
+                / Decimal::from(stats.total_trades))
+                * dec!(100);
         }
 
         // Profit Factor 계산

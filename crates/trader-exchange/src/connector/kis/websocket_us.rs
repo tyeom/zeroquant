@@ -253,12 +253,16 @@ impl KisUsWebSocket {
 
         for info in &trades {
             let tr_key = Self::make_tr_key(&info.exchange_code, &info.symbol);
-            let msg = self.create_subscribe_message(&approval_key, tr_id::WS_US_TRADE, &tr_key, true);
+            let msg =
+                self.create_subscribe_message(&approval_key, tr_id::WS_US_TRADE, &tr_key, true);
             write
                 .send(Message::Text(msg))
                 .await
                 .map_err(|e| ExchangeError::NetworkError(e.to_string()))?;
-            debug!("해외 체결가 구독 복원: {} ({})", info.symbol, info.exchange_code);
+            debug!(
+                "해외 체결가 구독 복원: {} ({})",
+                info.symbol, info.exchange_code
+            );
         }
 
         for info in &orderbooks {
@@ -269,7 +273,10 @@ impl KisUsWebSocket {
                 .send(Message::Text(msg))
                 .await
                 .map_err(|e| ExchangeError::NetworkError(e.to_string()))?;
-            debug!("해외 호가 구독 복원: {} ({})", info.symbol, info.exchange_code);
+            debug!(
+                "해외 호가 구독 복원: {} ({})",
+                info.symbol, info.exchange_code
+            );
         }
 
         // Ping 타이머

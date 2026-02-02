@@ -4,4 +4,4 @@
 
 pub mod strategy_type;
 
-pub use strategy_type::{StrategyType, ParseStrategyTypeError};
+pub use strategy_type::{ParseStrategyTypeError, StrategyType};

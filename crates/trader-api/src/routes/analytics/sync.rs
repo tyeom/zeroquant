@@ -2,19 +2,18 @@
 //!
 //! KIS API에서 체결 내역을 가져와 자산 곡선 데이터를 재구성합니다.
 
-use axum::{
-    extract::State,
-    response::IntoResponse,
-    Json,
-};
+use axum::{extract::State, response::IntoResponse, Json};
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-use crate::repository::{EquityHistoryRepository, ExecutionCacheRepository, ExecutionForSync, NewExecution};
+use crate::repository::{
+    EquityHistoryRepository, ExecutionCacheRepository, ExecutionForSync, NewExecution,
+};
 use crate::state::AppState;
+use trader_core::Side;
 use trader_exchange::connector::kis::{KisAccountType, KisEnvironment};
 
 use super::types::{SyncEquityCurveRequest, SyncEquityCurveResponse};
@@ -93,10 +92,13 @@ pub async fn sync_equity_curve(
                 );
 
                 // 기존 캐시 데이터 조회
-                let cached =
-                    ExecutionCacheRepository::get_all_executions(pool, credential_id, exchange_name)
-                        .await
-                        .unwrap_or_default();
+                let cached = ExecutionCacheRepository::get_all_executions(
+                    pool,
+                    credential_id,
+                    exchange_name,
+                )
+                .await
+                .unwrap_or_default();
                 (new_start, cached)
             }
             Ok(None) => {
@@ -121,7 +123,7 @@ pub async fn sync_equity_curve(
         .map(|c| ExecutionForSync {
             execution_time: c.executed_at,
             amount: c.amount,
-            is_buy: c.side == "buy",
+            is_buy: c.side == Side::Buy,
             symbol: c.symbol.clone(),
         })
         .collect();
@@ -309,7 +311,7 @@ pub async fn sync_equity_curve(
 
                     let amount = exec.filled_amount; // 총 체결 금액
                     let is_buy = exec.side_code == "02"; // 02: 매수
-                    let side = if is_buy { "buy" } else { "sell" };
+                    let side = if is_buy { Side::Buy } else { Side::Sell };
 
                     // 동기화용 데이터 추가
                     all_executions.push(ExecutionForSync {
@@ -326,7 +328,7 @@ pub async fn sync_equity_curve(
                         executed_at: execution_time,
                         symbol: exec.stock_code.clone(),
                         normalized_symbol: Some(format!("{}.KS", exec.stock_code)),
-                        side: side.to_string(),
+                        side,
                         quantity: exec.filled_qty,
                         price: exec.avg_price, // 체결평균가
                         amount,
@@ -424,12 +426,14 @@ pub async fn sync_equity_curve(
     let (current_equity, current_cash) = match client_pair.kr.get_balance().await {
         Ok(balance) => {
             // summary에서 총 평가금액과 현금 잔고 추출
-            let equity = balance.summary.as_ref().map(|s| s.total_eval_amount).unwrap_or_else(
-                || {
+            let equity = balance
+                .summary
+                .as_ref()
+                .map(|s| s.total_eval_amount)
+                .unwrap_or_else(|| {
                     // summary가 없으면 holdings의 평가금액 합산
                     balance.holdings.iter().map(|h| h.eval_amount).sum()
-                },
-            );
+                });
             let cash = balance
                 .summary
                 .as_ref()

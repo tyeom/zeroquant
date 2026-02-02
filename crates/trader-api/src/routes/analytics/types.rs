@@ -84,7 +84,6 @@ pub struct PerformanceResponse {
     pub last_updated: String,
 
     // === 포지션 기반 지표 (실제 투자 원금 대비) ===
-
     /// 총 투자 원금 (매입 총액)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_cost_basis: Option<String>,
@@ -534,9 +533,9 @@ pub struct SyncEquityCurveResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use trader_analytics::portfolio::ChartPoint;
     use chrono::Utc;
     use rust_decimal_macros::dec;
+    use trader_analytics::portfolio::ChartPoint;
 
     #[test]
     fn test_period_return_response() {

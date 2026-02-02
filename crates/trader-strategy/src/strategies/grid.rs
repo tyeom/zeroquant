@@ -16,8 +16,10 @@ use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::VecDeque;
-use trader_core::{MarketData, MarketDataType, MarketType, Order, Position, Side, Signal, SignalType, Symbol};
 use tracing::{debug, info};
+use trader_core::{
+    MarketData, MarketDataType, MarketType, Order, Position, Side, Signal, SignalType, Symbol,
+};
 
 /// 그리드 트레이딩 전략 설정.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -288,7 +290,8 @@ impl GridStrategy {
             atr * atr_multiplier
         } else {
             // 백분율 기반 간격으로 폴백
-            current_price * Decimal::from_f64_retain(config.grid_spacing_pct / 100.0).unwrap_or(dec!(0.01))
+            current_price
+                * Decimal::from_f64_retain(config.grid_spacing_pct / 100.0).unwrap_or(dec!(0.01))
         }
     }
 
@@ -428,7 +431,8 @@ impl GridStrategy {
         let Some(config) = self.config.as_ref() else {
             return;
         };
-        let reset_pct = Decimal::from_f64_retain(config.reset_threshold_pct / 100.0).unwrap_or(dec!(0.05));
+        let reset_pct =
+            Decimal::from_f64_retain(config.reset_threshold_pct / 100.0).unwrap_or(dec!(0.05));
 
         for level in &mut self.grid_levels {
             if !level.executed {
@@ -487,7 +491,8 @@ impl GridStrategy {
 
         if let (Some(center), Some(current)) = (self.center_price, self.current_price) {
             let deviation = ((current - center) / center).abs();
-            let threshold = Decimal::from_f64_retain(config.reset_threshold_pct / 100.0).unwrap_or(dec!(0.05));
+            let threshold =
+                Decimal::from_f64_retain(config.reset_threshold_pct / 100.0).unwrap_or(dec!(0.05));
             deviation > threshold
         } else {
             false
@@ -641,7 +646,8 @@ impl Strategy for GridStrategy {
         order: &Order,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // 체결 가격 조회 (평균 체결가 또는 지정가)
-        let fill_price = order.average_fill_price
+        let fill_price = order
+            .average_fill_price
             .or(order.price)
             .unwrap_or(Decimal::ZERO);
 
@@ -837,8 +843,7 @@ mod tests {
         assert!(!strategy.grid_levels.is_empty());
 
         // Check that buy levels exist below center
-        let has_buy_levels = strategy.grid_levels.iter()
-            .any(|l| l.side == Side::Buy);
+        let has_buy_levels = strategy.grid_levels.iter().any(|l| l.side == Side::Buy);
         assert!(has_buy_levels);
 
         // Price drops well below first buy level to trigger
@@ -846,7 +851,9 @@ mod tests {
         let signals = strategy.on_market_data(&data).await.unwrap();
 
         // Check if any buy level was executed
-        let any_buy_executed = strategy.grid_levels.iter()
+        let any_buy_executed = strategy
+            .grid_levels
+            .iter()
             .filter(|l| l.side == Side::Buy)
             .any(|l| l.executed);
 
@@ -878,8 +885,7 @@ mod tests {
         assert!(!strategy.grid_levels.is_empty());
 
         // Check that sell levels exist above center
-        let has_sell_levels = strategy.grid_levels.iter()
-            .any(|l| l.side == Side::Sell);
+        let has_sell_levels = strategy.grid_levels.iter().any(|l| l.side == Side::Sell);
         assert!(has_sell_levels);
 
         // Price rises well above first sell level
@@ -887,7 +893,9 @@ mod tests {
         let signals = strategy.on_market_data(&data).await.unwrap();
 
         // Check if any sell level was executed
-        let any_sell_executed = strategy.grid_levels.iter()
+        let any_sell_executed = strategy
+            .grid_levels
+            .iter()
             .filter(|l| l.side == Side::Sell)
             .any(|l| l.executed);
 
@@ -917,8 +925,7 @@ mod tests {
 
         // Grid levels should be limited
         let state = strategy.get_state();
-        let stats: GridStats =
-            serde_json::from_value(state["stats"].clone()).unwrap();
+        let stats: GridStats = serde_json::from_value(state["stats"].clone()).unwrap();
 
         // Should have fewer levels due to limits
         assert!(stats.total_levels < 10);

@@ -159,16 +159,13 @@ async fn handle_client_message(session_id: &str, msg: Message, state: &WsState) 
     match msg {
         Message::Text(text) => {
             match ClientMessage::from_json(&text) {
-                Ok(client_msg) => {
-                    process_client_message(session_id, client_msg, state).await
-                }
+                Ok(client_msg) => process_client_message(session_id, client_msg, state).await,
                 Err(e) => {
                     warn!("Invalid message from {}: {}", session_id, e);
                     // 에러 응답 브로드캐스트 (해당 세션에만 전달됨)
-                    let _ = state.subscriptions.broadcast(ServerMessage::error(
-                        "INVALID_MESSAGE",
-                        e.to_string(),
-                    ));
+                    let _ = state
+                        .subscriptions
+                        .broadcast(ServerMessage::error("INVALID_MESSAGE", e.to_string()));
                     true // 연결은 유지
                 }
             }
@@ -202,7 +199,10 @@ async fn process_client_message(session_id: &str, msg: ClientMessage, state: &Ws
 
         ClientMessage::Unsubscribe { channels } => {
             let unsubscribed = state.subscriptions.unsubscribe(session_id, &channels).await;
-            debug!("Session {} unsubscribed from: {:?}", session_id, unsubscribed);
+            debug!(
+                "Session {} unsubscribed from: {:?}",
+                session_id, unsubscribed
+            );
 
             let response = ServerMessage::Unsubscribed {
                 channels: unsubscribed,
@@ -228,7 +228,10 @@ async fn process_client_message(session_id: &str, msg: ClientMessage, state: &Ws
                         .authenticate(session_id, &claims.sub)
                         .await;
 
-                    info!("Session {} authenticated as user {}", session_id, claims.sub);
+                    info!(
+                        "Session {} authenticated as user {}",
+                        session_id, claims.sub
+                    );
 
                     let response = ServerMessage::AuthResult {
                         success: true,
@@ -274,8 +277,8 @@ pub fn standalone_websocket_router(ws_state: WsState) -> Router {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::subscriptions::{create_subscription_manager, Subscription};
+    use super::*;
 
     #[test]
     fn test_ws_state_creation() {

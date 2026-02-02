@@ -72,7 +72,7 @@ pub struct TrainedModel {
     pub id: String,
     pub name: String,
     pub model_type: ModelType,
-    pub symbols: Vec<String>,  // 배열로 변경
+    pub symbols: Vec<String>, // 배열로 변경
     pub onnx_path: String,
     pub scaler_path: String,
     pub metrics: ModelMetrics,
@@ -197,9 +197,10 @@ pub async fn start_training(
     let job_id = Uuid::new_v4().to_string();
 
     // 작업 이름 생성 (사용자 지정 또는 자동 생성)
-    let job_name = request.name.clone().unwrap_or_else(|| {
-        format!("{}_{}", request.model_type, request.symbols.join("_"))
-    });
+    let job_name = request
+        .name
+        .clone()
+        .unwrap_or_else(|| format!("{}_{}", request.model_type, request.symbols.join("_")));
 
     let now = chrono::Utc::now().to_rfc3339();
     let job = TrainingJob {
@@ -274,7 +275,7 @@ async fn run_training_process(
         period,
         "--future-periods".to_string(),
         horizon.to_string(),
-        "--register".to_string(),  // 자동 등록
+        "--register".to_string(), // 자동 등록
     ];
 
     if let Some(n) = name {
@@ -313,7 +314,8 @@ async fn run_training_process(
             if output.status.success() {
                 // 성공: 모델 등록
                 let model_id = Uuid::new_v4().to_string();
-                let symbols_vec: Vec<String> = symbols.split(',').map(|s| s.trim().to_string()).collect();
+                let symbols_vec: Vec<String> =
+                    symbols.split(',').map(|s| s.trim().to_string()).collect();
                 let model = TrainedModel {
                     id: model_id.clone(),
                     name: format!("{}_{}", model_type, symbols.replace(",", "_")),
@@ -331,8 +333,11 @@ async fn run_training_process(
                         features: 22,
                     },
                     feature_names: vec![
-                        "sma_5_ratio".to_string(), "sma_10_ratio".to_string(),
-                        "rsi_14".to_string(), "macd".to_string(), "macd_signal".to_string(),
+                        "sma_5_ratio".to_string(),
+                        "sma_10_ratio".to_string(),
+                        "rsi_14".to_string(),
+                        "macd".to_string(),
+                        "macd_signal".to_string(),
                     ],
                     created_at: chrono::Utc::now().to_rfc3339(),
                     is_deployed: false,
@@ -367,7 +372,8 @@ async fn run_training_process(
             tracing::warn!("Python 실행 실패 (데모 모드): {}", e);
 
             let model_id = Uuid::new_v4().to_string();
-            let symbols_vec: Vec<String> = symbols.split(',').map(|s| s.trim().to_string()).collect();
+            let symbols_vec: Vec<String> =
+                symbols.split(',').map(|s| s.trim().to_string()).collect();
             let model = TrainedModel {
                 id: model_id.clone(),
                 name: format!("{}_{}", model_type, symbols.replace(",", "_")),
@@ -385,8 +391,11 @@ async fn run_training_process(
                     features: 22,
                 },
                 feature_names: vec![
-                    "sma_5_ratio".to_string(), "sma_10_ratio".to_string(),
-                    "rsi_14".to_string(), "macd".to_string(), "macd_signal".to_string(),
+                    "sma_5_ratio".to_string(),
+                    "sma_10_ratio".to_string(),
+                    "rsi_14".to_string(),
+                    "macd".to_string(),
+                    "macd_signal".to_string(),
                 ],
                 created_at: chrono::Utc::now().to_rfc3339(),
                 is_deployed: false,
@@ -466,7 +475,8 @@ pub async fn get_training_job(
                 error: "not_found".to_string(),
                 message: "훈련 작업을 찾을 수 없습니다.".to_string(),
             }),
-        ).into_response(),
+        )
+            .into_response(),
     }
 }
 
@@ -483,21 +493,30 @@ pub async fn cancel_training_job(
             job.error = Some("사용자에 의해 취소됨".to_string());
             job.completed_at = Some(chrono::Utc::now().to_rfc3339());
 
-            (StatusCode::OK, Json(serde_json::json!({
-                "success": true,
-                "message": "훈련 작업이 취소되었습니다."
-            })))
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "success": true,
+                    "message": "훈련 작업이 취소되었습니다."
+                })),
+            )
         } else {
-            (StatusCode::BAD_REQUEST, Json(serde_json::json!({
-                "error": "invalid_state",
-                "message": "이미 완료된 작업은 취소할 수 없습니다."
-            })))
+            (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "invalid_state",
+                    "message": "이미 완료된 작업은 취소할 수 없습니다."
+                })),
+            )
         }
     } else {
-        (StatusCode::NOT_FOUND, Json(serde_json::json!({
-            "error": "not_found",
-            "message": "훈련 작업을 찾을 수 없습니다."
-        })))
+        (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": "not_found",
+                "message": "훈련 작업을 찾을 수 없습니다."
+            })),
+        )
     }
 }
 
@@ -540,7 +559,8 @@ pub async fn get_model(
                 error: "not_found".to_string(),
                 message: "모델을 찾을 수 없습니다.".to_string(),
             }),
-        ).into_response(),
+        )
+            .into_response(),
     }
 }
 
@@ -552,15 +572,21 @@ pub async fn delete_model(
     let mut models = TRAINED_MODELS.write().await;
 
     if models.remove(&model_id).is_some() {
-        (StatusCode::OK, Json(serde_json::json!({
-            "success": true,
-            "message": "모델이 삭제되었습니다."
-        })))
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "message": "모델이 삭제되었습니다."
+            })),
+        )
     } else {
-        (StatusCode::NOT_FOUND, Json(serde_json::json!({
-            "error": "not_found",
-            "message": "모델을 찾을 수 없습니다."
-        })))
+        (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": "not_found",
+                "message": "모델을 찾을 수 없습니다."
+            })),
+        )
     }
 }
 
@@ -576,10 +602,13 @@ pub async fn deploy_model(
 
     // 모델 존재 여부 확인
     if !models.contains_key(&model_id) {
-        return (StatusCode::NOT_FOUND, Json(DeployResponse {
-            success: false,
-            message: "모델을 찾을 수 없습니다.".to_string(),
-        }));
+        return (
+            StatusCode::NOT_FOUND,
+            Json(DeployResponse {
+                success: false,
+                message: "모델을 찾을 수 없습니다.".to_string(),
+            }),
+        );
     }
 
     // 모든 모델 비활성화
@@ -610,10 +639,13 @@ pub async fn deploy_model(
         tracing::info!("ONNX 파일 없음 (데모 모드): {}", onnx_path);
     }
 
-    (StatusCode::OK, Json(DeployResponse {
-        success: true,
-        message: format!("모델 '{}'이(가) 배포되었습니다.", model_name),
-    }))
+    (
+        StatusCode::OK,
+        Json(DeployResponse {
+            success: true,
+            message: format!("모델 '{}'이(가) 배포되었습니다.", model_name),
+        }),
+    )
 }
 
 /// GET /api/v1/ml/models/:id/download - 모델 다운로드.
@@ -626,16 +658,22 @@ pub async fn download_model(
     if let Some(model) = models.get(&model_id) {
         // 실제로는 파일 스트리밍 구현 필요
         // 여기서는 파일 경로 반환
-        (StatusCode::OK, Json(serde_json::json!({
-            "onnx_path": model.onnx_path,
-            "model_name": model.name,
-            "message": "다운로드 URL이 생성되었습니다."
-        })))
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "onnx_path": model.onnx_path,
+                "model_name": model.name,
+                "message": "다운로드 URL이 생성되었습니다."
+            })),
+        )
     } else {
-        (StatusCode::NOT_FOUND, Json(serde_json::json!({
-            "error": "not_found",
-            "message": "모델을 찾을 수 없습니다."
-        })))
+        (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": "not_found",
+                "message": "모델을 찾을 수 없습니다."
+            })),
+        )
     }
 }
 
@@ -726,15 +764,9 @@ pub async fn register_external_model(
 /// GET /api/v1/ml/models/deployed - 현재 배포된 모델 목록.
 ///
 /// MlService에 실제로 로드된 모델 정보도 함께 반환합니다.
-pub async fn get_deployed_models(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+pub async fn get_deployed_models(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let models = TRAINED_MODELS.read().await;
-    let deployed: Vec<TrainedModel> = models
-        .values()
-        .filter(|m| m.is_deployed)
-        .cloned()
-        .collect();
+    let deployed: Vec<TrainedModel> = models.values().filter(|m| m.is_deployed).cloned().collect();
 
     // MlService의 현재 로드된 모델 정보
     let active_model = state.current_ml_model().await;

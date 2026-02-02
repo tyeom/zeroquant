@@ -40,7 +40,10 @@ impl OutputFormat {
             "table" => Ok(Self::Table),
             "csv" => Ok(Self::Csv),
             "json" => Ok(Self::Json),
-            _ => Err(anyhow::anyhow!("Invalid format: {}. Use: table, csv, json", s)),
+            _ => Err(anyhow::anyhow!(
+                "Invalid format: {}. Use: table, csv, json",
+                s
+            )),
         }
     }
 }
@@ -123,7 +126,11 @@ pub async fn list_symbols(config: ListSymbolsConfig) -> Result<usize> {
 }
 
 /// 종목 목록 출력.
-fn output_symbols(symbols: &[SymbolInfo], format: OutputFormat, output_path: Option<&str>) -> Result<()> {
+fn output_symbols(
+    symbols: &[SymbolInfo],
+    format: OutputFormat,
+    output_path: Option<&str>,
+) -> Result<()> {
     let content = match format {
         OutputFormat::Table => format_table(symbols),
         OutputFormat::Csv => format_csv(symbols),
@@ -175,7 +182,8 @@ fn format_table(symbols: &[SymbolInfo]) -> String {
     output.push_str(&format!("Total: {} symbols", symbols.len()));
 
     // 시장별 통계
-    let mut market_stats: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut market_stats: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
     for symbol in symbols {
         *market_stats.entry(symbol.market.clone()).or_insert(0) += 1;
     }
@@ -225,7 +233,7 @@ fn format_json(symbols: &[SymbolInfo]) -> Result<String> {
 fn truncate(s: &str, max_len: usize) -> String {
     // 문자 수로 계산 (바이트가 아님)
     let char_count = s.chars().count();
-    
+
     if char_count <= max_len {
         s.to_string()
     } else {

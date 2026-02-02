@@ -166,10 +166,7 @@ pub struct BacktestResultsRepository;
 impl BacktestResultsRepository {
     /// 백테스트 결과 저장.
     pub async fn save(pool: &PgPool, input: BacktestResultInput) -> Result<Uuid, sqlx::Error> {
-        debug!(
-            "백테스트 결과 저장: strategy_id={}",
-            input.strategy_id
-        );
+        debug!("백테스트 결과 저장: strategy_id={}", input.strategy_id);
 
         let row: (Uuid,) = sqlx::query_as(
             r#"
@@ -350,10 +347,7 @@ impl BacktestResultsRepository {
     }
 
     /// 결과 개수 조회.
-    pub async fn count(
-        pool: &PgPool,
-        strategy_id: Option<&str>,
-    ) -> Result<i64, sqlx::Error> {
+    pub async fn count(pool: &PgPool, strategy_id: Option<&str>) -> Result<i64, sqlx::Error> {
         let count: Option<i64> = if let Some(sid) = strategy_id {
             sqlx::query_scalar(
                 r#"

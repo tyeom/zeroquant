@@ -179,8 +179,9 @@ impl KisOAuth {
             )));
         }
 
-        let token_resp: TokenResponse = serde_json::from_str(&body)
-            .map_err(|e| ExchangeError::ParseError(format!("Failed to parse token response: {}", e)))?;
+        let token_resp: TokenResponse = serde_json::from_str(&body).map_err(|e| {
+            ExchangeError::ParseError(format!("Failed to parse token response: {}", e))
+        })?;
 
         // Parse expiry time from KIS format ("YYYY-MM-DD HH:MM:SS")
         let expires_at = parse_kis_datetime(&token_resp.access_token_token_expired)
@@ -294,8 +295,9 @@ impl KisOAuth {
             });
         }
 
-        let hashkey_resp: HashkeyResponse = serde_json::from_str(&response_body)
-            .map_err(|e| ExchangeError::ParseError(format!("Failed to parse hashkey response: {}", e)))?;
+        let hashkey_resp: HashkeyResponse = serde_json::from_str(&response_body).map_err(|e| {
+            ExchangeError::ParseError(format!("Failed to parse hashkey response: {}", e))
+        })?;
 
         debug!("Generated hashkey: {}", hashkey_resp.hash);
 
@@ -354,8 +356,9 @@ impl KisOAuth {
             });
         }
 
-        let approval_resp: ApprovalResponse = serde_json::from_str(&body)
-            .map_err(|e| ExchangeError::ParseError(format!("Failed to parse approval response: {}", e)))?;
+        let approval_resp: ApprovalResponse = serde_json::from_str(&body).map_err(|e| {
+            ExchangeError::ParseError(format!("Failed to parse approval response: {}", e))
+        })?;
 
         // 키 저장
         {
@@ -408,48 +411,37 @@ impl KisOAuth {
         // 동적 값들은 map_err로 에러 전파
         headers.insert(
             "authorization",
-            token
-                .auth_header()
-                .parse()
-                .map_err(|_| ExchangeError::ParseError(
-                    "authorization 헤더에 유효하지 않은 문자 포함".to_string()
-                ))?,
+            token.auth_header().parse().map_err(|_| {
+                ExchangeError::ParseError(
+                    "authorization 헤더에 유효하지 않은 문자 포함".to_string(),
+                )
+            })?,
         );
         headers.insert(
             "appkey",
-            self.config
-                .app_key
-                .parse()
-                .map_err(|_| ExchangeError::ParseError(
-                    "app_key에 유효하지 않은 문자 포함".to_string()
-                ))?,
+            self.config.app_key.parse().map_err(|_| {
+                ExchangeError::ParseError("app_key에 유효하지 않은 문자 포함".to_string())
+            })?,
         );
         headers.insert(
             "appsecret",
-            self.config
-                .app_secret
-                .parse()
-                .map_err(|_| ExchangeError::ParseError(
-                    "app_secret에 유효하지 않은 문자 포함".to_string()
-                ))?,
+            self.config.app_secret.parse().map_err(|_| {
+                ExchangeError::ParseError("app_secret에 유효하지 않은 문자 포함".to_string())
+            })?,
         );
         headers.insert(
             "tr_id",
-            tr_id
-                .parse()
-                .map_err(|_| ExchangeError::ParseError(
-                    format!("tr_id에 유효하지 않은 문자 포함: {}", tr_id)
-                ))?,
+            tr_id.parse().map_err(|_| {
+                ExchangeError::ParseError(format!("tr_id에 유효하지 않은 문자 포함: {}", tr_id))
+            })?,
         );
 
         if let Some(hash) = hashkey {
             headers.insert(
                 "hashkey",
-                hash
-                    .parse()
-                    .map_err(|_| ExchangeError::ParseError(
-                        "hashkey에 유효하지 않은 문자 포함".to_string()
-                    ))?,
+                hash.parse().map_err(|_| {
+                    ExchangeError::ParseError("hashkey에 유효하지 않은 문자 포함".to_string())
+                })?,
             );
         }
 

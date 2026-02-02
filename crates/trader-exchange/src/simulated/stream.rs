@@ -67,8 +67,7 @@ impl MarketStream for SimulatedMarketStream {
         symbol: &Symbol,
         timeframe: Timeframe,
     ) -> ExchangeResult<()> {
-        self.kline_subscriptions
-            .insert((symbol.clone(), timeframe));
+        self.kline_subscriptions.insert((symbol.clone(), timeframe));
         Ok(())
     }
 
@@ -84,8 +83,7 @@ impl MarketStream for SimulatedMarketStream {
 
     async fn unsubscribe(&mut self, symbol: &Symbol) -> ExchangeResult<()> {
         self.ticker_subscriptions.remove(symbol);
-        self.kline_subscriptions
-            .retain(|(s, _)| s != symbol);
+        self.kline_subscriptions.retain(|(s, _)| s != symbol);
         self.order_book_subscriptions.remove(symbol);
         self.trade_subscriptions.remove(symbol);
         Ok(())

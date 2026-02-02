@@ -121,12 +121,8 @@ impl EnhancedTrailingStop {
         current_price: Decimal,
         position_side: Side,
     ) -> Self {
-        let trigger_price = Self::calculate_initial_trigger(
-            &mode,
-            current_price,
-            entry_price,
-            position_side,
-        );
+        let trigger_price =
+            Self::calculate_initial_trigger(&mode, current_price, entry_price, position_side);
 
         Self {
             mode,
@@ -185,9 +181,10 @@ impl EnhancedTrailingStop {
             TrailingStopMode::FixedPercentage { trail_pct } => {
                 current_price * trail_pct / dec!(100)
             }
-            TrailingStopMode::AtrBased { atr_multiplier, current_atr } => {
-                current_atr * atr_multiplier
-            }
+            TrailingStopMode::AtrBased {
+                atr_multiplier,
+                current_atr,
+            } => current_atr * atr_multiplier,
             TrailingStopMode::Step { profit_levels } => {
                 // 현재 수익률 계산
                 let profit_pct = if entry_price.is_zero() {
@@ -341,7 +338,10 @@ impl EnhancedTrailingStop {
                     Side::Sell => current_price + distance,
                 }
             }
-            TrailingStopMode::AtrBased { atr_multiplier, current_atr } => {
+            TrailingStopMode::AtrBased {
+                atr_multiplier,
+                current_atr,
+            } => {
                 let distance = *current_atr * *atr_multiplier;
                 match position_side {
                     Side::Buy => current_price - distance,
@@ -356,7 +356,11 @@ impl EnhancedTrailingStop {
                     Side::Sell => current_price + distance,
                 }
             }
-            TrailingStopMode::ParabolicSar { acceleration, maximum, current_af } => {
+            TrailingStopMode::ParabolicSar {
+                acceleration,
+                maximum,
+                current_af,
+            } => {
                 // 가속 계수 증가 (최대값 제한)
                 let new_af = (*current_af + *acceleration).min(*maximum);
                 *current_af = new_af;
@@ -401,7 +405,10 @@ impl EnhancedTrailingStop {
     pub fn get_current_trail_pct(&self) -> Decimal {
         match &self.mode {
             TrailingStopMode::FixedPercentage { trail_pct } => *trail_pct,
-            TrailingStopMode::AtrBased { atr_multiplier, current_atr } => {
+            TrailingStopMode::AtrBased {
+                atr_multiplier,
+                current_atr,
+            } => {
                 if self.best_price.is_zero() {
                     Decimal::ZERO
                 } else {
@@ -600,11 +607,13 @@ mod tests {
 
     #[test]
     fn test_fixed_percentage_trailing_long() {
-        let mode = TrailingStopMode::FixedPercentage { trail_pct: dec!(2.0) };
+        let mode = TrailingStopMode::FixedPercentage {
+            trail_pct: dec!(2.0),
+        };
         let mut stop = EnhancedTrailingStop::new(
             mode,
-            dec!(100),  // 진입가
-            dec!(100),  // 현재가
+            dec!(100), // 진입가
+            dec!(100), // 현재가
             Side::Buy,
         );
 
@@ -623,11 +632,13 @@ mod tests {
 
     #[test]
     fn test_fixed_percentage_trailing_short() {
-        let mode = TrailingStopMode::FixedPercentage { trail_pct: dec!(2.0) };
+        let mode = TrailingStopMode::FixedPercentage {
+            trail_pct: dec!(2.0),
+        };
         let mut stop = EnhancedTrailingStop::new(
             mode,
-            dec!(100),  // 진입가
-            dec!(100),  // 현재가
+            dec!(100), // 진입가
+            dec!(100), // 현재가
             Side::Sell,
         );
 
@@ -653,8 +664,8 @@ mod tests {
 
         let mut stop = EnhancedTrailingStop::new(
             mode,
-            dec!(100),  // 진입가
-            dec!(100),  // 현재가
+            dec!(100), // 진입가
+            dec!(100), // 현재가
             Side::Buy,
         );
 
@@ -681,8 +692,8 @@ mod tests {
 
         let mut stop = EnhancedTrailingStop::new(
             mode,
-            dec!(100),  // 진입가
-            dec!(100),  // 현재가
+            dec!(100), // 진입가
+            dec!(100), // 현재가
             Side::Buy,
         );
 
@@ -703,29 +714,21 @@ mod tests {
 
     #[test]
     fn test_check_triggered() {
-        let mode = TrailingStopMode::FixedPercentage { trail_pct: dec!(2.0) };
-        let stop = EnhancedTrailingStop::new(
-            mode,
-            dec!(100),
-            dec!(100),
-            Side::Buy,
-        );
+        let mode = TrailingStopMode::FixedPercentage {
+            trail_pct: dec!(2.0),
+        };
+        let stop = EnhancedTrailingStop::new(mode, dec!(100), dec!(100), Side::Buy);
 
         // 트리거 가격 98
-        assert!(!stop.check_triggered(dec!(99)));   // 트리거 위
-        assert!(stop.check_triggered(dec!(98)));    // 트리거에서
-        assert!(stop.check_triggered(dec!(97)));    // 트리거 아래
+        assert!(!stop.check_triggered(dec!(99))); // 트리거 위
+        assert!(stop.check_triggered(dec!(98))); // 트리거에서
+        assert!(stop.check_triggered(dec!(97))); // 트리거 아래
     }
 
     #[test]
     fn test_parabolic_sar_mode() {
         let mode = presets::parabolic_sar();
-        let mut stop = EnhancedTrailingStop::new(
-            mode,
-            dec!(100),
-            dec!(100),
-            Side::Buy,
-        );
+        let mut stop = EnhancedTrailingStop::new(mode, dec!(100), dec!(100), Side::Buy);
 
         // 초기 상태
         assert!(!stop.activated);
@@ -769,13 +772,10 @@ mod tests {
 
     #[test]
     fn test_stats() {
-        let mode = TrailingStopMode::FixedPercentage { trail_pct: dec!(2.0) };
-        let mut stop = EnhancedTrailingStop::new(
-            mode,
-            dec!(100),
-            dec!(100),
-            Side::Buy,
-        );
+        let mode = TrailingStopMode::FixedPercentage {
+            trail_pct: dec!(2.0),
+        };
+        let mut stop = EnhancedTrailingStop::new(mode, dec!(100), dec!(100), Side::Buy);
 
         stop.update(dec!(110));
 
@@ -788,13 +788,10 @@ mod tests {
 
     #[test]
     fn test_distance_pct() {
-        let mode = TrailingStopMode::FixedPercentage { trail_pct: dec!(2.0) };
-        let stop = EnhancedTrailingStop::new(
-            mode,
-            dec!(100),
-            dec!(100),
-            Side::Buy,
-        );
+        let mode = TrailingStopMode::FixedPercentage {
+            trail_pct: dec!(2.0),
+        };
+        let stop = EnhancedTrailingStop::new(mode, dec!(100), dec!(100), Side::Buy);
 
         let distance = stop.get_distance_pct(dec!(100));
         assert_eq!(distance, dec!(2.0)); // 2% 거리
@@ -802,14 +799,11 @@ mod tests {
 
     #[test]
     fn test_activation_price_long() {
-        let mode = TrailingStopMode::FixedPercentage { trail_pct: dec!(2.0) };
-        let mut stop = EnhancedTrailingStop::new(
-            mode,
-            dec!(100),
-            dec!(100),
-            Side::Buy,
-        )
-        .with_activation_price(dec!(105)); // 105에서 활성화
+        let mode = TrailingStopMode::FixedPercentage {
+            trail_pct: dec!(2.0),
+        };
+        let mut stop = EnhancedTrailingStop::new(mode, dec!(100), dec!(100), Side::Buy)
+            .with_activation_price(dec!(105)); // 105에서 활성화
 
         // 초기에는 활성화되지 않음
         assert!(!stop.activated);
@@ -829,14 +823,11 @@ mod tests {
 
     #[test]
     fn test_activation_price_short() {
-        let mode = TrailingStopMode::FixedPercentage { trail_pct: dec!(2.0) };
-        let mut stop = EnhancedTrailingStop::new(
-            mode,
-            dec!(100),
-            dec!(100),
-            Side::Sell,
-        )
-        .with_activation_price(dec!(95)); // 95 이하에서 활성화
+        let mode = TrailingStopMode::FixedPercentage {
+            trail_pct: dec!(2.0),
+        };
+        let mut stop = EnhancedTrailingStop::new(mode, dec!(100), dec!(100), Side::Sell)
+            .with_activation_price(dec!(95)); // 95 이하에서 활성화
 
         // 98로 하락해도 활성화 안됨
         let updated = stop.update(dec!(98));
@@ -851,14 +842,11 @@ mod tests {
 
     #[test]
     fn test_profit_lock() {
-        let mode = TrailingStopMode::FixedPercentage { trail_pct: dec!(2.0) };
-        let mut stop = EnhancedTrailingStop::new(
-            mode,
-            dec!(100),
-            dec!(100),
-            Side::Buy,
-        )
-        .with_profit_lock(dec!(10), dec!(50)); // 10% 수익 시 50% 매도
+        let mode = TrailingStopMode::FixedPercentage {
+            trail_pct: dec!(2.0),
+        };
+        let mut stop = EnhancedTrailingStop::new(mode, dec!(100), dec!(100), Side::Buy)
+            .with_profit_lock(dec!(10), dec!(50)); // 10% 수익 시 50% 매도
 
         // 초기에는 익절 조건 미충족
         assert!(stop.check_profit_lock().is_none());
@@ -886,15 +874,12 @@ mod tests {
 
     #[test]
     fn test_stats_with_new_fields() {
-        let mode = TrailingStopMode::FixedPercentage { trail_pct: dec!(2.0) };
-        let stop = EnhancedTrailingStop::new(
-            mode,
-            dec!(100),
-            dec!(100),
-            Side::Buy,
-        )
-        .with_activation_price(dec!(105))
-        .with_profit_lock(dec!(10), dec!(50));
+        let mode = TrailingStopMode::FixedPercentage {
+            trail_pct: dec!(2.0),
+        };
+        let stop = EnhancedTrailingStop::new(mode, dec!(100), dec!(100), Side::Buy)
+            .with_activation_price(dec!(105))
+            .with_profit_lock(dec!(10), dec!(50));
 
         let stats = stop.get_stats();
         assert_eq!(stats.activation_price, Some(dec!(105)));

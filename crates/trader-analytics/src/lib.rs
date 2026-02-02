@@ -28,37 +28,73 @@ pub use performance::metrics::{
 pub use performance::tracker::{PerformanceEvent, PerformanceThresholds, PerformanceTracker};
 
 // Portfolio 모듈 re-exports
-pub use portfolio::charts::{ChartPoint, MonthlyReturnCell, PeriodPerformance, PerformanceSummary, PortfolioCharts};
-pub use portfolio::equity_curve::{DrawdownPeriod, EquityCurve, EquityCurveBuilder, EquityPoint, TimeFrame};
+pub use portfolio::charts::{
+    ChartPoint, MonthlyReturnCell, PerformanceSummary, PeriodPerformance, PortfolioCharts,
+};
+pub use portfolio::equity_curve::{
+    DrawdownPeriod, EquityCurve, EquityCurveBuilder, EquityPoint, TimeFrame,
+};
 
 // Journal Integration 모듈 re-exports
-pub use journal_integration::{export_backtest_to_journal, export_backtest_trades, JournalTradeInput};
+pub use journal_integration::{
+    export_backtest_to_journal, export_backtest_trades, JournalTradeInput,
+};
 
 // Indicators 모듈 re-exports
 pub use indicators::{
-    IndicatorEngine, IndicatorError, IndicatorResult,
-    // 추세 지표
-    SmaParams, EmaParams, MacdParams, MacdResult, TrendIndicators,
-    // 모멘텀 지표
-    RsiParams, StochasticParams, StochasticResult, MomentumCalculator,
+    AtrParams,
     // 변동성 지표
-    BollingerBandsParams, BollingerBandsResult, AtrParams, VolatilityIndicators,
+    BollingerBandsParams,
+    BollingerBandsResult,
+    EmaParams,
+    IndicatorEngine,
+    IndicatorError,
+    IndicatorResult,
+    MacdParams,
+    MacdResult,
+    MomentumCalculator,
+    // 모멘텀 지표
+    RsiParams,
+    // 추세 지표
+    SmaParams,
+    StochasticParams,
+    StochasticResult,
+    TrendIndicators,
+    VolatilityIndicators,
 };
 
 // ML 모듈 re-exports (ml feature 필요)
 #[cfg(feature = "ml")]
 pub use ml::{
-    // 에러 타입
-    MlError, MlResult,
-    // 피처 추출
-    FeatureConfig, FeatureExtractor, FeatureVector,
     // 패턴 인식
-    CandlestickPattern, CandlestickPatternType, ChartPattern, ChartPatternType,
-    PatternConfig, PatternRecognizer,
-    // 예측
-    ConfidenceLevel, MockPredictor, OnnxPredictor, Prediction, PredictionDirection,
-    PredictionResult, PredictorConfig, PricePredictor,
+    CandlestickPattern,
     // 통합 서비스
-    CandlestickPatternInfo, ChartPatternInfo, FeatureSummary, MlAnalysisResult,
-    MlService, MlServiceConfig, PatternDetectionResult,
+    CandlestickPatternInfo,
+    CandlestickPatternType,
+    ChartPattern,
+    ChartPatternInfo,
+    ChartPatternType,
+    // 예측
+    ConfidenceLevel,
+    // 피처 추출
+    FeatureConfig,
+    FeatureExtractor,
+    FeatureSummary,
+    FeatureVector,
+    MlAnalysisResult,
+    // 에러 타입
+    MlError,
+    MlResult,
+    MlService,
+    MlServiceConfig,
+    MockPredictor,
+    OnnxPredictor,
+    PatternConfig,
+    PatternDetectionResult,
+    PatternRecognizer,
+    Prediction,
+    PredictionDirection,
+    PredictionResult,
+    PredictorConfig,
+    PricePredictor,
 };

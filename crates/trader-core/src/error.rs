@@ -78,10 +78,7 @@ pub type TraderResult<T> = Result<T, TraderError>;
 impl TraderError {
     /// 재시도 가능한 에러인지 확인합니다.
     pub fn is_retryable(&self) -> bool {
-        matches!(
-            self,
-            TraderError::Network(_) | TraderError::RateLimit(_)
-        )
+        matches!(self, TraderError::Network(_) | TraderError::RateLimit(_))
     }
 
     /// 치명적인 에러인지 확인합니다.

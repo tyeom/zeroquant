@@ -32,8 +32,10 @@ use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
-use trader_core::{MarketData, MarketDataType, MarketType, Order, Position, Side, Signal, SignalType, Symbol};
 use tracing::{debug, info, warn};
+use trader_core::{
+    MarketData, MarketDataType, MarketType, Order, Position, Side, Signal, SignalType, Symbol,
+};
 
 /// 캔들스틱 패턴 종류
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -312,7 +314,9 @@ impl CandlePatternStrategy {
             let trend = self.get_trend();
             let (pattern_type, direction) = match trend {
                 PatternDirection::Bearish => (CandlePatternType::Hammer, PatternDirection::Bullish),
-                PatternDirection::Bullish => (CandlePatternType::HangingMan, PatternDirection::Bearish),
+                PatternDirection::Bullish => {
+                    (CandlePatternType::HangingMan, PatternDirection::Bearish)
+                }
                 _ => (CandlePatternType::Hammer, PatternDirection::Neutral),
             };
 
@@ -659,12 +663,20 @@ impl CandlePatternStrategy {
 
     /// 신호 생성
     fn generate_signals(&mut self, candle: &CandleData, current_price: Decimal) -> Vec<Signal> {
-        let config = self.config.as_ref().unwrap();
-        let symbol = self.symbol.as_ref().unwrap();
+        let config = match &self.config {
+            Some(c) => c,
+            None => return Vec::new(),
+        };
+        let symbol = match &self.symbol {
+            Some(s) => s,
+            None => return Vec::new(),
+        };
         let mut signals = Vec::new();
 
         // 손절/익절 확인
-        if let (Some(entry), Some(direction)) = (self.state.entry_price, self.state.position_direction) {
+        if let (Some(entry), Some(direction)) =
+            (self.state.entry_price, self.state.position_direction)
+        {
             let pnl_pct = match direction {
                 PatternDirection::Bullish => (current_price - entry) / entry * dec!(100),
                 PatternDirection::Bearish => (entry - current_price) / entry * dec!(100),
@@ -742,7 +754,11 @@ impl CandlePatternStrategy {
 
         // 패턴 통계 업데이트
         let pattern_name = format!("{:?}", best_pattern.pattern_type);
-        *self.state.pattern_stats.entry(pattern_name.clone()).or_insert(0) += 1;
+        *self
+            .state
+            .pattern_stats
+            .entry(pattern_name.clone())
+            .or_insert(0) += 1;
 
         self.state.recent_patterns = patterns.clone();
 
@@ -768,17 +784,18 @@ impl CandlePatternStrategy {
         self.state.entry_price = Some(current_price);
         self.state.current_quantity = quantity;
 
-        let signal = Signal::new(
-            "candle_pattern",
-            symbol.clone(),
-            side,
-            signal_type,
-        )
-        .with_strength(best_pattern.strength.to_string().parse::<f64>().unwrap_or(0.5))
-        .with_metadata("pattern", json!(pattern_name))
-        .with_metadata("direction", json!(format!("{:?}", best_pattern.direction)))
-        .with_metadata("strength", json!(best_pattern.strength.to_string()))
-        .with_metadata("confirmation", json!(best_pattern.confirmation));
+        let signal = Signal::new("candle_pattern", symbol.clone(), side, signal_type)
+            .with_strength(
+                best_pattern
+                    .strength
+                    .to_string()
+                    .parse::<f64>()
+                    .unwrap_or(0.5),
+            )
+            .with_metadata("pattern", json!(pattern_name))
+            .with_metadata("direction", json!(format!("{:?}", best_pattern.direction)))
+            .with_metadata("strength", json!(best_pattern.strength.to_string()))
+            .with_metadata("confirmation", json!(best_pattern.confirmation));
 
         signals.push(signal);
 
@@ -841,7 +858,10 @@ impl Strategy for CandlePatternStrategy {
             return Ok(vec![]);
         }
 
-        let config = self.config.as_ref().unwrap();
+        let config = match &self.config {
+            Some(c) => c,
+            None => return Ok(vec![]),
+        };
 
         // 심볼 확인
         if data.symbol.to_string() != config.symbol {
@@ -884,7 +904,8 @@ impl Strategy for CandlePatternStrategy {
         &mut self,
         order: &Order,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let fill_price = order.average_fill_price
+        let fill_price = order
+            .average_fill_price
             .or(order.price)
             .unwrap_or(Decimal::ZERO);
 

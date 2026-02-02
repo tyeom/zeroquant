@@ -129,8 +129,7 @@ impl FromStr for Timeframe {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_binance_interval(s)
-            .ok_or_else(|| format!("Invalid timeframe: {}", s))
+        Self::from_binance_interval(s).ok_or_else(|| format!("Invalid timeframe: {}", s))
     }
 }
 

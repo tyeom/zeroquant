@@ -21,7 +21,9 @@ use tracing::{debug, error, info};
 
 use trader_core::Timeframe;
 use trader_data::cache::CachedHistoricalDataProvider;
-use trader_exchange::connector::kis::{KisConfig, KisOAuth, KisKrClient, KisUsClient, KisAccountType};
+use trader_exchange::connector::kis::{
+    KisAccountType, KisConfig, KisKrClient, KisOAuth, KisUsClient,
+};
 use trader_exchange::historical::HistoricalDataProvider;
 use trader_exchange::YahooFinanceProvider;
 
@@ -128,7 +130,10 @@ fn get_kr_market_status() -> MarketStatusResponse {
         None
     };
 
-    debug!("KR market status: is_open={}, kst_hour={}, kst_minute={}", is_open, kst_hour, kst_minute);
+    debug!(
+        "KR market status: is_open={}, kst_hour={}, kst_minute={}",
+        is_open, kst_hour, kst_minute
+    );
 
     MarketStatusResponse {
         market: "KR".to_string(),
@@ -178,7 +183,10 @@ fn get_us_market_status() -> MarketStatusResponse {
         (false, MarketSession::Closed)
     };
 
-    debug!("US market status: is_open={}, session={:?}, est_hour={}", is_open, session, est_hour);
+    debug!(
+        "US market status: is_open={}, session={:?}, est_hour={}",
+        is_open, session, est_hour
+    );
 
     MarketStatusResponse {
         market: "US".to_string(),
@@ -297,11 +305,15 @@ async fn load_kis_clients_from_db(
     }
 
     // DB 연결 확인
-    let pool = state.db_pool.as_ref()
+    let pool = state
+        .db_pool
+        .as_ref()
         .ok_or("데이터베이스 연결이 설정되지 않았습니다.")?;
 
     // 암호화 관리자 확인
-    let encryptor = state.encryptor.as_ref()
+    let encryptor = state
+        .encryptor
+        .as_ref()
         .ok_or("암호화 설정이 없습니다. ENCRYPTION_MASTER_KEY를 설정하세요.")?;
 
     // DB에서 KIS 자격증명 조회 (활성화된 실전투자 계좌 모두)
@@ -311,14 +323,17 @@ async fn load_kis_clients_from_db(
         FROM exchange_credentials
         WHERE exchange_id = 'kis' AND is_active = true AND is_testnet = false
         ORDER BY created_at DESC
-        "#
+        "#,
     )
     .fetch_all(pool)
     .await
     .map_err(|e| format!("자격증명 조회 실패: {}", e))?;
 
     if rows.is_empty() {
-        return Err("KIS 자격증명이 등록되지 않았습니다. 설정에서 한국투자증권 API 키를 등록하세요.".to_string());
+        return Err(
+            "KIS 자격증명이 등록되지 않았습니다. 설정에서 한국투자증권 API 키를 등록하세요."
+                .to_string(),
+        );
     }
 
     // 적절한 계좌 선택
@@ -329,8 +344,7 @@ async fn load_kis_clients_from_db(
             .ok_or("해외 주식 거래가 가능한 계좌가 없습니다. ISA 계좌는 국내 전용입니다.")?
     } else {
         // 국내 주식용: 아무 계좌나 사용 (첫 번째)
-        rows.first()
-            .ok_or("사용 가능한 KIS 계좌가 없습니다.")?
+        rows.first().ok_or("사용 가능한 KIS 계좌가 없습니다.")?
     };
 
     info!(
@@ -342,11 +356,15 @@ async fn load_kis_clients_from_db(
 
     // 복호화
     let credentials: EncryptedCredentials = encryptor
-        .decrypt_json(&selected_row.encrypted_credentials, &selected_row.encryption_nonce)
+        .decrypt_json(
+            &selected_row.encrypted_credentials,
+            &selected_row.encryption_nonce,
+        )
         .map_err(|e| format!("자격증명 복호화 실패: {}", e))?;
 
     // 추가 필드에서 계좌번호 추출
-    let account_number = credentials.additional
+    let account_number = credentials
+        .additional
         .as_ref()
         .and_then(|a| a.get("account_number").cloned())
         .unwrap_or_else(|| "00000000-01".to_string());
@@ -362,8 +380,13 @@ async fn load_kis_clients_from_db(
 
     info!(
         "KIS 클라이언트 생성: account_type={:?}, testnet={}, account={}",
-        account_type, selected_row.is_testnet,
-        if account_number.len() > 4 { &account_number[..4] } else { &account_number }
+        account_type,
+        selected_row.is_testnet,
+        if account_number.len() > 4 {
+            &account_number[..4]
+        } else {
+            &account_number
+        }
     );
 
     // 국내 클라이언트용 KisConfig 생성
@@ -373,10 +396,11 @@ async fn load_kis_clients_from_db(
         account_number.clone(),
         account_type,
     );
-    let kr_oauth = KisOAuth::new(kr_config)
-        .map_err(|e| format!("KIS KR OAuth 생성 실패: {}", e))?;
-    let kr_client = Arc::new(KisKrClient::new(kr_oauth)
-        .map_err(|e| format!("KIS KR 클라이언트 생성 실패: {}", e))?);
+    let kr_oauth =
+        KisOAuth::new(kr_config).map_err(|e| format!("KIS KR OAuth 생성 실패: {}", e))?;
+    let kr_client = Arc::new(
+        KisKrClient::new(kr_oauth).map_err(|e| format!("KIS KR 클라이언트 생성 실패: {}", e))?,
+    );
 
     // 해외 클라이언트용 KisConfig 생성 (동일한 자격증명 사용)
     let us_config = KisConfig::new(
@@ -385,10 +409,11 @@ async fn load_kis_clients_from_db(
         account_number,
         account_type,
     );
-    let us_oauth = KisOAuth::new(us_config)
-        .map_err(|e| format!("KIS US OAuth 생성 실패: {}", e))?;
-    let us_client = Arc::new(KisUsClient::new(us_oauth)
-        .map_err(|e| format!("KIS US 클라이언트 생성 실패: {}", e))?);
+    let us_oauth =
+        KisOAuth::new(us_config).map_err(|e| format!("KIS US OAuth 생성 실패: {}", e))?;
+    let us_client = Arc::new(
+        KisUsClient::new(us_oauth).map_err(|e| format!("KIS US 클라이언트 생성 실패: {}", e))?,
+    );
 
     Ok((kr_client, us_client))
 }
@@ -455,7 +480,10 @@ pub async fn get_klines(
                 );
                 (
                     StatusCode::BAD_GATEWAY,
-                    Json(ApiError::new("DATA_FETCH_ERROR", &format!("차트 데이터 조회 실패: {}", e))),
+                    Json(ApiError::new(
+                        "DATA_FETCH_ERROR",
+                        &format!("차트 데이터 조회 실패: {}", e),
+                    )),
                 )
             })?
     } else {
@@ -469,7 +497,10 @@ pub async fn get_klines(
             error!("Yahoo Finance 연결 실패: {}", e);
             (
                 StatusCode::SERVICE_UNAVAILABLE,
-                Json(ApiError::new("YAHOO_FINANCE_ERROR", &format!("Yahoo Finance 연결 실패: {}", e))),
+                Json(ApiError::new(
+                    "YAHOO_FINANCE_ERROR",
+                    &format!("Yahoo Finance 연결 실패: {}", e),
+                )),
             )
         })?;
 
@@ -485,7 +516,10 @@ pub async fn get_klines(
                 );
                 (
                     StatusCode::BAD_GATEWAY,
-                    Json(ApiError::new("YAHOO_FINANCE_ERROR", &format!("차트 데이터 조회 실패: {}", e))),
+                    Json(ApiError::new(
+                        "YAHOO_FINANCE_ERROR",
+                        &format!("차트 데이터 조회 실패: {}", e),
+                    )),
                 )
             })?
     };
@@ -625,7 +659,10 @@ pub async fn get_ticker(
                 );
                 Err((
                     StatusCode::BAD_GATEWAY,
-                    Json(ApiError::new("EXCHANGE_ERROR", &format!("현재가 조회 실패: {}", e))),
+                    Json(ApiError::new(
+                        "EXCHANGE_ERROR",
+                        &format!("현재가 조회 실패: {}", e),
+                    )),
                 ))
             }
         }
@@ -659,7 +696,10 @@ pub async fn get_ticker(
                 );
                 Err((
                     StatusCode::BAD_GATEWAY,
-                    Json(ApiError::new("EXCHANGE_ERROR", &format!("현재가 조회 실패: {}", e))),
+                    Json(ApiError::new(
+                        "EXCHANGE_ERROR",
+                        &format!("현재가 조회 실패: {}", e),
+                    )),
                 ))
             }
         }

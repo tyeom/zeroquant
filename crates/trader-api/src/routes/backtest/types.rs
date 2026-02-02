@@ -3,10 +3,11 @@
 //! 요청/응답 타입 및 SDUI 스키마 타입을 정의합니다.
 
 use chrono::{DateTime, NaiveDate, Utc};
-use rust_decimal::Decimal;
 use rust_decimal::prelude::FromStr;
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use trader_core::{Side, TradeInfo};
 use validator::{Validate, ValidationError};
 
 // ==================== 커스텀 검증 함수 ====================
@@ -520,11 +521,35 @@ pub struct TradeHistoryItem {
     /// 수량
     pub quantity: Decimal,
     /// 방향 (Buy/Sell)
-    pub side: String,
+    pub side: Side,
     /// 손익
     pub pnl: Decimal,
     /// 손익률 (%)
     pub return_pct: Decimal,
+}
+
+impl TradeInfo for TradeHistoryItem {
+    fn symbol(&self) -> &str {
+        &self.symbol
+    }
+
+    fn pnl(&self) -> Option<Decimal> {
+        Some(self.pnl)
+    }
+
+    fn fees(&self) -> Decimal {
+        // TradeHistoryItem은 수수료 필드가 없음.
+        // 백테스트에서는 pnl에 수수료가 이미 반영되어 있으므로 0 반환.
+        Decimal::ZERO
+    }
+
+    fn entry_time(&self) -> DateTime<Utc> {
+        self.entry_time
+    }
+
+    fn exit_time(&self) -> Option<DateTime<Utc>> {
+        Some(self.exit_time)
+    }
 }
 
 /// 백테스트 실행 응답

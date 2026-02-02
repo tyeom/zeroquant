@@ -17,6 +17,8 @@ use uuid::Uuid;
 /// 주문 방향 (매수 또는 매도).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[cfg_attr(feature = "sqlx-support", derive(sqlx::Type))]
+#[cfg_attr(feature = "sqlx-support", sqlx(type_name = "text"))]
 pub enum Side {
     /// 매수
     Buy,
@@ -32,6 +34,62 @@ impl Side {
             Side::Sell => Side::Buy,
         }
     }
+
+    /// 유연한 문자열 파싱 (대소문자 무시, 다양한 형식 지원)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use trader_core::Side;
+    ///
+    /// assert_eq!(Side::from_str_flexible("buy").unwrap(), Side::Buy);
+    /// assert_eq!(Side::from_str_flexible("LONG").unwrap(), Side::Buy);
+    /// assert_eq!(Side::from_str_flexible("B").unwrap(), Side::Buy);
+    /// assert_eq!(Side::from_str_flexible("sell").unwrap(), Side::Sell);
+    /// assert_eq!(Side::from_str_flexible("SHORT").unwrap(), Side::Sell);
+    /// assert_eq!(Side::from_str_flexible("s").unwrap(), Side::Sell);
+    /// ```
+    pub fn from_str_flexible(s: &str) -> Result<Self, String> {
+        match s.trim().to_lowercase().as_str() {
+            "buy" | "long" | "b" => Ok(Side::Buy),
+            "sell" | "short" | "s" => Ok(Side::Sell),
+            _ => Err(format!("Invalid side string: {}", s)),
+        }
+    }
+
+    /// "Long"/"Short" 형식으로 변환 (시뮬레이션/백테스트용)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use trader_core::Side;
+    ///
+    /// assert_eq!(Side::Buy.to_position_side(), "Long");
+    /// assert_eq!(Side::Sell.to_position_side(), "Short");
+    /// ```
+    pub fn to_position_side(&self) -> &'static str {
+        match self {
+            Side::Buy => "Long",
+            Side::Sell => "Short",
+        }
+    }
+
+    /// 소문자 문자열로 변환 (API 응답용)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use trader_core::Side;
+    ///
+    /// assert_eq!(Side::Buy.as_str(), "buy");
+    /// assert_eq!(Side::Sell.as_str(), "sell");
+    /// ```
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Side::Buy => "buy",
+            Side::Sell => "sell",
+        }
+    }
 }
 
 impl std::fmt::Display for Side {
@@ -40,6 +98,14 @@ impl std::fmt::Display for Side {
             Side::Buy => write!(f, "BUY"),
             Side::Sell => write!(f, "SELL"),
         }
+    }
+}
+
+impl std::str::FromStr for Side {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::from_str_flexible(s)
     }
 }
 
@@ -102,7 +168,10 @@ impl OrderStatusType {
     pub fn is_final(&self) -> bool {
         matches!(
             self,
-            OrderStatusType::Filled | OrderStatusType::Cancelled | OrderStatusType::Rejected | OrderStatusType::Expired
+            OrderStatusType::Filled
+                | OrderStatusType::Cancelled
+                | OrderStatusType::Rejected
+                | OrderStatusType::Expired
         )
     }
 
@@ -122,6 +191,14 @@ pub struct OrderStatus {
     pub order_id: String,
     /// 클라이언트 주문 ID (있는 경우)
     pub client_order_id: Option<String>,
+    /// 심볼 (거래소가 제공하는 경우)
+    pub symbol: Option<Symbol>,
+    /// 주문 방향 (거래소가 제공하는 경우)
+    pub side: Option<Side>,
+    /// 주문 수량 (거래소가 제공하는 경우)
+    pub quantity: Option<Quantity>,
+    /// 주문 가격 (거래소가 제공하는 경우)
+    pub price: Option<Price>,
     /// 현재 상태
     pub status: OrderStatusType,
     /// 체결된 수량
@@ -345,7 +422,6 @@ impl Order {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::MarketType;
     use rust_decimal_macros::dec;
 
     #[test]
@@ -376,5 +452,57 @@ mod tests {
     fn test_side_opposite() {
         assert_eq!(Side::Buy.opposite(), Side::Sell);
         assert_eq!(Side::Sell.opposite(), Side::Buy);
+    }
+
+    #[test]
+    fn test_side_from_str_flexible() {
+        // Buy 테스트
+        assert_eq!(Side::from_str_flexible("buy").unwrap(), Side::Buy);
+        assert_eq!(Side::from_str_flexible("BUY").unwrap(), Side::Buy);
+        assert_eq!(Side::from_str_flexible("Buy").unwrap(), Side::Buy);
+        assert_eq!(Side::from_str_flexible("long").unwrap(), Side::Buy);
+        assert_eq!(Side::from_str_flexible("LONG").unwrap(), Side::Buy);
+        assert_eq!(Side::from_str_flexible("Long").unwrap(), Side::Buy);
+        assert_eq!(Side::from_str_flexible("b").unwrap(), Side::Buy);
+        assert_eq!(Side::from_str_flexible("B").unwrap(), Side::Buy);
+        assert_eq!(Side::from_str_flexible("  buy  ").unwrap(), Side::Buy); // 공백 처리
+
+        // Sell 테스트
+        assert_eq!(Side::from_str_flexible("sell").unwrap(), Side::Sell);
+        assert_eq!(Side::from_str_flexible("SELL").unwrap(), Side::Sell);
+        assert_eq!(Side::from_str_flexible("Sell").unwrap(), Side::Sell);
+        assert_eq!(Side::from_str_flexible("short").unwrap(), Side::Sell);
+        assert_eq!(Side::from_str_flexible("SHORT").unwrap(), Side::Sell);
+        assert_eq!(Side::from_str_flexible("Short").unwrap(), Side::Sell);
+        assert_eq!(Side::from_str_flexible("s").unwrap(), Side::Sell);
+        assert_eq!(Side::from_str_flexible("S").unwrap(), Side::Sell);
+        assert_eq!(Side::from_str_flexible("  sell  ").unwrap(), Side::Sell); // 공백 처리
+
+        // 에러 케이스
+        assert!(Side::from_str_flexible("invalid").is_err());
+        assert!(Side::from_str_flexible("").is_err());
+        assert!(Side::from_str_flexible("buysell").is_err());
+    }
+
+    #[test]
+    fn test_side_from_str_trait() {
+        use std::str::FromStr;
+
+        // FromStr trait 사용
+        assert_eq!(Side::from_str("buy").unwrap(), Side::Buy);
+        assert_eq!(Side::from_str("long").unwrap(), Side::Buy);
+        assert_eq!(Side::from_str("sell").unwrap(), Side::Sell);
+        assert_eq!(Side::from_str("short").unwrap(), Side::Sell);
+        assert!(Side::from_str("invalid").is_err());
+
+        // parse() 메서드로도 사용 가능
+        assert_eq!("buy".parse::<Side>().unwrap(), Side::Buy);
+        assert_eq!("SELL".parse::<Side>().unwrap(), Side::Sell);
+    }
+
+    #[test]
+    fn test_side_to_position_side() {
+        assert_eq!(Side::Buy.to_position_side(), "Long");
+        assert_eq!(Side::Sell.to_position_side(), "Short");
     }
 }

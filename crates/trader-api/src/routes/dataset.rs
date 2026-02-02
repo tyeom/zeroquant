@@ -23,13 +23,9 @@ use tracing::{error, info};
 use trader_core::Timeframe;
 use trader_data::cache::CachedHistoricalDataProvider;
 
-use crate::repository::{
-    DeactivatedStats, FailedSymbolInfo, SymbolInfoRepository, SymbolSearchResult,
-};
+use crate::repository::{SymbolInfoRepository, SymbolSearchResult};
 use crate::routes::strategies::ApiError;
 use crate::state::AppState;
-use crate::tasks::eod_csv_sync::{sync_eod_all, sync_eod_exchange, EodSyncResult};
-use crate::tasks::krx_csv_sync::{sync_krx_from_csv, sync_krx_full, update_sectors_from_csv, CsvSyncResult};
 
 // ==================== 응답 타입 ====================
 
@@ -220,7 +216,10 @@ pub async fn list_datasets(
     let pool = state.db_pool.as_ref().ok_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(ApiError::new("DB_NOT_AVAILABLE", "데이터베이스 연결이 없습니다")),
+            Json(ApiError::new(
+                "DB_NOT_AVAILABLE",
+                "데이터베이스 연결이 없습니다",
+            )),
         )
     })?;
 
@@ -279,7 +278,10 @@ pub async fn list_datasets(
             error!(error = %e, "데이터셋 목록 조회 실패");
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("CACHE_STATS_ERROR", &format!("캐시 통계 조회 실패: {}", e))),
+                Json(ApiError::new(
+                    "CACHE_STATS_ERROR",
+                    &format!("캐시 통계 조회 실패: {}", e),
+                )),
             ))
         }
     }
@@ -302,7 +304,10 @@ pub async fn fetch_dataset(
     let pool = state.db_pool.as_ref().ok_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(ApiError::new("DB_NOT_AVAILABLE", "데이터베이스 연결이 없습니다")),
+            Json(ApiError::new(
+                "DB_NOT_AVAILABLE",
+                "데이터베이스 연결이 없습니다",
+            )),
         )
     })?;
 
@@ -321,12 +326,16 @@ pub async fn fetch_dataset(
     // 날짜 범위가 지정된 경우 날짜 범위 API 사용
     let result = if req.start_date.is_some() && req.end_date.is_some() {
         let (start_date, end_date) = parse_date_range(&req)?;
-        provider.get_klines_range(&req.symbol, timeframe, start_date, end_date).await
+        provider
+            .get_klines_range(&req.symbol, timeframe, start_date, end_date)
+            .await
     } else if req.start_date.is_some() {
         // 시작 날짜만 있으면: 시작일 ~ 오늘
         let start_date = parse_start_date(&req)?;
         let end_date = Utc::now().date_naive();
-        provider.get_klines_range(&req.symbol, timeframe, start_date, end_date).await
+        provider
+            .get_klines_range(&req.symbol, timeframe, start_date, end_date)
+            .await
     } else {
         // 날짜 범위 없으면 기존 방식 (최근 N개)
         provider.get_klines(&req.symbol, timeframe, req.limit).await
@@ -367,7 +376,10 @@ pub async fn fetch_dataset(
             );
             Err((
                 StatusCode::BAD_GATEWAY,
-                Json(ApiError::new("FETCH_ERROR", &format!("데이터 다운로드 실패: {}", e))),
+                Json(ApiError::new(
+                    "FETCH_ERROR",
+                    &format!("데이터 다운로드 실패: {}", e),
+                )),
             ))
         }
     }
@@ -414,9 +426,7 @@ fn parse_date_range(
 }
 
 /// 시작 날짜 파싱.
-fn parse_start_date(
-    req: &FetchDatasetRequest,
-) -> Result<NaiveDate, (StatusCode, Json<ApiError>)> {
+fn parse_start_date(req: &FetchDatasetRequest) -> Result<NaiveDate, (StatusCode, Json<ApiError>)> {
     let start = req.start_date.as_ref().unwrap();
 
     NaiveDate::parse_from_str(start, "%Y-%m-%d").map_err(|e| {
@@ -520,7 +530,10 @@ pub async fn get_candles(
     let pool = state.db_pool.as_ref().ok_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(ApiError::new("DB_NOT_AVAILABLE", "데이터베이스 연결이 없습니다")),
+            Json(ApiError::new(
+                "DB_NOT_AVAILABLE",
+                "데이터베이스 연결이 없습니다",
+            )),
         )
     })?;
 
@@ -536,14 +549,20 @@ pub async fn get_candles(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(ApiError::new("SYMBOL_NOT_FOUND", &format!("심볼을 찾을 수 없습니다: {}", symbol))),
+                Json(ApiError::new(
+                    "SYMBOL_NOT_FOUND",
+                    &format!("심볼을 찾을 수 없습니다: {}", symbol),
+                )),
             )
         })?;
 
     let yahoo_symbol = symbol_info.yahoo_symbol.ok_or_else(|| {
         (
             StatusCode::BAD_REQUEST,
-            Json(ApiError::new("NO_YAHOO_SYMBOL", &format!("Yahoo Finance 심볼이 설정되지 않음: {}", symbol))),
+            Json(ApiError::new(
+                "NO_YAHOO_SYMBOL",
+                &format!("Yahoo Finance 심볼이 설정되지 않음: {}", symbol),
+            )),
         )
     })?;
     let tf_str = timeframe_to_db_string(&query.timeframe);
@@ -557,14 +576,13 @@ pub async fn get_candles(
         let total_limit = (query.page + 1) * query.limit;
 
         // 전체 개수를 DB에서 조회 (캐시 제공자는 limit만큼만 반환하므로)
-        let total_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM ohlcv WHERE symbol = $1 AND timeframe = $2"
-        )
-        .bind(&yahoo_symbol)
-        .bind(&tf_str)
-        .fetch_one(pool)
-        .await
-        .unwrap_or(0);
+        let total_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM ohlcv WHERE symbol = $1 AND timeframe = $2")
+                .bind(&yahoo_symbol)
+                .bind(&tf_str)
+                .fetch_one(pool)
+                .await
+                .unwrap_or(0);
 
         match provider.get_klines(&symbol, timeframe, total_limit).await {
             Ok(klines) => {
@@ -610,7 +628,10 @@ pub async fn get_candles(
                 error!(symbol = %symbol, error = %e, "캔들 데이터 조회 실패");
                 return Err((
                     StatusCode::BAD_GATEWAY,
-                    Json(ApiError::new("FETCH_ERROR", &format!("캔들 데이터 조회 실패: {}", e))),
+                    Json(ApiError::new(
+                        "FETCH_ERROR",
+                        &format!("캔들 데이터 조회 실패: {}", e),
+                    )),
                 ));
             }
         }
@@ -637,7 +658,10 @@ pub async fn get_candles(
             error!(error = %e, "캔들 개수 조회 실패");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("DB_ERROR", &format!("데이터 조회 실패: {}", e))),
+                Json(ApiError::new(
+                    "DB_ERROR",
+                    &format!("데이터 조회 실패: {}", e),
+                )),
             )
         })?;
 
@@ -675,7 +699,10 @@ pub async fn get_candles(
             error!(error = %e, "캔들 데이터 조회 실패");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("DB_ERROR", &format!("데이터 조회 실패: {}", e))),
+                Json(ApiError::new(
+                    "DB_ERROR",
+                    &format!("데이터 조회 실패: {}", e),
+                )),
             )
         })?;
 
@@ -721,7 +748,10 @@ pub async fn delete_dataset(
     let pool = state.db_pool.as_ref().ok_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(ApiError::new("DB_NOT_AVAILABLE", "데이터베이스 연결이 없습니다")),
+            Json(ApiError::new(
+                "DB_NOT_AVAILABLE",
+                "데이터베이스 연결이 없습니다",
+            )),
         )
     })?;
 
@@ -737,14 +767,20 @@ pub async fn delete_dataset(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(ApiError::new("SYMBOL_NOT_FOUND", &format!("심볼을 찾을 수 없습니다: {}", symbol))),
+                Json(ApiError::new(
+                    "SYMBOL_NOT_FOUND",
+                    &format!("심볼을 찾을 수 없습니다: {}", symbol),
+                )),
             )
         })?;
 
     let yahoo_symbol = symbol_info.yahoo_symbol.ok_or_else(|| {
         (
             StatusCode::BAD_REQUEST,
-            Json(ApiError::new("NO_YAHOO_SYMBOL", &format!("Yahoo Finance 심볼이 설정되지 않음: {}", symbol))),
+            Json(ApiError::new(
+                "NO_YAHOO_SYMBOL",
+                &format!("Yahoo Finance 심볼이 설정되지 않음: {}", symbol),
+            )),
         )
     })?;
 
@@ -756,21 +792,19 @@ pub async fn delete_dataset(
 
     let deleted = if let Some(ref tf) = query.timeframe {
         // 특정 타임프레임만 삭제
-        sqlx::query(
-            "DELETE FROM ohlcv WHERE symbol = $1 AND timeframe = $2"
-        )
-        .bind(&yahoo_symbol)
-        .bind(tf)
-        .execute(pool)
-        .await
-        .map_err(|e| {
-            error!(error = %e, "캐시 삭제 실패");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("DELETE_ERROR", &format!("삭제 실패: {}", e))),
-            )
-        })?
-        .rows_affected()
+        sqlx::query("DELETE FROM ohlcv WHERE symbol = $1 AND timeframe = $2")
+            .bind(&yahoo_symbol)
+            .bind(tf)
+            .execute(pool)
+            .await
+            .map_err(|e| {
+                error!(error = %e, "캐시 삭제 실패");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ApiError::new("DELETE_ERROR", &format!("삭제 실패: {}", e))),
+                )
+            })?
+            .rows_affected()
     } else {
         // 모든 타임프레임 삭제
         sqlx::query("DELETE FROM ohlcv WHERE symbol = $1")
@@ -789,13 +823,11 @@ pub async fn delete_dataset(
 
     // 메타데이터도 삭제
     if let Some(ref tf) = query.timeframe {
-        let _ = sqlx::query(
-            "DELETE FROM ohlcv_metadata WHERE symbol = $1 AND timeframe = $2"
-        )
-        .bind(&yahoo_symbol)
-        .bind(tf)
-        .execute(pool)
-        .await;
+        let _ = sqlx::query("DELETE FROM ohlcv_metadata WHERE symbol = $1 AND timeframe = $2")
+            .bind(&yahoo_symbol)
+            .bind(tf)
+            .execute(pool)
+            .await;
     } else {
         let _ = sqlx::query("DELETE FROM ohlcv_metadata WHERE symbol = $1")
             .bind(&yahoo_symbol)
@@ -834,7 +866,6 @@ fn parse_timeframe(tf: &str) -> Timeframe {
         _ => Timeframe::D1, // 기본값: 일봉
     }
 }
-
 
 /// 타임프레임 문자열을 DB 저장 형식으로 변환.
 fn timeframe_to_db_string(tf: &str) -> String {
@@ -941,10 +972,15 @@ pub async fn search_symbols(
     if results.is_empty() {
         let query_trimmed = params.q.trim();
         let looks_like_ticker = query_trimmed.len() <= 10
-            && query_trimmed.chars().all(|c| c.is_alphanumeric() || c == '.' || c == '-');
+            && query_trimmed
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '.' || c == '-');
 
         if looks_like_ticker {
-            info!(ticker = query_trimmed, "DB에 없는 티커, 외부 API에서 조회 시도");
+            info!(
+                ticker = query_trimmed,
+                "DB에 없는 티커, 외부 API에서 조회 시도"
+            );
 
             match SymbolInfoRepository::get_or_fetch(pool, query_trimmed).await {
                 Ok(Some(result)) => {
@@ -966,326 +1002,10 @@ pub async fn search_symbols(
     Ok(Json(SymbolSearchResponse { results, total }))
 }
 
-// ==================== KRX CSV 동기화 ====================
-
-/// KRX CSV 동기화 응답.
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct KrxSyncResponse {
-    /// 성공 여부
-    pub success: bool,
-    /// 심볼 동기화 결과
-    pub symbols: Option<SyncResultDto>,
-    /// 섹터 업데이트 결과
-    pub sectors: Option<SyncResultDto>,
-    /// 메시지
-    pub message: String,
-}
-
-/// 동기화 결과 DTO.
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SyncResultDto {
-    /// 처리된 총 레코드 수
-    pub total_processed: usize,
-    /// 성공적으로 upsert된 수
-    pub upserted: usize,
-    /// 실패한 수
-    pub failed: usize,
-    /// 스킵된 수
-    pub skipped: usize,
-}
-
-impl From<CsvSyncResult> for SyncResultDto {
-    fn from(r: CsvSyncResult) -> Self {
-        Self {
-            total_processed: r.total_processed,
-            upserted: r.upserted,
-            failed: r.failed,
-            skipped: r.skipped,
-        }
-    }
-}
-
-/// KRX CSV에서 전체 심볼 및 섹터 동기화.
-///
-/// POST /api/v1/dataset/sync/krx
-///
-/// `data/krx_codes.csv`와 `data/krx_sector_map.csv` 파일을 읽어
-/// symbol_info 테이블을 업데이트합니다.
-pub async fn sync_krx_csv(
-    State(state): State<Arc<AppState>>,
-) -> Result<Json<KrxSyncResponse>, (StatusCode, Json<ApiError>)> {
-    let pool = state.db_pool.as_ref().ok_or_else(|| {
-        (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(ApiError::new("DB_NOT_AVAILABLE", "데이터베이스 연결이 없습니다")),
-        )
-    })?;
-
-    info!("KRX CSV 전체 동기화 시작");
-
-    // CSV 파일 경로
-    let codes_csv = "data/krx_codes.csv";
-    let sector_csv = "data/krx_sector_map.csv";
-
-    // 전체 동기화 실행
-    match sync_krx_full(pool, codes_csv, sector_csv).await {
-        Ok((symbol_result, sector_result)) => {
-            // 심볼 캐시 클리어 (DB 업데이트 반영)
-            state.clear_symbol_cache().await;
-
-            let message = format!(
-                "심볼 {}개 동기화, 섹터 {}개 업데이트 완료",
-                symbol_result.upserted, sector_result.upserted
-            );
-
-            info!(%message, "KRX CSV 동기화 완료");
-
-            Ok(Json(KrxSyncResponse {
-                success: true,
-                symbols: Some(symbol_result.into()),
-                sectors: Some(sector_result.into()),
-                message,
-            }))
-        }
-        Err(e) => {
-            error!(error = %e, "KRX CSV 동기화 실패");
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("SYNC_ERROR", &format!("동기화 실패: {}", e))),
-            ))
-        }
-    }
-}
-
-/// KRX 섹터 정보만 업데이트.
-///
-/// POST /api/v1/dataset/sync/sectors
-///
-/// `data/krx_sector_map.csv` 파일을 읽어 섹터 정보만 업데이트합니다.
-pub async fn sync_sectors_csv(
-    State(state): State<Arc<AppState>>,
-) -> Result<Json<KrxSyncResponse>, (StatusCode, Json<ApiError>)> {
-    let pool = state.db_pool.as_ref().ok_or_else(|| {
-        (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(ApiError::new("DB_NOT_AVAILABLE", "데이터베이스 연결이 없습니다")),
-        )
-    })?;
-
-    info!("KRX 섹터 CSV 동기화 시작");
-
-    let sector_csv = "data/krx_sector_map.csv";
-
-    match update_sectors_from_csv(pool, sector_csv).await {
-        Ok(result) => {
-            // 심볼 캐시 클리어 (섹터 정보 반영)
-            state.clear_symbol_cache().await;
-
-            let message = format!("섹터 {}개 업데이트 완료", result.upserted);
-
-            info!(%message, "섹터 동기화 완료");
-
-            Ok(Json(KrxSyncResponse {
-                success: true,
-                symbols: None,
-                sectors: Some(result.into()),
-                message,
-            }))
-        }
-        Err(e) => {
-            error!(error = %e, "섹터 동기화 실패");
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("SYNC_ERROR", &format!("섹터 동기화 실패: {}", e))),
-            ))
-        }
-    }
-}
-
-/// KRX 심볼 목록만 동기화.
-///
-/// POST /api/v1/dataset/sync/symbols
-///
-/// `data/krx_codes.csv` 파일을 읽어 심볼 목록을 동기화합니다.
-pub async fn sync_symbols_csv(
-    State(state): State<Arc<AppState>>,
-) -> Result<Json<KrxSyncResponse>, (StatusCode, Json<ApiError>)> {
-    let pool = state.db_pool.as_ref().ok_or_else(|| {
-        (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(ApiError::new("DB_NOT_AVAILABLE", "데이터베이스 연결이 없습니다")),
-        )
-    })?;
-
-    info!("KRX 심볼 CSV 동기화 시작");
-
-    let codes_csv = "data/krx_codes.csv";
-
-    match sync_krx_from_csv(pool, codes_csv).await {
-        Ok(result) => {
-            // 심볼 캐시 클리어 (DB 업데이트 반영)
-            state.clear_symbol_cache().await;
-
-            let message = format!("심볼 {}개 동기화 완료", result.upserted);
-
-            info!(%message, "심볼 동기화 완료");
-
-            Ok(Json(KrxSyncResponse {
-                success: true,
-                symbols: Some(result.into()),
-                sectors: None,
-                message,
-            }))
-        }
-        Err(e) => {
-            error!(error = %e, "심볼 동기화 실패");
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("SYNC_ERROR", &format!("심볼 동기화 실패: {}", e))),
-            ))
-        }
-    }
-}
-
-// ==================== EODData CSV 동기화 ====================
-
-/// EODData 동기화 요청.
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct EodSyncRequest {
-    /// 거래소 코드 (예: NYSE, NASDAQ). 없으면 전체 동기화
-    pub exchange: Option<String>,
-}
-
-/// EODData 동기화 응답.
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct EodSyncResponse {
-    /// 성공 여부
-    pub success: bool,
-    /// 거래소별 동기화 결과
-    pub exchanges: Vec<EodExchangeResultDto>,
-    /// 메시지
-    pub message: String,
-}
-
-/// 거래소별 동기화 결과 DTO.
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct EodExchangeResultDto {
-    /// 거래소 코드
-    pub exchange: String,
-    /// 처리된 총 레코드 수
-    pub total_processed: usize,
-    /// 성공적으로 upsert된 수
-    pub upserted: usize,
-    /// 스킵된 수
-    pub skipped: usize,
-}
-
-impl From<EodSyncResult> for EodExchangeResultDto {
-    fn from(r: EodSyncResult) -> Self {
-        Self {
-            exchange: r.exchange,
-            total_processed: r.total_processed,
-            upserted: r.upserted,
-            skipped: r.skipped,
-        }
-    }
-}
-
-/// EODData CSV에서 해외 거래소 심볼 동기화.
-///
-/// POST /api/v1/dataset/sync/eod
-///
-/// `data/eod_*.csv` 파일들을 읽어 해외 거래소 심볼을 업데이트합니다.
-/// exchange 파라미터가 있으면 해당 거래소만, 없으면 전체 동기화.
-pub async fn sync_eod_csv(
-    State(state): State<Arc<AppState>>,
-    Query(req): Query<EodSyncRequest>,
-) -> Result<Json<EodSyncResponse>, (StatusCode, Json<ApiError>)> {
-    let pool = state.db_pool.as_ref().ok_or_else(|| {
-        (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(ApiError::new("DB_NOT_AVAILABLE", "데이터베이스 연결이 없습니다")),
-        )
-    })?;
-
-    let data_dir = "data";
-
-    match &req.exchange {
-        Some(exchange_code) => {
-            // 특정 거래소만 동기화
-            let csv_path = format!("{}/eod_{}.csv", data_dir, exchange_code.to_lowercase());
-            info!(exchange = %exchange_code, path = %csv_path, "EODData 거래소 동기화 시작");
-
-            match sync_eod_exchange(pool, exchange_code, &csv_path).await {
-                Ok(result) => {
-                    // 심볼 캐시 클리어 (DB 업데이트 반영)
-                    state.clear_symbol_cache().await;
-
-                    let message = format!(
-                        "[{}] 심볼 {}개 동기화 완료",
-                        exchange_code, result.upserted
-                    );
-                    info!(%message);
-
-                    Ok(Json(EodSyncResponse {
-                        success: true,
-                        exchanges: vec![result.into()],
-                        message,
-                    }))
-                }
-                Err(e) => {
-                    error!(exchange = %exchange_code, error = %e, "EODData 동기화 실패");
-                    Err((
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ApiError::new("SYNC_ERROR", &format!("동기화 실패: {}", e))),
-                    ))
-                }
-            }
-        }
-        None => {
-            // 전체 거래소 동기화
-            info!("EODData 전체 동기화 시작");
-
-            match sync_eod_all(pool, data_dir).await {
-                Ok(results) => {
-                    // 심볼 캐시 클리어 (DB 업데이트 반영)
-                    state.clear_symbol_cache().await;
-
-                    let total_upserted: usize = results.values().map(|r| r.upserted).sum();
-                    let exchanges: Vec<EodExchangeResultDto> = results
-                        .into_values()
-                        .map(|r| r.into())
-                        .collect();
-
-                    let message = format!(
-                        "{}개 거래소에서 총 {}개 심볼 동기화 완료",
-                        exchanges.len(),
-                        total_upserted
-                    );
-                    info!(%message);
-
-                    Ok(Json(EodSyncResponse {
-                        success: true,
-                        exchanges,
-                        message,
-                    }))
-                }
-                Err(e) => {
-                    error!(error = %e, "EODData 전체 동기화 실패");
-                    Err((
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ApiError::new("SYNC_ERROR", &format!("동기화 실패: {}", e))),
-                    ))
-                }
-            }
-        }
-    }
-}
+// ==================== CSV 동기화 기능 제거됨 ====================
+// KRX, EOD CSV 동기화는 trader-collector로 이동되었습니다.
+// API 엔드포인트로 제공되던 기능은 CLI 도구를 통해 수행할 수 있습니다.
+//   cargo run --bin trader-collector -- sync-symbols
 
 // ==================== 라우터 ====================
 
@@ -1295,12 +1015,7 @@ pub fn dataset_router() -> Router<Arc<AppState>> {
         .route("/", get(list_datasets))
         .route("/fetch", post(fetch_dataset))
         .route("/search", get(search_symbols))
-        // KRX CSV 동기화
-        .route("/sync/krx", post(sync_krx_csv))
-        .route("/sync/symbols", post(sync_symbols_csv))
-        .route("/sync/sectors", post(sync_sectors_csv))
-        // EODData CSV 동기화 (해외 거래소)
-        .route("/sync/eod", post(sync_eod_csv))
+        // CSV 동기화 기능은 trader-collector로 이동됨
         // 심볼 상태 관리 (실패/비활성화)
         .route("/symbols/failed", get(get_failed_symbols))
         .route("/symbols/stats", get(get_symbol_stats))
@@ -1392,7 +1107,10 @@ async fn get_failed_symbols(
     let pool = state.db_pool.as_ref().ok_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(ApiError::new("DB_NOT_AVAILABLE", "데이터베이스 연결이 없습니다")),
+            Json(ApiError::new(
+                "DB_NOT_AVAILABLE",
+                "데이터베이스 연결이 없습니다",
+            )),
         )
     })?;
 
@@ -1449,7 +1167,10 @@ async fn get_symbol_stats(
     let pool = state.db_pool.as_ref().ok_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(ApiError::new("DB_NOT_AVAILABLE", "데이터베이스 연결이 없습니다")),
+            Json(ApiError::new(
+                "DB_NOT_AVAILABLE",
+                "데이터베이스 연결이 없습니다",
+            )),
         )
     })?;
 
@@ -1479,7 +1200,10 @@ async fn reactivate_symbols(
     let pool = state.db_pool.as_ref().ok_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(ApiError::new("DB_NOT_AVAILABLE", "데이터베이스 연결이 없습니다")),
+            Json(ApiError::new(
+                "DB_NOT_AVAILABLE",
+                "데이터베이스 연결이 없습니다",
+            )),
         )
     })?;
 
@@ -1495,7 +1219,10 @@ async fn reactivate_symbols(
         Err(e) => {
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(ApiError::new("INVALID_UUID", &format!("잘못된 UUID 형식: {}", e))),
+                Json(ApiError::new(
+                    "INVALID_UUID",
+                    &format!("잘못된 UUID 형식: {}", e),
+                )),
             ));
         }
     };

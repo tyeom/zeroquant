@@ -41,8 +41,7 @@ use std::collections::HashMap;
 use tracing::{debug, info};
 
 use crate::strategies::common::rebalance::{
-    PortfolioPosition, RebalanceCalculator, RebalanceConfig, RebalanceOrderSide,
-    TargetAllocation,
+    PortfolioPosition, RebalanceCalculator, RebalanceConfig, RebalanceOrderSide, TargetAllocation,
 };
 use crate::traits::Strategy;
 use trader_core::{MarketData, MarketDataType, Order, Position, Side, Signal, Symbol};
@@ -77,7 +76,11 @@ pub struct BaaAsset {
 }
 
 impl BaaAsset {
-    pub fn new(symbol: impl Into<String>, asset_type: BaaAssetType, desc: impl Into<String>) -> Self {
+    pub fn new(
+        symbol: impl Into<String>,
+        asset_type: BaaAssetType,
+        desc: impl Into<String>,
+    ) -> Self {
         Self {
             symbol: symbol.into(),
             asset_type,
@@ -131,10 +134,18 @@ pub struct BaaConfig {
     pub defensive_assets: Option<Vec<BaaAsset>>,
 }
 
-fn default_total_amount() -> Decimal { dec!(10000000) }
-fn default_rebalance_threshold() -> Decimal { dec!(5) }
-fn default_momentum_periods() -> Vec<usize> { vec![21, 63, 126, 252] } // 1, 3, 6, 12개월
-fn default_momentum_weights() -> Vec<f64> { vec![12.0, 4.0, 2.0, 1.0] } // 13612W
+fn default_total_amount() -> Decimal {
+    dec!(10000000)
+}
+fn default_rebalance_threshold() -> Decimal {
+    dec!(5)
+}
+fn default_momentum_periods() -> Vec<usize> {
+    vec![21, 63, 126, 252]
+} // 1, 3, 6, 12개월
+fn default_momentum_weights() -> Vec<f64> {
+    vec![12.0, 4.0, 2.0, 1.0]
+} // 13612W
 
 impl Default for BaaConfig {
     fn default() -> Self {
@@ -185,17 +196,23 @@ impl BaaConfig {
 
     /// 카나리아 자산 반환.
     pub fn get_canary_assets(&self) -> Vec<BaaAsset> {
-        self.canary_assets.clone().unwrap_or_else(Self::default_canary_assets)
+        self.canary_assets
+            .clone()
+            .unwrap_or_else(Self::default_canary_assets)
     }
 
     /// 공격 자산 반환.
     pub fn get_offensive_assets(&self) -> Vec<BaaAsset> {
-        self.offensive_assets.clone().unwrap_or_else(Self::default_offensive_assets)
+        self.offensive_assets
+            .clone()
+            .unwrap_or_else(Self::default_offensive_assets)
     }
 
     /// 방어 자산 반환.
     pub fn get_defensive_assets(&self) -> Vec<BaaAsset> {
-        self.defensive_assets.clone().unwrap_or_else(Self::default_defensive_assets)
+        self.defensive_assets
+            .clone()
+            .unwrap_or_else(Self::default_defensive_assets)
     }
 
     /// 모든 자산 반환.
@@ -320,12 +337,15 @@ impl BaaStrategy {
 
     /// 카나리아 자산 체크.
     fn check_canary(&self) -> (usize, usize) {
-        let canary_assets: Vec<_> = self.asset_data.values()
+        let canary_assets: Vec<_> = self
+            .asset_data
+            .values()
             .filter(|a| a.asset_type == BaaAssetType::Canary)
             .collect();
 
         let total = canary_assets.len();
-        let negative = canary_assets.iter()
+        let negative = canary_assets
+            .iter()
             .filter(|a| !a.is_positive_momentum())
             .count();
 
@@ -372,7 +392,8 @@ impl BaaStrategy {
 
     /// 모멘텀 상위 자산 선택.
     fn select_top_asset(&self, asset_type: BaaAssetType) -> Option<String> {
-        self.asset_data.values()
+        self.asset_data
+            .values()
             .filter(|a| a.asset_type == asset_type && a.is_positive_momentum())
             .max_by(|a, b| a.momentum_score.cmp(&b.momentum_score))
             .map(|a| a.symbol.clone())
@@ -448,7 +469,9 @@ impl BaaStrategy {
         let target_allocations = self.calculate_target_allocations();
 
         // 현재 포지션 구성
-        let mut current_positions: Vec<PortfolioPosition> = self.asset_data.values()
+        let mut current_positions: Vec<PortfolioPosition> = self
+            .asset_data
+            .values()
             .filter(|d| d.current_holdings > Decimal::ZERO)
             .map(|d| PortfolioPosition::new(&d.symbol, d.current_holdings, d.current_price))
             .collect();
@@ -592,8 +615,7 @@ impl Strategy for BaaStrategy {
         // 리밸런싱 체크
         if self.should_rebalance(timestamp) {
             // 모든 자산의 가격이 있는지 확인
-            let all_have_data = self.asset_data.values()
-                .all(|a| !a.prices.is_empty());
+            let all_have_data = self.asset_data.values().all(|a| !a.prices.is_empty());
 
             if all_have_data {
                 return Ok(self.generate_rebalance_signals(timestamp));

@@ -23,12 +23,12 @@
 //! let ticker = exchange.get_ticker(&symbol).await?;
 //! ```
 
+mod data_feed;
 mod exchange;
 mod matching_engine;
-mod data_feed;
 mod stream;
 
-pub use exchange::{SimulatedExchange, SimulatedConfig};
-pub use matching_engine::{MatchingEngine, OrderMatch, FillType};
 pub use data_feed::{DataFeed, DataFeedConfig};
+pub use exchange::{SimulatedConfig, SimulatedExchange};
+pub use matching_engine::{FillType, MatchingEngine, OrderMatch};
 pub use stream::{SimulatedMarketStream, SimulatedUserStream};

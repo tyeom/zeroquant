@@ -39,8 +39,8 @@ use rust_decimal_macros::dec;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
-use trader_core::{OrderBook, OrderBookLevel, Side, Symbol, Ticker, Timeframe, TradeTick};
 use tracing::{debug, error, info, warn};
+use trader_core::{OrderBook, OrderBookLevel, Side, Symbol, Ticker, Timeframe, TradeTick};
 
 use crate::connector::kis::{
     KisKrWebSocket, KisOAuth, KisUsClient, KisUsWebSocket, KrRealtimeMessage, KrRealtimeOrderbook,
@@ -394,8 +394,8 @@ impl KisUsMarketStream {
             ask: trade.price + dec!(0.01),
             last: trade.price,
             volume_24h: Decimal::from(trade.volume), // 체결량 (누적거래량 미제공)
-            high_24h: trade.price, // KIS 실시간에서 미제공 - 현재가로 대체
-            low_24h: trade.price,  // KIS 실시간에서 미제공 - 현재가로 대체
+            high_24h: trade.price,                   // KIS 실시간에서 미제공 - 현재가로 대체
+            low_24h: trade.price,                    // KIS 실시간에서 미제공 - 현재가로 대체
             change_24h: trade.change,
             change_24h_percent: trade.change_rate,
             timestamp: Utc::now(),

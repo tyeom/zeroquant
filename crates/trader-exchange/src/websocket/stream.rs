@@ -18,8 +18,10 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::{
     connect_async, tungstenite::protocol::Message, MaybeTlsStream, WebSocketStream,
 };
-use trader_core::{Kline, MarketType, OrderBook, OrderBookLevel, Side, Symbol, Ticker, Timeframe, TradeTick};
 use tracing::{debug, error, info};
+use trader_core::{
+    Kline, MarketType, OrderBook, OrderBookLevel, Side, Symbol, Ticker, Timeframe, TradeTick,
+};
 
 // ============================================================================
 // WebSocket 메시지 타입
@@ -195,8 +197,8 @@ impl BinanceMarketStream {
         };
         self.message_id += 1;
 
-        let json = serde_json::to_string(&msg)
-            .map_err(|e| ExchangeError::ParseError(e.to_string()))?;
+        let json =
+            serde_json::to_string(&msg).map_err(|e| ExchangeError::ParseError(e.to_string()))?;
 
         if let Some(ws) = &mut self.ws {
             ws.send(Message::Text(json.into()))
@@ -222,8 +224,8 @@ impl BinanceMarketStream {
         };
         self.message_id += 1;
 
-        let json = serde_json::to_string(&msg)
-            .map_err(|e| ExchangeError::ParseError(e.to_string()))?;
+        let json =
+            serde_json::to_string(&msg).map_err(|e| ExchangeError::ParseError(e.to_string()))?;
 
         if let Some(ws) = &mut self.ws {
             ws.send(Message::Text(json.into()))
@@ -264,7 +266,11 @@ impl BinanceMarketStream {
 
     /// Binance WebSocket용 심볼 형식으로 변환합니다.
     fn format_symbol(symbol: &Symbol) -> String {
-        format!("{}{}", symbol.base.to_lowercase(), symbol.quote.to_lowercase())
+        format!(
+            "{}{}",
+            symbol.base.to_lowercase(),
+            symbol.quote.to_lowercase()
+        )
     }
 
     /// Binance 형식에서 심볼을 파싱합니다.
@@ -316,8 +322,8 @@ impl BinanceMarketStream {
             if kline_event.event_type == "kline" {
                 let k = &kline_event.kline;
                 let symbol = Self::parse_symbol(&k.symbol);
-                let timeframe = Timeframe::from_binance_interval(&k.interval)
-                    .unwrap_or(Timeframe::M1);
+                let timeframe =
+                    Timeframe::from_binance_interval(&k.interval).unwrap_or(Timeframe::M1);
 
                 return Some(MarketEvent::Kline(Kline {
                     symbol,
@@ -390,13 +396,15 @@ impl BinanceMarketStream {
 
     /// 메시지 처리 루프를 시작합니다.
     pub async fn run(&mut self) -> ExchangeResult<()> {
-        let tx = self.event_tx.take().ok_or_else(|| {
-            ExchangeError::Unknown("Event sender not available".to_string())
-        })?;
+        let tx = self
+            .event_tx
+            .take()
+            .ok_or_else(|| ExchangeError::Unknown("Event sender not available".to_string()))?;
 
-        let ws = self.ws.take().ok_or_else(|| {
-            ExchangeError::Disconnected("Not connected".to_string())
-        })?;
+        let ws = self
+            .ws
+            .take()
+            .ok_or_else(|| ExchangeError::Disconnected("Not connected".to_string()))?;
 
         let (_write, mut read) = ws.split();
 
@@ -523,9 +531,6 @@ mod tests {
             BinanceMarketStream::depth_stream(&symbol),
             "btcusdt@depth@100ms"
         );
-        assert_eq!(
-            BinanceMarketStream::trade_stream(&symbol),
-            "btcusdt@trade"
-        );
+        assert_eq!(BinanceMarketStream::trade_stream(&symbol), "btcusdt@trade");
     }
 }

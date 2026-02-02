@@ -333,12 +333,10 @@ impl OrderRepository {
         let mut tx = pool.begin().await?;
 
         // 먼저 현재 주문 정보 조회
-        let current: Order = sqlx::query_as(
-            "SELECT * FROM orders WHERE id = $1",
-        )
-        .bind(order_id)
-        .fetch_one(&mut *tx)
-        .await?;
+        let current: Order = sqlx::query_as("SELECT * FROM orders WHERE id = $1")
+            .bind(order_id)
+            .fetch_one(&mut *tx)
+            .await?;
 
         // 전량 체결 여부 확인
         let new_status = if filled_quantity >= current.quantity {
