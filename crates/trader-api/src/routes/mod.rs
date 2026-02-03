@@ -21,6 +21,7 @@
 //! - `/api/v1/screening` - 종목 스크리닝 (Fundamental + 기술적 필터)
 //! - `/api/v1/reality-check` - 추천 검증 (전일 추천 vs 익일 실제 성과)
 //! - `/api/v1/monitoring` - 모니터링 (에러 추적, 통계)
+//! - `/api/v1/ranking` - GlobalScore 기반 종목 랭킹
 
 pub mod analytics;
 pub mod backtest;
@@ -39,6 +40,7 @@ pub mod orders;
 pub mod patterns;
 pub mod portfolio;
 pub mod positions;
+pub mod ranking;
 pub mod reality_check;
 pub mod schema;
 pub mod screening;
@@ -82,6 +84,9 @@ pub use portfolio::{
 };
 pub use positions::{
     positions_router, PositionResponse, PositionSummaryResponse, PositionsListResponse,
+};
+pub use ranking::{
+    ranking_router, CalculateResponse as RankingCalculateResponse, RankingQuery, RankingResponse,
 };
 pub use reality_check::{
     reality_check_router, CalculateRequest, CalculateResponse, ResultsQuery, ResultsResponse,
@@ -137,7 +142,8 @@ pub fn create_api_router() -> Router<Arc<AppState>> {
         .nest("/api/v1/signals", signals_router())
         .nest("/api/v1/signal-alerts", signal_alerts::signal_alerts_router())
         .nest("/api/v1/reality-check", reality_check_router())
-        .nest("/api/v1/monitoring", monitoring_router());
+        .nest("/api/v1/monitoring", monitoring_router())
+        .nest("/api/v1/ranking", ranking_router());
 
     // Feature: notifications - 텔레그램/이메일 알림
     #[cfg(feature = "notifications")]

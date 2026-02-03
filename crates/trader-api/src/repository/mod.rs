@@ -19,6 +19,7 @@ pub mod signal_marker;
 pub mod strategies;
 pub mod symbol_fundamental;
 pub mod symbol_info;
+pub mod global_score;
 
 pub use backtest_results::{
     BacktestResultDto, BacktestResultInput, BacktestResultRecord, BacktestResultsRepository,
@@ -53,6 +54,10 @@ pub use symbol_fundamental::{
 pub use symbol_info::{
     DeactivatedStats, ExternalFetchError, FailedSymbolInfo, FetchFailureResult, NewSymbolInfo,
     SymbolInfo, SymbolInfoRepository, SymbolSearchResult, MAX_FETCH_FAILURES,
+};
+
+pub use global_score::{
+    GlobalScoreRecord, GlobalScoreRepository, RankedSymbol, RankingFilter,
 };
 
 pub use journal::{

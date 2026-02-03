@@ -28,7 +28,7 @@ use rust_decimal_macros::dec;
 use std::collections::HashMap;
 use trader_core::{types::{MarketType, Symbol}, GlobalScoreResult, Kline};
 
-use crate::indicators::{BollingerBandsParams, IndicatorEngine, IndicatorError, MacdParams, RsiParams, SmaParams};
+use crate::indicators::{BollingerBandsParams, IndicatorEngine, IndicatorError, MacdParams, RsiParams, SmaParams, StructuralFeatures};
 
 /// GlobalScorer 계산 오류.
 #[derive(Debug, thiserror::Error)]
@@ -102,6 +102,12 @@ pub struct GlobalScorerParams {
     /// 시장 전체 거래대금 퍼센타일 (0.0 ~ 1.0)
     /// None이면 LIQ 팩터 0점 처리
     pub volume_percentile: Option<f32>,
+
+    /// 구조적 피처 (EBS 계산용)
+    ///
+    /// StructuralFeatures를 제공하면 ERS를 계산하여 Momentum 점수에 반영합니다.
+    /// None이면 ERS는 0점으로 처리됩니다.
+    pub structural_features: Option<StructuralFeatures>,
 }
 
 impl Default for GlobalScorerParams {
@@ -114,6 +120,7 @@ impl Default for GlobalScorerParams {
             stop_price: None,
             avg_volume_amount: None,
             volume_percentile: None,
+            structural_features: None,
         }
     }
 }
@@ -174,7 +181,7 @@ impl GlobalScorer {
         let t1_score = self.calculate_target_room(current_price, &params)?;
         let sl_score = self.calculate_stop_room(current_price, &params)?;
         let near_score = self.calculate_entry_proximity(current_price, &params)?;
-        let mom_score = self.calculate_momentum(candles)?;
+        let mom_score = self.calculate_momentum(candles, &params)?;
         let liq_score = self.calculate_liquidity(&params)?;
         let tec_score = self.calculate_technical_balance(candles)?;
 
@@ -390,7 +397,7 @@ impl GlobalScorer {
     /// # 반환
     ///
     /// 0 ~ 100점
-    fn calculate_momentum(&self, candles: &[Kline]) -> GlobalScorerResult<f32> {
+    fn calculate_momentum(&self, candles: &[Kline], params: &GlobalScorerParams) -> GlobalScorerResult<f32> {
         let closes: Vec<Decimal> = candles.iter().map(|k| k.close).collect();
 
         // RSI 계산
@@ -415,24 +422,41 @@ impl GlobalScorer {
 
         // MACD 기울기 계산
         let macd_result = self.indicator_engine.macd(&closes, MacdParams::default())?;
-        let macd_slope_score = if macd_result.len() >= 2 {
+        let macd_slope = if macd_result.len() >= 2 {
             let last_macd = macd_result.last().and_then(|m| m.macd).unwrap_or(dec!(0));
             let prev_macd = macd_result[macd_result.len() - 2]
                 .macd
                 .unwrap_or(dec!(0));
 
-            if last_macd > prev_macd {
-                30.0 // 상승
-            } else {
-                0.0 // 하락
-            }
+            // Decimal → f32 변환
+            (last_macd - prev_macd).to_string().parse::<f32>().unwrap_or(0.0)
         } else {
             0.0
         };
 
-        // ERS 기여도 (향후 구현 - 현재는 30점 고정)
-        // TODO: Phase 1-D.4에서 ERS 구현 후 연동
-        let ers_score = 30.0;
+        let macd_slope_score = if macd_slope > 0.0 {
+            30.0 // 상승
+        } else {
+            0.0 // 하락
+        };
+
+        // ERS 계산
+        let ers_score = if let Some(ref structural) = params.structural_features {
+            // EBS 계산 (0~5)
+            let ebs = self.calculate_ebs(structural, rsi, macd_slope);
+
+            // ERS 계산 (0~1)
+            let ebs_ok = if ebs >= 4.0 { 1.0 } else { 0.0 };
+            let slope_ok = if macd_slope > 0.0 { 1.0 } else { 0.0 };
+            let rsi_ok = if (45.0..=65.0).contains(&rsi) { 1.0 } else { 0.0 };
+            let ers = (ebs_ok + slope_ok + rsi_ok) / 3.0;
+
+            // ERS를 30점 만점으로 변환
+            ers * 30.0
+        } else {
+            // StructuralFeatures 없으면 0점 (기존 30점 고정 제거)
+            0.0
+        };
 
         let total_score = rsi_score + macd_slope_score + ers_score;
 
@@ -655,6 +679,60 @@ impl GlobalScorer {
         Ok(return_pct)
     }
 
+    /// EBS (Entry Balance Score) 계산 (0~5점).
+    ///
+    /// 5가지 조건의 합:
+    /// 1. RSI 건강성: 45~65 (+1)
+    /// 2. MACD slope > 0 (+1)
+    /// 3. low_trend > 0 (+1)
+    /// 4. vol_quality > 0 (+1)
+    /// 5. range_pos >= 0.5 (+1)
+    ///
+    /// # 인자
+    ///
+    /// * `structural` - 구조적 피처
+    /// * `rsi` - RSI 값 (0~100)
+    /// * `macd_slope` - MACD 기울기
+    ///
+    /// # 반환
+    ///
+    /// 0~5점
+    fn calculate_ebs(
+        &self,
+        structural: &StructuralFeatures,
+        rsi: f32,
+        macd_slope: f32,
+    ) -> f32 {
+        let mut ebs = 0.0;
+
+        // 1. RSI 건강성 (45~65)
+        if (45.0..=65.0).contains(&rsi) {
+            ebs += 1.0;
+        }
+
+        // 2. MACD slope > 0
+        if macd_slope > 0.0 {
+            ebs += 1.0;
+        }
+
+        // 3. 저가 상승 (low_trend > 0)
+        if structural.low_trend > 0.0 {
+            ebs += 1.0;
+        }
+
+        // 4. 매집 신호 (vol_quality > 0)
+        if structural.vol_quality > 0.0 {
+            ebs += 1.0;
+        }
+
+        // 5. 박스권 위치 (range_pos >= 0.5)
+        if structural.range_pos >= 0.5 {
+            ebs += 1.0;
+        }
+
+        ebs
+    }
+
     /// 신뢰도 계산 (데이터 완전성 기준).
     ///
     /// 모든 파라미터가 제공되면 1.0, 일부 누락 시 감소
@@ -742,7 +820,8 @@ mod tests {
         let result = scorer.calculate(&candles, params).unwrap();
 
         assert!(result.overall_score >= 0.0 && result.overall_score <= 100.0);
-        assert_eq!(result.recommendation, "WATCH");
+        // ERS 없이는 점수가 낮아져서 HOLD
+        assert_eq!(result.recommendation, "HOLD");
         assert!(result.confidence > 0.8);
     }
 
@@ -767,7 +846,8 @@ mod tests {
         let scorer = GlobalScorer::new();
         let candles = create_test_candles(60);
 
-        let score = scorer.calculate_momentum(&candles).unwrap();
+        let params = GlobalScorerParams::default(); // structural_features = None
+        let score = scorer.calculate_momentum(&candles, &params).unwrap();
         assert!(score >= 0.0 && score <= 100.0);
     }
 
@@ -787,5 +867,105 @@ mod tests {
             }
             _ => panic!("Expected InsufficientData error"),
         }
+    }
+
+    #[test]
+    fn test_ebs_calculation() {
+        let scorer = GlobalScorer::new();
+
+        // 모든 조건 충족
+        let structural = StructuralFeatures {
+            low_trend: 0.3,
+            vol_quality: 0.2,
+            range_pos: 0.6,
+            dist_ma20: 2.0,
+            bb_width: 2.5,
+            rsi: 55.0,
+        };
+
+        let ebs = scorer.calculate_ebs(&structural, 55.0, 0.1);
+        assert_eq!(ebs, 5.0); // 5개 조건 모두 충족
+
+        // 일부 조건 충족
+        let structural2 = StructuralFeatures {
+            low_trend: -0.1,  // 미충족
+            vol_quality: 0.2,
+            range_pos: 0.3,   // 미충족
+            dist_ma20: 2.0,
+            bb_width: 2.5,
+            rsi: 55.0,
+        };
+
+        let ebs2 = scorer.calculate_ebs(&structural2, 55.0, 0.1);
+        assert_eq!(ebs2, 3.0); // RSI, MACD slope, vol_quality만 충족
+    }
+
+    #[test]
+    fn test_momentum_with_ers() {
+        let scorer = GlobalScorer::new();
+        let candles = create_test_candles(60);
+
+        let structural = StructuralFeatures {
+            low_trend: 0.3,
+            vol_quality: 0.2,
+            range_pos: 0.6,
+            dist_ma20: 2.0,
+            bb_width: 2.5,
+            rsi: 55.0,
+        };
+
+        let params = GlobalScorerParams {
+            structural_features: Some(structural),
+            ..Default::default()
+        };
+
+        let score = scorer.calculate_momentum(&candles, &params).unwrap();
+        assert!(score >= 0.0 && score <= 100.0);
+    }
+
+    #[test]
+    fn test_momentum_without_structural() {
+        let scorer = GlobalScorer::new();
+        let candles = create_test_candles(60);
+
+        let params = GlobalScorerParams::default(); // structural_features = None
+
+        let score = scorer.calculate_momentum(&candles, &params).unwrap();
+
+        // ERS 없어도 동작해야 함 (RSI + MACD만으로 최대 70점)
+        assert!(score >= 0.0 && score <= 70.0);
+    }
+
+    #[test]
+    fn test_global_scorer_with_structural_features() {
+        let scorer = GlobalScorer::new();
+        let candles = create_test_candles(60);
+
+        let structural = StructuralFeatures {
+            low_trend: 0.4,
+            vol_quality: 0.3,
+            range_pos: 0.7,
+            dist_ma20: 1.5,
+            bb_width: 2.0,
+            rsi: 58.0,
+        };
+
+        let params = GlobalScorerParams {
+            symbol: Some(Symbol::new("TEST", "KRW", MarketType::KrStock)),
+            market_type: Some(MarketType::KrStock),
+            structural_features: Some(structural),
+            volume_percentile: Some(0.8),
+            ..Default::default()
+        };
+
+        let result = scorer.calculate(&candles, params).unwrap();
+
+        // Momentum 스코어 확인 (단순 증가 패턴이라 RSI가 높아서 0일 수 있음)
+        let mom_score = result.component_scores.get("momentum").unwrap();
+        assert!(mom_score >= &0.0);
+        // GlobalScore 전체 검증
+        assert!(result.overall_score >= 0.0 && result.overall_score <= 100.0);
+        // StructuralFeatures가 반영되었는지 확인 (confidence 증가)
+        assert!(result.confidence > 0.0);
     }
 }

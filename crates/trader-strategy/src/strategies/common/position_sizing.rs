@@ -226,6 +226,85 @@ impl PositionSizer for AtrPositionSizer {
     }
 }
 
+/// GlobalScore 기반 포지션 사이저.
+///
+/// GlobalScore를 활용하여 점수가 높은 종목에 더 큰 포지션을 할당합니다.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GlobalScorePositionSizer {
+    /// 기본 자본 비율 (0.0 ~ 1.0)
+    pub base_ratio: Decimal,
+    /// GlobalScore 가중치 활성화 여부
+    pub use_score_weight: bool,
+}
+
+impl GlobalScorePositionSizer {
+    pub fn new(base_ratio: Decimal, use_score_weight: bool) -> Self {
+        Self {
+            base_ratio: base_ratio.min(dec!(1)).max(dec!(0)),
+            use_score_weight,
+        }
+    }
+
+    /// GlobalScore를 사용하여 포지션 크기 계산.
+    ///
+    /// # 점수별 가중치 (use_score_weight=true일 때)
+    ///
+    /// - 90점 이상: 기본 비율 * 1.5
+    /// - 80~90점: 기본 비율 * 1.2
+    /// - 70~80점: 기본 비율 * 1.0
+    /// - 60~70점: 기본 비율 * 0.8
+    /// - 60점 미만: 기본 비율 * 0.5
+    ///
+    /// # Arguments
+    ///
+    /// * `capital` - 사용 가능한 자본
+    /// * `global_score` - GlobalScore (0~100)
+    ///
+    /// # Returns
+    ///
+    /// 포지션 크기
+    pub fn calculate_with_score(&self, capital: Decimal, global_score: f32) -> PositionSize {
+        let mut ratio = self.base_ratio;
+
+        if self.use_score_weight {
+            // 점수에 따른 가중치 적용
+            let weight = if global_score >= 90.0 {
+                dec!(1.5)
+            } else if global_score >= 80.0 {
+                dec!(1.2)
+            } else if global_score >= 70.0 {
+                dec!(1.0)
+            } else if global_score >= 60.0 {
+                dec!(0.8)
+            } else {
+                dec!(0.5)
+            };
+
+            ratio = (ratio * weight).min(dec!(1)); // 최대 100%로 제한
+        }
+
+        PositionSize {
+            size: capital * ratio,
+            method: "GlobalScore".to_string(),
+        }
+    }
+}
+
+impl PositionSizer for GlobalScorePositionSizer {
+    fn calculate_size(
+        &self,
+        capital: Decimal,
+        _entry_price: Decimal,
+        _stop_loss: Option<Decimal>,
+    ) -> PositionSize {
+        // 기본 구현: 점수가 없으면 기본 비율 사용
+        PositionSize {
+            size: capital * self.base_ratio,
+            method: "GlobalScore".to_string(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,5 +361,41 @@ mod tests {
         // 수량 = 100 / 2 = 50
         // 포지션 가치 = 50 * 100 = 5000
         assert_eq!(result.size, dec!(5000));
+    }
+
+    #[test]
+    fn test_global_score_sizer_without_weight() {
+        let sizer = GlobalScorePositionSizer::new(dec!(0.1), false);
+        let capital = dec!(10000);
+
+        // use_score_weight=false이므로 점수와 무관하게 기본 비율 사용
+        let result = sizer.calculate_with_score(capital, 95.0);
+        assert_eq!(result.size, dec!(1000)); // 10000 * 0.1
+    }
+
+    #[test]
+    fn test_global_score_sizer_with_weight() {
+        let sizer = GlobalScorePositionSizer::new(dec!(0.1), true);
+        let capital = dec!(10000);
+
+        // 90점 이상: 1.5x
+        let result1 = sizer.calculate_with_score(capital, 95.0);
+        assert_eq!(result1.size, dec!(1500)); // 10000 * 0.1 * 1.5
+
+        // 80~90점: 1.2x
+        let result2 = sizer.calculate_with_score(capital, 85.0);
+        assert_eq!(result2.size, dec!(1200)); // 10000 * 0.1 * 1.2
+
+        // 70~80점: 1.0x
+        let result3 = sizer.calculate_with_score(capital, 75.0);
+        assert_eq!(result3.size, dec!(1000)); // 10000 * 0.1 * 1.0
+
+        // 60~70점: 0.8x
+        let result4 = sizer.calculate_with_score(capital, 65.0);
+        assert_eq!(result4.size, dec!(800)); // 10000 * 0.1 * 0.8
+
+        // 60점 미만: 0.5x
+        let result5 = sizer.calculate_with_score(capital, 50.0);
+        assert_eq!(result5.size, dec!(500)); // 10000 * 0.1 * 0.5
     }
 }

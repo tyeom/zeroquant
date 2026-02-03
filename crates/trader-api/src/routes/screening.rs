@@ -197,6 +197,11 @@ pub struct ScreeningResultDto {
     // TRIGGER (진입 트리거)
     pub trigger_score: Option<f64>,
     pub trigger_label: Option<String>,
+
+    // GlobalScore (종합 점수)
+    pub overall_score: Option<String>,
+    pub grade: Option<String>,
+    pub confidence: Option<String>,
 }
 
 /// 프리셋 목록 응답
@@ -369,6 +374,9 @@ fn to_result_dto(r: ScreeningResult) -> ScreeningResultDto {
         ttm_squeeze_cnt: r.ttm_squeeze_cnt,
         trigger_score: r.trigger_score,
         trigger_label: r.trigger_label,
+        overall_score: decimal_to_string(r.overall_score),
+        grade: r.grade,
+        confidence: r.confidence,
     }
 }
 

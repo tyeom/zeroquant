@@ -130,7 +130,7 @@ pub fn signal_alerts_router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", post(create_alert_rule))
         .route("/", get(list_alert_rules))
-        .route("/:id", get(get_alert_rule))
-        .route("/:id", put(update_alert_rule))
-        .route("/:id", delete(delete_alert_rule))
+        .route("/{:id}", get(get_alert_rule))
+        .route("/{:id}", put(update_alert_rule))
+        .route("/{:id}", delete(delete_alert_rule))
 }

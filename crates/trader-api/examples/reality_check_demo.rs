@@ -96,13 +96,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(results) => {
             println!("✅ Calculated {} reality checks", results.len());
             for result in &results {
-                let emoji = if result.is_profitable { "📈" } else { "📉" };
+                let is_profitable = result.is_profitable.unwrap_or(false);
+                let emoji = if is_profitable { "📈" } else { "📉" };
                 println!(
-                    "  {} {}: {}% {}",
+                    "  {} {}: {:.4}% {}",
                     emoji,
-                    result.symbol,
-                    result.actual_return,
-                    if result.is_profitable { "WIN" } else { "LOSS" }
+                    result.symbol.as_deref().unwrap_or("N/A"),
+                    result.actual_return.unwrap_or_default(),
+                    if is_profitable { "WIN" } else { "LOSS" }
                 );
             }
         }
@@ -118,8 +119,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("\n  📅 Daily Stats (Last 7 days):");
             for stat in stats {
                 println!(
-                    "    {}: {}% win rate, {}% avg return (Total: {})",
-                    stat.check_date, stat.win_rate, stat.avg_return, stat.total_count
+                    "    {}: {:.2}% win rate, {:.4}% avg return (Total: {})",
+                    stat.check_date.map(|d| d.to_string()).unwrap_or_else(|| "N/A".to_string()),
+                    stat.win_rate.unwrap_or_default(),
+                    stat.avg_return.unwrap_or_default(),
+                    stat.total_count.unwrap_or(0)
                 );
             }
         }
@@ -132,8 +136,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("\n  🎯 Source Stats:");
             for stat in stats {
                 println!(
-                    "    {}: {}% win rate, {}% avg return (Total: {})",
-                    stat.recommend_source, stat.win_rate, stat.avg_return, stat.total_count
+                    "    {}: {:.2}% win rate, {:.4}% avg return (Total: {})",
+                    stat.recommend_source.as_deref().unwrap_or("N/A"),
+                    stat.win_rate.unwrap_or_default(),
+                    stat.avg_return.unwrap_or_default(),
+                    stat.total_count.unwrap_or(0)
                 );
             }
         }
@@ -146,8 +153,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("\n  🏆 Rank Stats (Top 10):");
             for stat in stats {
                 println!(
-                    "    Rank {}: {}% win rate, {}% avg return",
-                    stat.recommend_rank, stat.win_rate, stat.avg_return
+                    "    Rank {}: {:.2}% win rate, {:.4}% avg return",
+                    stat.recommend_rank.unwrap_or(0),
+                    stat.win_rate.unwrap_or_default(),
+                    stat.avg_return.unwrap_or_default()
                 );
             }
         }
@@ -179,20 +188,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match RealityCheckRepository::get_summary_stats(&pool, 30).await {
         Ok(summary) => {
             println!("  📊 Last 30 Days Summary:");
-            println!("    Total Trades: {}", summary.total_count);
-            println!("    Win Trades: {}", summary.win_count);
-            println!("    Win Rate: {}%", summary.win_rate);
-            println!("    Avg Return: {}%", summary.avg_return);
+            println!("    Total Trades: {}", summary.total_count.unwrap_or(0));
+            println!("    Win Trades: {}", summary.win_count.unwrap_or(0));
+            println!("    Win Rate: {:.2}%", summary.win_rate.unwrap_or_default());
+            println!("    Avg Return: {:.4}%", summary.avg_return.unwrap_or_default());
             if let Some(avg_win) = summary.avg_win_return {
-                println!("    Avg Win: {}%", avg_win);
+                println!("    Avg Win: {:.4}%", avg_win);
             }
             if let Some(avg_loss) = summary.avg_loss_return {
-                println!("    Avg Loss: {}%", avg_loss);
+                println!("    Avg Loss: {:.4}%", avg_loss);
             }
-            println!("    Max Return: {}%", summary.max_return);
-            println!("    Min Return: {}%", summary.min_return);
+            println!("    Max Return: {:.4}%", summary.max_return.unwrap_or_default());
+            println!("    Min Return: {:.4}%", summary.min_return.unwrap_or_default());
             if let Some(stddev) = summary.return_stddev {
-                println!("    Std Dev: {}%", stddev);
+                println!("    Std Dev: {:.4}%", stddev);
             }
         }
         Err(e) => println!("  ❌ Failed: {}", e),

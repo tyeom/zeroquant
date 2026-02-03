@@ -82,6 +82,11 @@ pub struct ScreeningResult {
     // TRIGGER (진입 트리거)
     pub trigger_score: Option<f64>,
     pub trigger_label: Option<String>,
+
+    // GlobalScore (종합 점수)
+    pub overall_score: Option<Decimal>,
+    pub grade: Option<String>,
+    pub confidence: Option<String>,
 }
 
 /// 스크리닝 필터 조건
@@ -225,9 +230,13 @@ impl ScreeningRepository {
                 sf.ttm_squeeze,
                 sf.ttm_squeeze_cnt,
                 NULL::double precision as trigger_score,
-                NULL::varchar as trigger_label
+                NULL::varchar as trigger_label,
+                sgs.overall_score,
+                sgs.grade,
+                sgs.confidence
             FROM v_symbol_with_fundamental sf
             LEFT JOIN mv_latest_prices lp ON lp.symbol = sf.yahoo_symbol OR lp.symbol = sf.ticker
+            LEFT JOIN symbol_global_score sgs ON sgs.symbol_info_id = sf.id
             WHERE sf.is_active = true
             "#,
         );
@@ -733,7 +742,7 @@ impl ScreeningRepository {
             .await?;
 
         // 순위 추가
-        let mut ranked: Vec<SectorRsResult> = results
+        let ranked: Vec<SectorRsResult> = results
             .into_iter()
             .enumerate()
             .map(|(idx, mut r)| {

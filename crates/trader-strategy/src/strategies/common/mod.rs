@@ -11,14 +11,18 @@
 //! - **리밸런싱**: 포트폴리오 리밸런싱 계산
 //! - **serde_helpers**: SDUI와 전략 설정 간 타입 변환
 //! - **position_sync**: 거래소 중립 포지션 상태 동기화
+//! - **global_score_utils**: GlobalScore 기반 종목 선택 및 포지션 가중치 계산
+//! - **screening_integration**: 스크리닝 결과 및 RouteState 전략 연동
 
 pub mod defaults;
+pub mod global_score_utils;
 pub mod indicators;
 pub mod momentum;
 pub mod position_sizing;
 pub mod position_sync;
 pub mod rebalance;
 pub mod risk_checks;
+pub mod screening_integration;
 pub mod serde_helpers;
 pub mod signal_filters;
 
@@ -45,7 +49,18 @@ pub use indicators::{
 };
 
 pub use position_sizing::{
-    AtrPositionSizer, FixedRatioSizer, KellyPositionSizer, PositionSize, PositionSizer,
+    AtrPositionSizer, FixedRatioSizer, GlobalScorePositionSizer, KellyPositionSizer,
+    PositionSize, PositionSizer,
+};
+
+pub use global_score_utils::{
+    calculate_risk_adjustment, calculate_score_weight, calculate_weighted_average, get_score,
+    select_top_symbols, ScoreFilterOptions,
+};
+
+pub use screening_integration::{
+    get_symbols_by_global_score, get_symbols_by_route_state, get_symbols_by_state_and_score,
+    get_top_symbols_per_sector, ScreeningAware,
 };
 
 pub use risk_checks::{DefaultRiskChecker, RiskCheckError, RiskChecker, RiskManager, RiskParams};
