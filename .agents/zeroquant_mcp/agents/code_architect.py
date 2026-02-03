@@ -9,8 +9,8 @@ class CodeArchitect(BaseAgent):
 
     async def execute(self, arguments: dict[str, Any]) -> str:
         """아키텍처 설계 실행"""
-        self.logger.info("🏗️ 아키텍처 설계 시작...")
-        
+        self.log_progress("🏗️ 아키텍처 설계 시작")
+
         feature_name = arguments.get("feature_name")
         requirements = arguments.get("requirements")
         constraints = arguments.get("constraints", "")
@@ -20,6 +20,7 @@ class CodeArchitect(BaseAgent):
         results.append(f"# {feature_name} 아키텍처 설계\n\n")
 
         # 1. 요구사항 분석
+        self.log_progress("📋 [1/5] 요구사항 분석 중")
         results.append(self.format_section(
             "📋 요구사항",
             f"**목표**: {feature_name}\n\n"
@@ -29,15 +30,15 @@ class CodeArchitect(BaseAgent):
 
         # 2. 기존 코드 분석 (선택)
         if analyze_existing:
-            self.logger.info("🔍 기존 코드 패턴 분석 중...")
+            self.log_progress("🔍 [2/5] 기존 코드 패턴 분석 중")
             analysis = self._analyze_existing_code(feature_name)
-            self.logger.info("✅ 아키텍처 설계 완료")
             results.append(self.format_section(
                 "🔍 기존 코드 분석",
                 analysis
             ))
 
         # 3. 설계 원칙
+        self.log_progress("🎯 [3/5] 설계 원칙 정의 중")
         results.append(self.format_section(
             "🎯 설계 원칙",
             "1. **거래소 중립성**: Exchange trait 사용\n"
@@ -47,6 +48,7 @@ class CodeArchitect(BaseAgent):
         ))
 
         # 4. 제안 구조
+        self.log_progress("📁 [4/5] 파일 구조 생성 중")
         results.append(self.format_section(
             "📁 제안 파일 구조",
             "```\n"
@@ -60,6 +62,7 @@ class CodeArchitect(BaseAgent):
         ))
 
         # 5. 구현 계획
+        self.log_progress("📝 [5/5] 구현 계획 수립 중")
         results.append(self.format_section(
             "📝 구현 계획",
             "### Phase 1: 기본 구조 (예상: 4시간)\n"
@@ -83,6 +86,9 @@ class CodeArchitect(BaseAgent):
             "**이유**: ...\n"
         ))
 
+        self.log_progress("✅ 아키텍처 설계 완료")
+        results.append(self.get_progress_section())
+
         return "\n".join(results)
 
     def _analyze_existing_code(self, feature_name: str) -> str:
@@ -93,7 +99,7 @@ class CodeArchitect(BaseAgent):
             "-l",
             "--type", "rust",
             feature_name.lower()
-        ])
+        ], stream_output=True)
 
         if stdout.strip():
             files = stdout.strip().split('\n')[:5]  # 최대 5개

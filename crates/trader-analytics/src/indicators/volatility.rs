@@ -50,6 +50,80 @@ pub struct AtrParams {
     pub period: usize,
 }
 
+/// Keltner Channel 파라미터.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct KeltnerChannelParams {
+    /// 이동평균 기간 (기본: 20).
+    pub period: usize,
+    /// ATR 배수 (기본: 1.5).
+    pub atr_multiplier: Decimal,
+}
+
+impl Default for KeltnerChannelParams {
+    fn default() -> Self {
+        Self {
+            period: 20,
+            atr_multiplier: dec!(1.5),
+        }
+    }
+}
+
+/// Keltner Channel 결과.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct KeltnerChannelResult {
+    /// 상단 채널 (MA + k × ATR).
+    pub upper: Option<Decimal>,
+    /// 중간 채널 (이동평균).
+    pub middle: Option<Decimal>,
+    /// 하단 채널 (MA - k × ATR).
+    pub lower: Option<Decimal>,
+    /// 채널 폭 ((상단 - 하단) / 중간).
+    pub width: Option<Decimal>,
+}
+
+/// TTM Squeeze 파라미터.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct TtmSqueezeParams {
+    /// Bollinger Bands 기간 (기본: 20).
+    pub bb_period: usize,
+    /// Bollinger Bands 표준편차 배수 (기본: 2.0).
+    pub bb_std_dev: Decimal,
+    /// Keltner Channel 기간 (기본: 20).
+    pub kc_period: usize,
+    /// Keltner Channel ATR 배수 (기본: 1.5).
+    pub kc_atr_multiplier: Decimal,
+    /// ATR 계산 기간 (기본: 14).
+    pub atr_period: usize,
+}
+
+impl Default for TtmSqueezeParams {
+    fn default() -> Self {
+        Self {
+            bb_period: 20,
+            bb_std_dev: dec!(2.0),
+            kc_period: 20,
+            kc_atr_multiplier: dec!(1.5),
+            atr_period: 14,
+        }
+    }
+}
+
+/// TTM Squeeze 결과.
+///
+/// John Carter의 TTM Squeeze 지표.
+/// Bollinger Bands가 Keltner Channel 내부로 들어가면 에너지 응축 상태(squeeze).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct TtmSqueezeResult {
+    /// Squeeze 상태 (BB가 KC 내부에 있으면 true).
+    pub is_squeeze: bool,
+    /// 연속 Squeeze 카운트 (squeeze가 지속된 기간).
+    pub squeeze_count: u32,
+    /// 모멘텀 (종가 - KC 중간선).
+    pub momentum: Option<Decimal>,
+    /// Squeeze 해제 여부 (이전 squeeze에서 방금 벗어남).
+    pub released: bool,
+}
+
 impl Default for AtrParams {
     fn default() -> Self {
         Self { period: 14 }
@@ -260,6 +334,192 @@ impl VolatilityIndicators {
                 }
                 _ => result.push(None),
             }
+        }
+
+        Ok(result)
+    }
+
+    /// Keltner Channel 계산.
+    ///
+    /// 상단 채널 = MA + (k × ATR)
+    /// 중간 채널 = MA (이동평균)
+    /// 하단 채널 = MA - (k × ATR)
+    ///
+    /// # 인자
+    /// * `high` - 고가 데이터
+    /// * `low` - 저가 데이터
+    /// * `close` - 종가 데이터
+    /// * `params` - Keltner Channel 파라미터
+    ///
+    /// # 반환
+    /// Keltner Channel 값들
+    pub fn keltner_channel(
+        &self,
+        high: &[Decimal],
+        low: &[Decimal],
+        close: &[Decimal],
+        params: KeltnerChannelParams,
+    ) -> IndicatorResult<Vec<KeltnerChannelResult>> {
+        let period = params.period;
+        let len = close.len();
+
+        if len < period {
+            return Err(IndicatorError::InsufficientData {
+                required: period,
+                provided: len,
+            });
+        }
+
+        // ATR 계산
+        let atr_values = self.atr(
+            high,
+            low,
+            close,
+            AtrParams {
+                period: params.period,
+            },
+        )?;
+
+        let mut result = Vec::with_capacity(len);
+        let period_decimal = Decimal::from(period);
+
+        for i in 0..len {
+            if i < period - 1 {
+                result.push(KeltnerChannelResult {
+                    upper: None,
+                    middle: None,
+                    lower: None,
+                    width: None,
+                });
+            } else {
+                // 이동평균 계산 (중간선)
+                let window = &close[i + 1 - period..=i];
+                let sum: Decimal = window.iter().sum();
+                let ma = sum / period_decimal;
+
+                // ATR 기반 채널 계산
+                if let Some(atr) = atr_values[i] {
+                    let deviation = params.atr_multiplier * atr;
+                    let upper = ma + deviation;
+                    let lower = ma - deviation;
+
+                    // 채널 폭 계산
+                    let width = if ma != Decimal::ZERO {
+                        Some((upper - lower) / ma)
+                    } else {
+                        None
+                    };
+
+                    result.push(KeltnerChannelResult {
+                        upper: Some(upper),
+                        middle: Some(ma),
+                        lower: Some(lower),
+                        width,
+                    });
+                } else {
+                    result.push(KeltnerChannelResult {
+                        upper: None,
+                        middle: None,
+                        lower: None,
+                        width: None,
+                    });
+                }
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// TTM Squeeze 계산.
+    ///
+    /// John Carter의 TTM Squeeze 지표.
+    /// Bollinger Bands가 Keltner Channel 내부로 들어가면 에너지 응축(squeeze) 상태.
+    /// Squeeze가 해제되면 강한 방향성 움직임 기대.
+    ///
+    /// # Squeeze 조건
+    /// - BB Upper < KC Upper AND BB Lower > KC Lower
+    /// - 즉, BB 폭 < KC 폭
+    ///
+    /// # 인자
+    /// * `high` - 고가 데이터
+    /// * `low` - 저가 데이터
+    /// * `close` - 종가 데이터
+    /// * `params` - TTM Squeeze 파라미터
+    ///
+    /// # 반환
+    /// TTM Squeeze 상태 및 모멘텀 정보
+    pub fn ttm_squeeze(
+        &self,
+        high: &[Decimal],
+        low: &[Decimal],
+        close: &[Decimal],
+        params: TtmSqueezeParams,
+    ) -> IndicatorResult<Vec<TtmSqueezeResult>> {
+        let len = close.len();
+
+        // Bollinger Bands 계산
+        let bb_results = self.bollinger_bands(
+            close,
+            BollingerBandsParams {
+                period: params.bb_period,
+                std_dev_multiplier: params.bb_std_dev,
+            },
+        )?;
+
+        // Keltner Channel 계산
+        let kc_results = self.keltner_channel(
+            high,
+            low,
+            close,
+            KeltnerChannelParams {
+                period: params.kc_period,
+                atr_multiplier: params.kc_atr_multiplier,
+            },
+        )?;
+
+        let mut result = Vec::with_capacity(len);
+        let mut squeeze_count = 0u32;
+        let mut prev_squeeze = false;
+
+        for i in 0..len {
+            let bb = &bb_results[i];
+            let kc = &kc_results[i];
+
+            // BB와 KC가 모두 계산되어 있는지 확인
+            let is_squeeze = if let (Some(bb_upper), Some(bb_lower), Some(kc_upper), Some(kc_lower)) =
+                (bb.upper, bb.lower, kc.upper, kc.lower)
+            {
+                // Squeeze 조건: BB가 KC 내부에 있음
+                bb_upper < kc_upper && bb_lower > kc_lower
+            } else {
+                false
+            };
+
+            // Squeeze 카운트 업데이트
+            if is_squeeze {
+                squeeze_count += 1;
+            } else {
+                squeeze_count = 0;
+            }
+
+            // Squeeze 해제 감지 (이전에 squeeze였다가 지금 해제됨)
+            let released = prev_squeeze && !is_squeeze;
+
+            // 모멘텀 계산 (종가 - KC 중간선)
+            let momentum = if let Some(kc_middle) = kc.middle {
+                Some(close[i] - kc_middle)
+            } else {
+                None
+            };
+
+            result.push(TtmSqueezeResult {
+                is_squeeze,
+                squeeze_count,
+                momentum,
+                released,
+            });
+
+            prev_squeeze = is_squeeze;
         }
 
         Ok(result)

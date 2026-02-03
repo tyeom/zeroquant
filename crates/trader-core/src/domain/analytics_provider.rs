@@ -12,6 +12,9 @@ use std::collections::HashMap;
 use std::error::Error as StdError;
 use std::fmt;
 
+// Re-export RouteState from route_state module for convenience
+pub use super::route_state::RouteState;
+
 // ================================================================================================
 // Error Types
 // ================================================================================================
@@ -45,33 +48,6 @@ impl StdError for AnalyticsError {}
 // ================================================================================================
 // Core Types
 // ================================================================================================
-
-/// 경로 상태 (ATTACK/OVERHEAT).
-///
-/// 종목의 현재 매매 상태를 나타냅니다.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum RouteState {
-    /// 정상 상태 (진입/청산 모두 가능)
-    Normal,
-    /// 공격 모드 (강한 매수 신호)
-    Attack,
-    /// 과열 모드 (리스크 높음, 진입 제한)
-    Overheat,
-    /// 정체 상태 (신호 약함)
-    Consolidation,
-}
-
-impl fmt::Display for RouteState {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            RouteState::Normal => write!(f, "NORMAL"),
-            RouteState::Attack => write!(f, "ATTACK"),
-            RouteState::Overheat => write!(f, "OVERHEAT"),
-            RouteState::Consolidation => write!(f, "CONSOLIDATION"),
-        }
-    }
-}
 
 /// Global Score 결과.
 ///
@@ -114,6 +90,10 @@ pub struct ScreeningResult {
     pub criteria_results: HashMap<String, bool>,
     /// 계산 시각
     pub timestamp: DateTime<Utc>,
+    /// 섹터 상대강도 점수
+    pub sector_rs: Option<f32>,
+    /// 섹터 순위
+    pub sector_rank: Option<i32>,
 }
 
 /// 스크리닝 프리셋.

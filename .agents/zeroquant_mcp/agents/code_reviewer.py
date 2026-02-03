@@ -10,14 +10,15 @@ class CodeReviewer(BaseAgent):
 
     async def execute(self, arguments: dict[str, Any]) -> str:
         """코드 리뷰 실행"""
-        self.logger.info("📋 코드 리뷰 시작...")
-        
+        self.log_progress("🚀 코드 리뷰 시작")
+
         target = arguments.get("target", "staged")
 
         results = []
         results.append("# Code Review Report\n\n")
 
         # Git diff 가져오기
+        self.log_progress(f"📄 변경사항 조회 중 (target: {target})")
         if target == "staged":
             diff = self._get_staged_diff()
         elif target == "commit":
@@ -36,19 +37,19 @@ class CodeReviewer(BaseAgent):
             )
 
         # 분석 항목별 체크
-        self.logger.info("🔍 [1/5] 코딩 스타일 체크 중...")
+        self.log_progress("🔍 [1/5] 코딩 스타일 체크 중...")
         coding_style = self._check_coding_style(diff)
-        
-        self.logger.info("🔍 [2/5] 보안 체크 중...")
+
+        self.log_progress("🔍 [2/5] 보안 체크 중...")
         security = self._check_security(diff)
-        
-        self.logger.info("🔍 [3/5] 성능 체크 중...")
+
+        self.log_progress("🔍 [3/5] 성능 체크 중...")
         performance = self._check_performance(diff)
-        
-        self.logger.info("🔍 [4/5] 테스트 커버리지 체크 중...")
+
+        self.log_progress("🔍 [4/5] 테스트 커버리지 체크 중...")
         tests = self._check_tests(diff)
-        
-        self.logger.info("🔍 [5/5] 문서화 체크 중...")
+
+        self.log_progress("🔍 [5/5] 문서화 체크 중...")
         documentation = self._check_documentation(diff)
         
         checks = {
@@ -59,7 +60,7 @@ class CodeReviewer(BaseAgent):
             "문서화": documentation,
         }
         
-        self.logger.info("✅ 코드 리뷰 완료")
+        self.log_progress("✅ 코드 리뷰 완료")
 
         passed_count = sum(1 for c in checks.values() if c["passed"])
         total_count = len(checks)
@@ -90,16 +91,20 @@ class CodeReviewer(BaseAgent):
                     results.append(f"- {issue}\n")
                 results.append("\n")
 
+        # Progress log 추가
+        results.append(self.get_progress_section())
+
         return "\n".join(results)
 
     def _get_staged_diff(self) -> str:
         """스테이지된 변경사항 가져오기"""
-        _, stdout, _ = self.run_command(["git", "diff", "--cached"])
+        _, stdout, _ = self.run_command(["git", "diff", "--cached"], stream_output=True)
         return stdout
 
     def _get_commit_diff(self, commit_hash: str) -> str:
         """커밋 diff 가져오기"""
-        _, stdout, _ = self.run_command(["git", "show", commit_hash])
+        self.logger.info(f"📄 커밋 {commit_hash[:7]} diff 조회 중...")
+        _, stdout, _ = self.run_command(["git", "show", commit_hash], stream_output=True)
         return stdout
 
     def _check_coding_style(self, diff: str) -> dict:

@@ -23,6 +23,7 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use trader_core::Side;
+use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 // ==================== 날짜 파싱 헬퍼 ====================

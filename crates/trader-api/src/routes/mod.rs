@@ -19,6 +19,7 @@
 //! - `/api/v1/ml` - ML 훈련 관리
 //! - `/api/v1/journal` - 매매일지 (체결 내역, 포지션 현황, 손익 분석)
 //! - `/api/v1/screening` - 종목 스크리닝 (Fundamental + 기술적 필터)
+//! - `/api/v1/reality-check` - 추천 검증 (전일 추천 vs 익일 실제 성과)
 //! - `/api/v1/monitoring` - 모니터링 (에러 추적, 통계)
 
 pub mod analytics;
@@ -38,8 +39,11 @@ pub mod orders;
 pub mod patterns;
 pub mod portfolio;
 pub mod positions;
+pub mod reality_check;
 pub mod schema;
 pub mod screening;
+pub mod signal_alerts;
+pub mod signals;
 pub mod simulation;
 pub mod strategies;
 
@@ -79,8 +83,19 @@ pub use portfolio::{
 pub use positions::{
     positions_router, PositionResponse, PositionSummaryResponse, PositionsListResponse,
 };
+pub use reality_check::{
+    reality_check_router, CalculateRequest, CalculateResponse, ResultsQuery, ResultsResponse,
+    SaveSnapshotRequest, SaveSnapshotResponse, SnapshotsQuery, SnapshotsResponse, StatsQuery,
+};
 pub use schema::schema_router;
-pub use screening::{screening_router, MomentumResponse, ScreeningRequest, ScreeningResponse};
+pub use screening::{
+    screening_router, sectors_router, MomentumResponse, ScreeningRequest, ScreeningResponse,
+    SectorRankingResponse, SectorRsDto,
+};
+pub use signals::{
+    signals_router, SignalMarkerDto, SignalSearchRequest, SignalSearchResponse,
+    StrategySignalsQuery, SymbolSignalsQuery,
+};
 pub use simulation::{
     simulation_router, SimulationOrderRequest, SimulationStartRequest, SimulationStatusResponse,
 };
@@ -118,6 +133,10 @@ pub fn create_api_router() -> Router<Arc<AppState>> {
         .nest("/api/v1/journal", journal_router())
         .nest("/api/v1/schema", schema_router())
         .nest("/api/v1/screening", screening_router())
+        .nest("/api/v1/sectors", sectors_router())
+        .nest("/api/v1/signals", signals_router())
+        .nest("/api/v1/signal-alerts", signal_alerts::signal_alerts_router())
+        .nest("/api/v1/reality-check", reality_check_router())
         .nest("/api/v1/monitoring", monitoring_router());
 
     // Feature: notifications - 텔레그램/이메일 알림

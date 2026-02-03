@@ -10,6 +10,7 @@ use std::fmt;
 /// 시장 유형 분류.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "utoipa-support", derive(utoipa::ToSchema))]
 pub enum MarketType {
     /// 암호화폐 현물 시장
     Crypto,
@@ -43,6 +44,7 @@ impl fmt::Display for MarketType {
 /// 심볼은 기준 자산, 호가 자산, 시장 유형으로 구성됩니다.
 /// 예: 암호화폐의 BTC/USDT, 주식의 AAPL/USD.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa-support", derive(utoipa::ToSchema))]
 pub struct Symbol {
     /// 기준 자산 (예: BTC, AAPL, EUR)
     pub base: String,

@@ -706,11 +706,97 @@ pub async fn get_ticker(
     }
 }
 
+// ==================== Market Breadth ====================
+
+/// Market Breadth 응답.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MarketBreadthResponse {
+    /// 전체 시장 Above_MA20 비율 (백분율).
+    pub all: String,
+    /// KOSPI Above_MA20 비율 (백분율).
+    pub kospi: String,
+    /// KOSDAQ Above_MA20 비율 (백분율).
+    pub kosdaq: String,
+    /// 시장 온도 (OVERHEAT/NEUTRAL/COLD).
+    pub temperature: String,
+    /// 시장 온도 아이콘.
+    pub temperature_icon: String,
+    /// 매매 권장사항.
+    pub recommendation: String,
+    /// 계산 시각 (ISO 8601).
+    pub calculated_at: String,
+}
+
+/// Market Breadth 조회.
+///
+/// GET /api/v1/market/breadth
+///
+/// 20일 이동평균선 상회 종목 비율로 시장 온도를 측정합니다.
+///
+/// # 시장 온도
+///
+/// - **Overheat** (>= 65%): 과열 🔥
+/// - **Neutral** (35~65%): 중립 🌤
+/// - **Cold** (<= 35%): 냉각 🧊
+pub async fn get_market_breadth(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<MarketBreadthResponse>, (StatusCode, Json<ApiError>)> {
+    // DB 연결 확인
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| {
+            error!("Market Breadth 조회 실패: DB 연결 없음");
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(ApiError::new(
+                    "DB_NOT_CONFIGURED",
+                    "데이터베이스 연결이 설정되지 않았습니다.",
+                )),
+            )
+        })?
+        .clone();
+
+    // Market Breadth 계산
+    let calculator = trader_data::MarketBreadthCalculator::new(pool);
+
+    let breadth = calculator.calculate().await.map_err(|e| {
+        error!(error = %e, "Market Breadth 계산 실패");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiError::new(
+                "BREADTH_CALCULATION_ERROR",
+                &format!("Market Breadth 계산 실패: {}", e),
+            )),
+        )
+    })?;
+
+    info!(
+        all = %breadth.all_pct(),
+        kospi = %breadth.kospi_pct(),
+        kosdaq = %breadth.kosdaq_pct(),
+        temperature = %breadth.temperature,
+        "Market Breadth 조회 성공"
+    );
+
+    Ok(Json(MarketBreadthResponse {
+        all: breadth.all_pct().to_string(),
+        kospi: breadth.kospi_pct().to_string(),
+        kosdaq: breadth.kosdaq_pct().to_string(),
+        temperature: breadth.temperature.to_string(),
+        temperature_icon: breadth.temperature.icon().to_string(),
+        recommendation: breadth.temperature.recommendation().to_string(),
+        calculated_at: breadth.calculated_at.to_rfc3339(),
+    }))
+}
+
 // ==================== 라우터 ====================
 
 /// 시장 상태 라우터 생성.
 pub fn market_router() -> Router<Arc<AppState>> {
     Router::new()
+        .route("/breadth", get(get_market_breadth))
         .route("/klines", get(get_klines))
         .route("/ticker", get(get_ticker))
         .route("/{market}/status", get(get_market_status))
@@ -805,5 +891,29 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_get_market_breadth_no_db() {
+        use crate::state::create_test_state;
+
+        // DB 연결이 없는 상태로 테스트
+        let state = Arc::new(create_test_state());
+        let app = Router::new()
+            .route("/market/breadth", get(get_market_breadth))
+            .with_state(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/market/breadth")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // DB 연결 없으면 503 에러 예상
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 }

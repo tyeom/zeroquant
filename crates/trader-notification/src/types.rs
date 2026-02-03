@@ -96,6 +96,17 @@ pub enum NotificationEvent {
     },
     /// 시스템 오류
     SystemError { error_code: String, message: String },
+    /// 신호 마커 알림 (백테스트/실거래 신호)
+    SignalAlert {
+        signal_type: String,
+        symbol: String,
+        side: Option<String>,
+        price: Decimal,
+        strength: f64,
+        reason: String,
+        strategy_name: String,
+        indicators: serde_json::Value,
+    },
     /// 사용자 정의 알림
     Custom { title: String, message: String },
 }

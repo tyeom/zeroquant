@@ -11,8 +11,8 @@ class UXReviewer(BaseAgent):
 
     async def execute(self, arguments: dict[str, Any]) -> str:
         """UX 평가 실행"""
-        self.logger.info("🎨 UX 평가 시작...")
-        
+        self.log_progress("🎨 UX 평가 시작")
+
         target = arguments.get("target", "all")
 
         results = []
@@ -22,23 +22,23 @@ class UXReviewer(BaseAgent):
 
         # API 평가
         if target in ["all", "api"]:
-            self.logger.info("🔍 [1/3] API 설계 평가 중...")
+            self.log_progress("🔍 [1/3] API 설계 평가 중")
             api_endpoints = arguments.get("api_endpoints", [])
             scores["API 설계"] = self._evaluate_api(api_endpoints)
 
         # UI 평가
         if target in ["all", "ui"]:
-            self.logger.info("🔍 [2/3] UI/UX 평가 중...")
+            self.log_progress("🔍 [2/3] UI/UX 평가 중")
             ui_components = arguments.get("ui_components", [])
             scores["UI/UX"] = self._evaluate_ui(ui_components)
 
         # CLI 평가
         if target in ["all", "cli"]:
-            self.logger.info("🔍 [3/3] CLI 사용성 평가 중...")
+            self.log_progress("🔍 [3/3] CLI 사용성 평가 중")
             cli_commands = arguments.get("cli_commands", [])
             scores["CLI 사용성"] = self._evaluate_cli(cli_commands)
-        
-        self.logger.info("✅ UX 평가 완료")
+
+        self.log_progress("✅ UX 평가 완료")
 
         # 점수 계산
         if scores:
@@ -71,6 +71,8 @@ class UXReviewer(BaseAgent):
                 "No Target Specified",
                 "평가할 대상을 지정하세요."
             ))
+
+        results.append(self.get_progress_section())
 
         return "\n".join(results)
 

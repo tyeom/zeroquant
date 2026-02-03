@@ -183,8 +183,8 @@
 **개선 후**: 전략 파일 **1곳만 수정**
 
 **구현 항목**
-- [ ] `inventory` crate 도입 (컴파일 타임 등록)
-- [ ] `StrategyMeta` 구조체 정의
+- [x] `inventory` crate 도입 (컴파일 타임 등록) ✅ v0.5.7
+- [x] `StrategyMeta` 구조체 정의 ✅ v0.5.7
   ```rust
   pub struct StrategyMeta {
       pub id: &'static str,
@@ -196,7 +196,7 @@
       pub factory: fn() -> Box<dyn Strategy>,
   }
   ```
-- [ ] `register_strategy!` 매크로 구현
+- [x] `register_strategy!` 매크로 구현 ✅ v0.5.7 (Proc macro로 구현, 266줄)
   ```rust
   register_strategy! {
       id: "rsi_mean_reversion",
@@ -206,9 +206,9 @@
       type: RsiStrategy
   }
   ```
-- [ ] 팩토리 함수 자동화 (`create_strategy_instance()` 등)
-- [ ] `GET /api/v1/strategies/meta` API (프론트엔드 동적 조회)
-- [ ] 기존 26개 전략 마이그레이션
+- [x] 팩토리 함수 자동화 (`create_strategy_instance()` 등) ✅ v0.5.7
+- [x] `GET /api/v1/strategies/meta` API (프론트엔드 동적 조회) ✅ v0.5.7 (routes/schema.rs, 189줄)
+- [x] 기존 26개 전략 마이그레이션 ✅ v0.5.7
 
 **효과**:
 - 전략 추가 시간: 2시간 → 30분
@@ -226,19 +226,19 @@
 **목적**: 거래소별 호가 단위 통합 관리 (StrategyContext.exchange_constraints에서 활용)
 
 **구현 항목**
-- [ ] `TickSizeProvider` trait 정의 (trader-core)
+- [x] `TickSizeProvider` trait 정의 (trader-core) ✅ v0.5.7 (tick_size.rs, 335줄)
   ```rust
   pub trait TickSizeProvider: Send + Sync {
       fn tick_size(&self, price: Decimal) -> Decimal;
       fn round_to_tick(&self, price: Decimal, method: RoundMethod) -> Decimal;
   }
   ```
-- [ ] 거래소별 구현
-  - [ ] `KrxTickSize`: 7단계 호가 단위
-  - [ ] `UsEquityTickSize`: 고정 $0.01
-  - [ ] `BinanceTickSize`: 심볼별 설정
-- [ ] `round_to_tick()` 유틸리티 함수
-- [ ] 팩토리 함수 `get_tick_provider(exchange: Exchange)`
+- [x] 거래소별 구현 ✅ v0.5.7
+  - [x] `KrxTickSize`: 7단계 호가 단위
+  - [x] `UsEquityTickSize`: 고정 $0.01
+  - [x] `BinanceTickSize`: 심볼별 설정
+- [x] `round_to_tick()` 유틸리티 함수 ✅ v0.5.7
+- [x] 팩토리 함수 `get_tick_provider(exchange: Exchange)` ✅ v0.5.7
 
 **효과**:
 - 백테스트 정확도 향상 (실제 호가 단위 반영)
@@ -268,7 +268,7 @@ strategies/common/
 ```
 
 **구현 항목**
-- [ ] `PositionSizer` trait 및 구현체
+- [x] `PositionSizer` trait 및 구현체 ✅ v0.5.7 (position_sizing.rs, 286줄)
   ```rust
   pub trait PositionSizer {
       fn calculate_size(&self, capital: Decimal, risk: &RiskParams) -> Decimal;
@@ -276,9 +276,9 @@ strategies/common/
   pub struct KellyPositionSizer { /* ... */ }
   pub struct FixedRatioSizer { /* ... */ }
   ```
-- [ ] `RiskChecker` trait 및 공통 체크
-- [ ] `SignalFilter` trait (노이즈 필터링)
-- [ ] 공용 지표 계산 함수 (RSI, MACD, BB 등)
+- [x] `RiskChecker` trait 및 공통 체크 ✅ v0.5.7 (risk_checks.rs, 291줄)
+- [x] `SignalFilter` trait (노이즈 필터링) ✅ v0.5.7 (signal_filters.rs, 372줄)
+- [x] 공용 지표 계산 함수 (RSI, MACD, BB 등) ✅ v0.5.7 (indicators.rs, 349줄)
 
 **효과**:
 - StructuralFeatures 계산 로직을 공통 모듈에서 재사용
@@ -467,7 +467,7 @@ strategies/common/
 
 #### 4.4 SchemaComposer (스키마 조합기)
 
-- [ ] `SchemaComposer` 구현
+- [x] `SchemaComposer` 구현 ✅ v0.5.7 (schema_composer.rs, 279줄)
   ```rust
   pub struct SchemaComposer {
       registry: Arc<FragmentRegistry>,
@@ -512,8 +512,8 @@ strategies/common/
 
 #### 4.5 API 엔드포인트
 
-- [ ] `GET /api/v1/strategies/meta` - 전략 목록 + 기본 메타데이터
-- [ ] `GET /api/v1/strategies/{id}/schema` - 완성된 SDUI JSON 스키마
+- [x] `GET /api/v1/strategies/meta` - 전략 목록 + 기본 메타데이터 ✅ v0.5.7 (routes/schema.rs, 189줄)
+- [x] `GET /api/v1/strategies/{id}/schema` - 완성된 SDUI JSON 스키마 ✅ v0.5.7
 - [ ] `GET /api/v1/schema/fragments` - 사용 가능한 Fragment 목록
 - [ ] `GET /api/v1/schema/fragments/{category}` - 카테고리별 Fragment
 
@@ -553,7 +553,7 @@ strategies/common/
 - 버그 수정 시 양쪽 모두 수정 필요
 
 **구현 항목**
-- [ ] `trader-core/domain/calculations.rs` - 공유 계산 함수
+- [x] `trader-core/domain/calculations.rs` - 공유 계산 함수 ✅ v0.5.7 (374줄)
   ```rust
   pub mod calculations {
       /// 비용기준 계산 (FIFO, 가중평균, 최종평가 지원)
@@ -569,7 +569,7 @@ strategies/common/
       pub fn unrealized_pnl(entry: Decimal, current: Decimal, qty: Decimal, side: Side) -> Decimal;
   }
   ```
-- [ ] `trader-core/domain/statistics.rs` - 통합 통계 모듈
+- [x] `trader-core/domain/statistics.rs` - 통합 통계 모듈 ✅ v0.5.7 (514줄)
   ```rust
   pub struct TradeStatistics {
       pub total_trades: usize,
@@ -590,7 +590,7 @@ strategies/common/
       pub fn from_journal_trades(trades: &[TradeExecutionRecord]) -> Self;
   }
   ```
-- [ ] `UnifiedTrade` trait 정의 (두 타입 간 변환)
+- [x] `UnifiedTrade` trait 정의 (두 타입 간 변환) ✅ v0.5.7
   ```rust
   pub trait UnifiedTrade {
       fn symbol(&self) -> &str;
@@ -606,7 +606,7 @@ strategies/common/
   impl UnifiedTrade for RoundTrip { /* ... */ }
   impl UnifiedTrade for TradeExecutionRecord { /* ... */ }
   ```
-- [ ] 백테스트에서 Journal 통계 재사용
+- [x] 백테스트에서 Journal 통계 재사용 ✅ v0.5.7 (journal_integration.rs, 280줄)
   ```rust
   // 백테스트 결과를 Journal 형식으로 내보내기
   pub fn export_to_journal(report: &BacktestReport) -> Vec<TradeExecutionRecord>;

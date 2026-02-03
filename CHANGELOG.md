@@ -4,6 +4,68 @@
 ## [Unreleased] - 2026-02-03
 
 ### Added
+
+#### 🎯 Phase 1.1.2 Implementation (Strategy Scoring System)
+- **Global Scorer** - 7개 팩터 기반 종합 점수 시스템
+  - `global_scorer.rs` - VolumeQuality, Momentum, ValueFactor, RouteState 등
+  - 페널티 시스템: LiquidityGate, MarketRegime 필터
+- **RouteState Calculator** - 진입 적기 판단 (ATTACK/ARMED/WAIT/OVERHEAT/NEUTRAL)
+  - TTM Squeeze 해제 + 모멘텀 + RSI + Range 종합 판단
+- **Market Regime Calculator** - 5단계 추세 분류 (STRONG_UPTREND → DOWNTREND)
+- **Trigger System** - 진입 트리거 자동 감지
+  - SqueezeBreak, BoxBreakout, VolumeSpike, GoldenCross 등
+- **Signal System** - 백테스트/실거래 신호 저장 및 알림
+  - `signal_marker` - 신호 마커 저장 (차트 표시용)
+  - `signal_alert_rule` - 알림 규칙 관리 (JSONB 필터)
+- **Reality Check System** - 추천 종목 실제 성과 검증
+  - `price_snapshot` - 전일 추천 스냅샷 (TimescaleDB Hypertable)
+  - `reality_check` - 익일 성과 자동 계산
+  - 4개 분석 뷰 (일별 승률, 소스별, 랭크별, 최근 추이)
+- **Advanced Indicators** - 추가 기술적 지표
+  - Hull Moving Average (HMA)
+  - On-Balance Volume (OBV)
+  - SuperTrend
+  - Candle Patterns (Hammer, ShootingStar, Engulfing 등)
+  - Structural Analysis (Higher High/Low, Lower High/Low)
+
+#### 📊 Agent Dashboard
+- `.agents/dashboard/` - 실시간 에이전트 모니터링 웹 UI
+  - Flask 기반 서버 (`server.py`)
+  - 로그 파일 실시간 스트리밍
+  - PowerShell/Bash 모니터링 스크립트
+
+### Changed
+
+#### 🔄 Migration Consolidation (33 → 11 files)
+- 기능별 그룹화로 관리 복잡도 67% 감소
+  - `01_foundation.sql` - 기본 스키마, ENUM 타입
+  - `02_credentials_system.sql` - 거래소 자격증명
+  - `03_application_config.sql` - 설정
+  - `04_symbol_metadata.sql` - 심볼 정보, 펀더멘털
+  - `05_market_data.sql` - OHLCV, 가격 뷰
+  - `06_execution_tracking.sql` - 체결 캐시
+  - `07_trading_journal.sql` - 매매일지
+  - `08_portfolio_analytics.sql` - 포트폴리오 분석
+  - `09_strategy_system.sql` - 전략, 신호, 알림 규칙
+  - `10_reality_check.sql` - 추천 검증 시스템
+  - `11_migration_tracking.sql` - 이력 추적 (34개 기록)
+- `migrations/README.md` - 통합 가이드 추가
+- 총 크기 43% 절감 (200KB → 114.5KB)
+
+#### 📝 Documentation Cleanup
+- 구현 완료된 문서 9개 제거 (~167KB)
+  - `ttm_squeeze_implementation.md`
+  - `reality_check_implementation_summary.md`
+  - `sector_rs_implementation.md`, `sector_rs_test_guide.md`
+  - `standalone_collector_design.md`
+  - `phase_1b6_implementation_report.md`
+  - `quant_trading_audit.md`
+  - `strategy_logic_validation_report.md`
+  - `tech_debt_verification_report.md`
+- Phase 1.4.2 문서 보존 (Multiple KLine Period - 미구현)
+
+### Previous Changes
+
 - crates/trader-analytics/src/indicators/mod.rs
 - crates/trader-analytics/src/indicators/momentum.rs
 - crates/trader-analytics/src/indicators/trend.rs

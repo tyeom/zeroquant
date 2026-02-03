@@ -13,6 +13,7 @@
 use axum::http::{Method, Uri};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use utoipa::ToSchema;
 
 /// 통합 API 에러 응답.
 ///
@@ -28,7 +29,7 @@ use serde_json::Value;
 ///   "timestamp": 1738300800
 /// }
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ApiErrorResponse {
     /// 에러 코드 (예: "DB_ERROR", "INVALID_INPUT", "NOT_FOUND")
     pub code: String,

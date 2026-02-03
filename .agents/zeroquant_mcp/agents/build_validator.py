@@ -13,6 +13,8 @@ class BuildValidator(BaseAgent):
 
     async def execute(self, arguments: dict[str, Any]) -> str:
         """빌드 검증 실행"""
+        self.log_progress("🚀 빌드 검증 시작")
+
         target = arguments.get("target", "workspace")
         package_name = arguments.get("package_name")
         skip_tests = arguments.get("skip_tests", False)
@@ -30,26 +32,34 @@ class BuildValidator(BaseAgent):
         results.append("\n---\n\n")
 
         # 1. Compilation
+        self.log_progress("🔨 [1/4] Compilation 시작")
         build_result = self._run_build(target, package_name, verbose)
         results.append(build_result["report"])
         all_passed = all_passed and build_result["passed"]
+        self.log_progress(f"✓ [1/4] Compilation {'성공' if build_result['passed'] else '실패'}")
 
         # 2. Clippy
         if not skip_clippy:
+            self.log_progress("📎 [2/4] Clippy 시작")
             clippy_result = self._run_clippy(target, package_name, verbose)
             results.append(clippy_result["report"])
             all_passed = all_passed and clippy_result["passed"]
+            self.log_progress(f"✓ [2/4] Clippy {'성공' if clippy_result['passed'] else '실패'}")
 
         # 3. Tests
         if not skip_tests:
+            self.log_progress("🧪 [3/4] Tests 시작 (최대 10분 소요)")
             test_result = self._run_tests(target, package_name, verbose)
             results.append(test_result["report"])
             all_passed = all_passed and test_result["passed"]
+            self.log_progress(f"✓ [3/4] Tests {'성공' if test_result['passed'] else '실패'}")
 
         # 4. Format check
+        self.log_progress("🎨 [4/4] Format check 시작")
         fmt_result = self._run_fmt_check(verbose)
         results.append(fmt_result["report"])
         all_passed = all_passed and fmt_result["passed"]
+        self.log_progress(f"✓ [4/4] Format check {'성공' if fmt_result['passed'] else '실패'}")
 
         # Summary
         if all_passed:
@@ -65,12 +75,16 @@ class BuildValidator(BaseAgent):
 
         results.insert(0, summary + "\n\n")
 
+        # Progress log 추가
+        results.append(self.get_progress_section())
+
+        self.log_progress("✅ 빌드 검증 완료")
+
         return "\n".join(results)
 
     def _run_build(self, target: str, package_name: str | None, verbose: bool = False) -> dict:
         """Cargo build 실행"""
-        self.logger.info("🔨 [1/4] Cargo build 시작...")
-        
+
         cmd = ["cargo", "build"]
 
         if target == "workspace":
@@ -78,7 +92,7 @@ class BuildValidator(BaseAgent):
         elif target == "package" and package_name:
             cmd.extend(["-p", package_name])
 
-        returncode, stdout, stderr = self.run_command(cmd)
+        returncode, stdout, stderr = self.run_command(cmd, stream_output=True)
 
         # 결과 분석
         if returncode == 0:
@@ -113,8 +127,7 @@ class BuildValidator(BaseAgent):
 
     def _run_clippy(self, target: str, package_name: str | None, verbose: bool = False) -> dict:
         """Cargo clippy 실행"""
-        self.logger.info("📎 [2/4] Cargo clippy 시작...")
-        
+
         cmd = ["cargo", "clippy"]
 
         if target == "workspace":
@@ -124,7 +137,7 @@ class BuildValidator(BaseAgent):
 
         cmd.extend(["--", "-D", "warnings"])
 
-        returncode, stdout, stderr = self.run_command(cmd)
+        returncode, stdout, stderr = self.run_command(cmd, stream_output=True)
 
         # 경고 추출
         warning_blocks = self._extract_rust_warnings(stdout + stderr)
@@ -156,8 +169,7 @@ class BuildValidator(BaseAgent):
 
     def _run_tests(self, target: str, package_name: str | None, verbose: bool = False) -> dict:
         """Cargo test 실행"""
-        self.logger.info("🧪 [3/4] Cargo test 시작 (최대 10분 소요)...")
-        
+
         cmd = ["cargo", "test"]
 
         if target == "workspace":
@@ -165,7 +177,7 @@ class BuildValidator(BaseAgent):
         elif target == "package" and package_name:
             cmd.extend(["-p", package_name])
 
-        returncode, stdout, stderr = self.run_command(cmd, timeout=600)
+        returncode, stdout, stderr = self.run_command(cmd, timeout=600, stream_output=True)
 
         # 테스트 결과 파싱
         test_pattern = re.compile(r"test result: (\w+)\. (\d+) passed; (\d+) failed")
@@ -234,7 +246,6 @@ class BuildValidator(BaseAgent):
 
     def _run_fmt_check(self, verbose: bool = False) -> dict:
         """Cargo fmt check 실행"""
-        self.logger.info("🎨 [4/4] Cargo fmt check 시작...")
         
         cmd = ["cargo", "fmt", "--all", "--", "--check"]
 

@@ -43,9 +43,13 @@ rand = { workspace = true }
 # Database (optional)
 sqlx = { workspace = true, optional = true }
 
+# API documentation (optional)
+utoipa = { workspace = true, optional = true }
+
 [features]
 default = []
 sqlx-support = ["sqlx"]
+utoipa-support = ["utoipa"]
 
 [dev-dependencies]
 proptest = { workspace = true }

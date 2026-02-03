@@ -39,7 +39,7 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use thiserror::Error;
-use trader_core::{unrealized_pnl, Kline, MarketData, Side, Signal, SignalType, Symbol, Trade};
+use trader_core::{unrealized_pnl, Kline, MarketData, Side, Signal, SignalMarker, SignalType, Symbol, Trade};
 use uuid::Uuid;
 
 use crate::backtest::slippage::SlippageModel;
@@ -318,6 +318,9 @@ pub struct BacktestReport {
 
     /// 심볼별 성과
     pub performance_by_symbol: HashMap<String, PerformanceMetrics>,
+
+    /// 신호 마커 (차트 표시 및 분석용)
+    pub signal_markers: Vec<SignalMarker>,
 }
 
 impl BacktestReport {
@@ -401,6 +404,9 @@ pub struct BacktestEngine {
 
     /// 현재 가격 (심볼별)
     current_prices: HashMap<String, Decimal>,
+
+    /// 신호 마커 (차트 표시 및 분석용)
+    signal_markers: Vec<SignalMarker>,
 }
 
 impl BacktestEngine {
@@ -421,6 +427,7 @@ impl BacktestEngine {
             total_orders: 0,
             current_time: Utc::now(),
             current_prices: HashMap::new(),
+            signal_markers: Vec::new(),
         }
     }
 
@@ -514,11 +521,24 @@ impl BacktestEngine {
             end_time,
             data_points,
             performance_by_symbol,
+            signal_markers: self.signal_markers.clone(),
         })
     }
 
     /// 신호를 처리합니다.
     async fn process_signal(&mut self, signal: &Signal, kline: &Kline) -> BacktestResult<()> {
+        // 실행 가격 결정 (signal.suggested_price 또는 kline.close)
+        let price = signal.suggested_price.unwrap_or(kline.close);
+
+        // SignalMarker 생성 및 저장 (모든 신호 타입에 대해)
+        let marker = SignalMarker::from_signal(
+            signal,
+            price,
+            kline.open_time,
+            &signal.strategy_id, // strategy_name은 strategy_id 재사용
+        );
+        self.signal_markers.push(marker);
+
         match signal.signal_type {
             SignalType::Entry | SignalType::AddToPosition => {
                 // 숏 포지션 확인
@@ -539,6 +559,9 @@ impl BacktestEngine {
                 } else {
                     self.open_position(signal, kline).await?;
                 }
+            }
+            SignalType::Alert => {
+                // Alert는 실행하지 않고 무시 (SignalMarker에만 기록됨)
             }
         }
 

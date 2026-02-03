@@ -14,6 +14,8 @@ class TestWriter(BaseAgent):
 
     async def execute(self, arguments: dict[str, Any]) -> str:
         """테스트 생성/분석 실행"""
+        self.log_progress("🧪 테스트 작성 시작")
+
         target = arguments.get("target", "function")  # function, file, crate, coverage
         mode = arguments.get("mode", "generate")  # generate, analyze, check-coverage
 
@@ -46,8 +48,8 @@ class TestWriter(BaseAgent):
 
     def _generate_function_test(self, arguments: dict[str, Any]) -> str:
         """함수에 대한 테스트 생성"""
-        self.logger.info("🧪 함수 테스트 생성 시작...")
-        
+        self.log_progress("🧪 [1/4] 함수 테스트 생성 시작")
+
         function_path = arguments.get("function_path")  # "file.rs::function_name"
 
         if not function_path or "::" not in function_path:
@@ -69,7 +71,7 @@ class TestWriter(BaseAgent):
             return self.format_error("Read Error", str(e))
 
         # 함수 시그니처 찾기
-        self.logger.info(f"🔍 함수 시그니처 검색: {function_name}")
+        self.log_progress(f"🔍 [2/4] 함수 시그니처 검색: {function_name}")
         function_sig = self._find_function_signature(content, function_name)
         if not function_sig:
             return self.format_error(
@@ -78,14 +80,14 @@ class TestWriter(BaseAgent):
             )
 
         # 함수 분석
-        self.logger.info("📊 함수 시그니처 분석 중...")
+        self.log_progress("📊 [3/4] 함수 시그니처 분석 중")
         analysis = self._analyze_function(function_sig, content)
 
         # 테스트 생성
-        self.logger.info("✍️ 테스트 코드 생성 중...")
+        self.log_progress("✍️ [4/4] 테스트 코드 생성 중")
         test_code = self._generate_test_code(function_name, analysis)
-        
-        self.logger.info("✅ 테스트 생성 완료")
+
+        self.log_progress("✅ 테스트 생성 완료")
 
         results = []
         results.append("# ✅ Test Generated\n\n")
@@ -105,6 +107,8 @@ class TestWriter(BaseAgent):
         results.append("## 💡 추가 테스트 제안\n\n")
         for suggestion in analysis.get('suggestions', []):
             results.append(f"- {suggestion}\n")
+
+        results.append(self.get_progress_section())
 
         return "\n".join(results)
 
@@ -235,8 +239,8 @@ class TestWriter(BaseAgent):
 
     def _analyze_coverage(self, arguments: dict[str, Any]) -> str:
         """테스트 커버리지 분석"""
-        self.logger.info("📊 커버리지 분석 시작...")
-        
+        self.log_progress("📊 [1/3] 커버리지 분석 시작")
+
         crate_name = arguments.get("crate_name")
 
         results = []
@@ -248,7 +252,8 @@ class TestWriter(BaseAgent):
         else:
             cmd = ["cargo", "test", "--workspace", "--", "--list"]
 
-        returncode, stdout, _ = self.run_command(cmd, timeout=60)
+        self.log_progress("🧪 [2/3] 테스트 목록 조회 중 (최대 1분 소요)")
+        returncode, stdout, _ = self.run_command(cmd, timeout=60, stream_output=True)
 
         if returncode == 0:
             # 테스트 수 카운트
@@ -280,6 +285,7 @@ class TestWriter(BaseAgent):
                 results.append(f"**예상 커버리지**: {coverage_pct:.1f}%\n\n")
 
         # 테스트 없는 파일 찾기
+        self.log_progress("🔍 [3/3] 테스트 없는 모듈 검색 중")
         results.append("## ⚠️ 테스트 없는 모듈\n\n")
 
         returncode, stdout, _ = self.run_command([
@@ -296,10 +302,15 @@ class TestWriter(BaseAgent):
                 rel_path = Path(file).relative_to(self.project_root)
                 results.append(f"- `{rel_path}`\n")
 
+        self.log_progress("✅ 커버리지 분석 완료")
+        results.append(self.get_progress_section())
+
         return "\n".join(results)
 
     def _analyze_testability(self, arguments: dict[str, Any]) -> str:
         """테스트 가능성 분석"""
+        self.log_progress("🔍 테스트 가능성 분석 시작")
+
         file_path = arguments.get("file_path")
 
         if not file_path:
@@ -344,6 +355,9 @@ class TestWriter(BaseAgent):
 
         if not has_tests:
             results.append("💡 **제안**: 테스트 모듈 생성 후 주요 함수부터 테스트 작성\n")
+
+        self.log_progress("✅ 테스트 가능성 분석 완료")
+        results.append(self.get_progress_section())
 
         return "\n".join(results)
 

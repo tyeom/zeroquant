@@ -457,6 +457,13 @@ impl SignalConverter {
         current_price: Decimal,
         quantity: Option<Decimal>,
     ) -> Result<OrderRequest, ExecutionError> {
+        // Alert 신호는 실행하지 않음
+        if signal.signal_type == SignalType::Alert {
+            return Err(ExecutionError::InvalidSignal(
+                "Alert signals are not executable".to_string(),
+            ));
+        }
+
         // 신호 강도 검증
         if signal.strength < self.config.min_strength {
             return Err(ExecutionError::InvalidSignal(format!(
@@ -494,6 +501,10 @@ impl SignalConverter {
             SignalType::Scale => {
                 // 스케일 인/아웃은 시장가 주문 사용
                 (OrderType::Market, None, None)
+            }
+            SignalType::Alert => {
+                // Alert는 이미 위에서 필터링됨, 여기 도달 불가
+                unreachable!("Alert signals should be filtered out before reaching this point")
             }
         };
 

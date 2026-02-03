@@ -251,6 +251,53 @@ impl TelegramSender {
                 )
             }
 
+            NotificationEvent::SignalAlert {
+                signal_type,
+                symbol,
+                side,
+                price,
+                strength,
+                reason,
+                strategy_name,
+                indicators,
+            } => {
+                let signal_emoji = match signal_type.as_str() {
+                    "ENTRY" | "Entry" => "🟢",
+                    "EXIT" | "Exit" => "🔴",
+                    "ALERT" | "Alert" => "🔔",
+                    _ => "📍",
+                };
+
+                let strength_stars = "⭐".repeat((*strength * 5.0) as usize);
+                let side_text = side.as_ref().map(|s| format!("\n방향: {}", s)).unwrap_or_default();
+
+                // 주요 지표 추출 (RSI, MACD 등)
+                let mut indicator_lines = Vec::new();
+                if let Some(obj) = indicators.as_object() {
+                    if let Some(rsi) = obj.get("rsi").and_then(|v| v.as_f64()) {
+                        indicator_lines.push(format!("RSI: {:.1}", rsi));
+                    }
+                    if let Some(macd) = obj.get("macd").and_then(|v| v.as_str()) {
+                        indicator_lines.push(format!("MACD: {}", macd));
+                    }
+                }
+                let indicators_text = if indicator_lines.is_empty() {
+                    String::new()
+                } else {
+                    format!("\n\n<i>{}</i>", indicator_lines.join(" | "))
+                };
+
+                format!(
+                    "{signal_emoji} <b>{signal_type} 신호</b> {strength_stars}\n\n\
+                     전략: {strategy_name}\n\
+                     심볼: <code>{symbol}</code>{side_text}\n\
+                     가격: {price}\n\
+                     강도: {:.0}%\n\
+                     이유: {reason}{indicators_text}",
+                    strength * 100.0
+                )
+            }
+
             NotificationEvent::Custom { title, message } => {
                 format!("{priority_emoji} <b>{title}</b>\n\n{message}")
             }
@@ -451,6 +498,52 @@ impl NotificationManager {
             message: message.to_string(),
         })
         .with_priority(NotificationPriority::Critical);
+
+        self.notify(&notification).await
+    }
+
+    /// 신호 마커 알림을 전송합니다.
+    ///
+    /// # 인자
+    /// - `signal_type`: 신호 유형 (Entry, Exit, Alert 등)
+    /// - `symbol`: 거래 심볼
+    /// - `side`: 거래 방향 (Buy/Sell, 선택)
+    /// - `price`: 신호 발생 시점 가격
+    /// - `strength`: 신호 강도 (0.0 ~ 1.0)
+    /// - `reason`: 신호 생성 이유
+    /// - `strategy_name`: 전략 이름
+    /// - `indicators`: 지표 정보 (JSON)
+    pub async fn notify_signal_alert(
+        &self,
+        signal_type: &str,
+        symbol: &str,
+        side: Option<&str>,
+        price: Decimal,
+        strength: f64,
+        reason: &str,
+        strategy_name: &str,
+        indicators: serde_json::Value,
+    ) -> NotificationResult<()> {
+        // 신호 강도에 따라 우선순위 설정
+        let priority = if strength >= 0.8 {
+            NotificationPriority::High
+        } else if strength >= 0.5 {
+            NotificationPriority::Normal
+        } else {
+            NotificationPriority::Low
+        };
+
+        let notification = Notification::new(NotificationEvent::SignalAlert {
+            signal_type: signal_type.to_string(),
+            symbol: symbol.to_string(),
+            side: side.map(|s| s.to_string()),
+            price,
+            strength,
+            reason: reason.to_string(),
+            strategy_name: strategy_name.to_string(),
+            indicators,
+        })
+        .with_priority(priority);
 
         self.notify(&notification).await
     }

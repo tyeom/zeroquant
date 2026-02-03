@@ -9,6 +9,8 @@
 //! - **SMA**: 단순 이동평균 (Simple Moving Average)
 //! - **EMA**: 지수 이동평균 (Exponential Moving Average)
 //! - **MACD**: 이동평균 수렴/확산 (Moving Average Convergence Divergence)
+//! - **HMA**: Hull 이동평균 (Hull Moving Average)
+//! - **SuperTrend**: 추세 추종 지표
 //!
 //! ## 모멘텀 지표 (Momentum Indicators)
 //! - **RSI**: 상대강도지수 (Relative Strength Index)
@@ -18,6 +20,14 @@
 //! ## 변동성 지표 (Volatility Indicators)
 //! - **Bollinger Bands**: 볼린저 밴드
 //! - **ATR**: 평균 실제 범위 (Average True Range)
+//! - **Keltner Channel**: 켈트너 채널
+//! - **TTM Squeeze**: TTM Squeeze 지표
+//!
+//! ## 거래량 지표 (Volume Indicators)
+//! - **OBV**: 거래량 균형 지표 (On-Balance Volume)
+//!
+//! ## 패턴 인식 (Pattern Recognition)
+//! - **Candle Patterns**: 캔들스틱 패턴 감지 (망치형, 장악형 등)
 //!
 //! # 사용 예시
 //!
@@ -33,16 +43,31 @@
 //! let rsi = engine.rsi(&prices, RsiParams { period: 14 })?;
 //! ```
 
+pub mod candle_patterns;
+pub mod hma;
 pub mod momentum;
+pub mod obv;
+pub mod structural;
+pub mod supertrend;
 pub mod trend;
 pub mod volatility;
 
 use rust_decimal::Decimal;
 use thiserror::Error;
 
+pub use candle_patterns::{
+    CandlePatternIndicator, CandlePatternParams, CandlePatternResult, CandlePatternType,
+};
+pub use hma::{HmaIndicator, HmaParams};
 pub use momentum::{MomentumCalculator, RsiParams, StochasticParams, StochasticResult};
+pub use obv::{ObvIndicator, ObvParams, ObvResult};
+pub use structural::StructuralFeatures;
+pub use supertrend::{SuperTrendIndicator, SuperTrendParams, SuperTrendResult};
 pub use trend::{EmaParams, MacdParams, MacdResult, SmaParams, TrendIndicators};
-pub use volatility::{AtrParams, BollingerBandsParams, BollingerBandsResult, VolatilityIndicators};
+pub use volatility::{
+    AtrParams, BollingerBandsParams, BollingerBandsResult, KeltnerChannelParams,
+    KeltnerChannelResult, TtmSqueezeParams, TtmSqueezeResult, VolatilityIndicators,
+};
 
 /// 지표 계산 오류.
 #[derive(Debug, Error)]
@@ -72,6 +97,10 @@ pub struct IndicatorEngine {
     trend: TrendIndicators,
     momentum: MomentumCalculator,
     volatility: VolatilityIndicators,
+    hma: HmaIndicator,
+    obv: ObvIndicator,
+    supertrend: SuperTrendIndicator,
+    candle_patterns: CandlePatternIndicator,
 }
 
 impl IndicatorEngine {
@@ -221,6 +250,50 @@ impl IndicatorEngine {
         self.volatility.atr(high, low, close, params)
     }
 
+    /// Keltner Channel 계산.
+    ///
+    /// # 인자
+    /// * `high` - 고가 데이터
+    /// * `low` - 저가 데이터
+    /// * `close` - 종가 데이터
+    /// * `params` - Keltner Channel 파라미터
+    ///
+    /// # 반환
+    /// Keltner Channel 값들
+    pub fn keltner_channel(
+        &self,
+        high: &[Decimal],
+        low: &[Decimal],
+        close: &[Decimal],
+        params: KeltnerChannelParams,
+    ) -> IndicatorResult<Vec<KeltnerChannelResult>> {
+        self.volatility
+            .keltner_channel(high, low, close, params)
+    }
+
+    /// TTM Squeeze 계산.
+    ///
+    /// John Carter의 TTM Squeeze 지표.
+    /// Bollinger Bands가 Keltner Channel 내부로 들어가면 에너지 응축(squeeze) 상태.
+    ///
+    /// # 인자
+    /// * `high` - 고가 데이터
+    /// * `low` - 저가 데이터
+    /// * `close` - 종가 데이터
+    /// * `params` - TTM Squeeze 파라미터
+    ///
+    /// # 반환
+    /// TTM Squeeze 상태 및 모멘텀 정보
+    pub fn ttm_squeeze(
+        &self,
+        high: &[Decimal],
+        low: &[Decimal],
+        close: &[Decimal],
+        params: TtmSqueezeParams,
+    ) -> IndicatorResult<Vec<TtmSqueezeResult>> {
+        self.volatility.ttm_squeeze(high, low, close, params)
+    }
+
     // ==================== 유틸리티 ====================
 
     /// 골든 크로스 감지.
@@ -257,6 +330,112 @@ impl IndicatorEngine {
         long_ma: &[Option<Decimal>],
     ) -> Vec<bool> {
         self.trend.detect_dead_cross(short_ma, long_ma)
+    }
+
+    // ==================== 추가 지표 ====================
+
+    /// HMA (Hull Moving Average) 계산.
+    ///
+    /// HMA는 빠른 반응속도와 낮은 휩소를 특징으로 하는 이동평균입니다.
+    ///
+    /// # 인자
+    /// * `prices` - 가격 데이터 (종가)
+    /// * `params` - HMA 파라미터 (기간)
+    ///
+    /// # 반환
+    /// 계산된 HMA 값들의 벡터
+    pub fn hma(
+        &self,
+        prices: &[Decimal],
+        params: HmaParams,
+    ) -> IndicatorResult<Vec<Option<Decimal>>> {
+        self.hma.calculate(prices, params)
+    }
+
+    /// OBV (On-Balance Volume) 계산.
+    ///
+    /// 거래량 기반으로 스마트 머니의 자금 흐름을 추적합니다.
+    ///
+    /// # 인자
+    /// * `close` - 종가 데이터
+    /// * `volume` - 거래량 데이터
+    /// * `params` - OBV 파라미터
+    ///
+    /// # 반환
+    /// OBV 값과 변화량
+    pub fn obv(
+        &self,
+        close: &[Decimal],
+        volume: &[Decimal],
+        params: ObvParams,
+    ) -> IndicatorResult<Vec<ObvResult>> {
+        self.obv.calculate(close, volume, params)
+    }
+
+    /// OBV 다이버전스 감지.
+    ///
+    /// 가격과 OBV의 방향이 반대인 경우를 감지합니다.
+    ///
+    /// # 인자
+    /// * `close` - 종가 데이터
+    /// * `obv_results` - OBV 계산 결과
+    /// * `lookback` - 비교 기간 (기본: 5)
+    ///
+    /// # 반환
+    /// 각 시점에서 약세 다이버전스 발생 여부
+    pub fn obv_divergence(
+        &self,
+        close: &[Decimal],
+        obv_results: &[ObvResult],
+        lookback: usize,
+    ) -> IndicatorResult<Vec<bool>> {
+        self.obv.detect_divergence(close, obv_results, lookback)
+    }
+
+    /// SuperTrend 지표 계산.
+    ///
+    /// ATR 기반 추세 추종 지표로 명확한 매수/매도 시그널을 제공합니다.
+    ///
+    /// # 인자
+    /// * `high` - 고가 데이터
+    /// * `low` - 저가 데이터
+    /// * `close` - 종가 데이터
+    /// * `params` - SuperTrend 파라미터
+    ///
+    /// # 반환
+    /// SuperTrend 값과 시그널
+    pub fn supertrend(
+        &self,
+        high: &[Decimal],
+        low: &[Decimal],
+        close: &[Decimal],
+        params: SuperTrendParams,
+    ) -> IndicatorResult<Vec<SuperTrendResult>> {
+        self.supertrend.calculate(high, low, close, params)
+    }
+
+    /// 캔들 패턴 감지.
+    ///
+    /// 망치형, 장악형 등 주요 캔들스틱 패턴을 감지합니다.
+    ///
+    /// # 인자
+    /// * `open` - 시가 데이터
+    /// * `high` - 고가 데이터
+    /// * `low` - 저가 데이터
+    /// * `close` - 종가 데이터
+    /// * `params` - 캔들 패턴 파라미터
+    ///
+    /// # 반환
+    /// 각 시점에서 감지된 패턴과 신뢰도
+    pub fn candle_patterns(
+        &self,
+        open: &[Decimal],
+        high: &[Decimal],
+        low: &[Decimal],
+        close: &[Decimal],
+        params: CandlePatternParams,
+    ) -> IndicatorResult<Vec<CandlePatternResult>> {
+        self.candle_patterns.detect(open, high, low, close, params)
     }
 }
 
@@ -321,5 +500,118 @@ mod tests {
 
         let result = engine.sma(&prices, SmaParams { period: 20 });
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_hma_calculation() {
+        let engine = IndicatorEngine::new();
+        let prices = sample_prices();
+
+        let hma = engine.hma(&prices, HmaParams { period: 9 }).unwrap();
+
+        // 처음 몇 개는 None
+        assert!(hma[0].is_none());
+
+        // 충분한 데이터가 있으면 값이 계산됨
+        assert!(hma[hma.len() - 1].is_some());
+    }
+
+    #[test]
+    fn test_obv_calculation() {
+        let engine = IndicatorEngine::new();
+        let close = vec![
+            dec!(100.0),
+            dec!(102.0),
+            dec!(101.0),
+            dec!(103.0),
+        ];
+        let volume = vec![
+            dec!(1000.0),
+            dec!(1500.0),
+            dec!(1200.0),
+            dec!(1800.0),
+        ];
+
+        let obv = engine
+            .obv(&close, &volume, ObvParams::default())
+            .unwrap();
+
+        assert_eq!(obv.len(), close.len());
+        // 첫 번째는 변화 없음
+        assert_eq!(obv[0].change, 0);
+        // 두 번째는 가격 상승 -> 거래량 추가
+        assert_eq!(obv[1].change, 1500);
+    }
+
+    #[test]
+    fn test_supertrend_calculation() {
+        let engine = IndicatorEngine::new();
+        let high = vec![
+            dec!(102.0),
+            dec!(104.0),
+            dec!(103.0),
+            dec!(106.0),
+            dec!(108.0),
+            dec!(107.0),
+            dec!(110.0),
+            dec!(112.0),
+            dec!(111.0),
+            dec!(114.0),
+            dec!(116.0),
+            dec!(115.0),
+        ];
+        let low = vec![
+            dec!(98.0),
+            dec!(100.0),
+            dec!(99.0),
+            dec!(102.0),
+            dec!(104.0),
+            dec!(103.0),
+            dec!(106.0),
+            dec!(108.0),
+            dec!(107.0),
+            dec!(110.0),
+            dec!(112.0),
+            dec!(111.0),
+        ];
+        let close = vec![
+            dec!(100.0),
+            dec!(102.0),
+            dec!(101.0),
+            dec!(104.0),
+            dec!(106.0),
+            dec!(105.0),
+            dec!(108.0),
+            dec!(110.0),
+            dec!(109.0),
+            dec!(112.0),
+            dec!(114.0),
+            dec!(113.0),
+        ];
+
+        let result = engine
+            .supertrend(&high, &low, &close, SuperTrendParams::default())
+            .unwrap();
+
+        assert_eq!(result.len(), high.len());
+        // 충분한 데이터가 있으면 값이 계산됨
+        assert!(result[result.len() - 1].value.is_some());
+    }
+
+    #[test]
+    fn test_candle_patterns_detection() {
+        let engine = IndicatorEngine::new();
+        // 도지 패턴: 시가 = 종가
+        let open = vec![dec!(100.0)];
+        let high = vec![dec!(102.0)];
+        let low = vec![dec!(98.0)];
+        let close = vec![dec!(100.0)];
+
+        let result = engine
+            .candle_patterns(&open, &high, &low, &close, CandlePatternParams::default())
+            .unwrap();
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].pattern, CandlePatternType::Doji);
     }
 }

@@ -19,6 +19,7 @@ use uuid::Uuid;
 #[serde(rename_all = "lowercase")]
 #[cfg_attr(feature = "sqlx-support", derive(sqlx::Type))]
 #[cfg_attr(feature = "sqlx-support", sqlx(type_name = "text"))]
+#[cfg_attr(feature = "utoipa-support", derive(utoipa::ToSchema))]
 pub enum Side {
     /// 매수
     Buy,
@@ -112,6 +113,7 @@ impl std::str::FromStr for Side {
 /// 주문 유형.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "utoipa-support", derive(utoipa::ToSchema))]
 pub enum OrderType {
     /// 시장가 주문 - 현재 시장 가격으로 즉시 체결
     Market,
@@ -146,6 +148,7 @@ impl std::fmt::Display for OrderType {
 /// 주문 상태 유형.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "utoipa-support", derive(utoipa::ToSchema))]
 pub enum OrderStatusType {
     /// 주문 생성됨 (아직 제출되지 않음)
     Pending,
@@ -212,6 +215,7 @@ pub struct OrderStatus {
 /// 주문 유효 기간.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
+#[cfg_attr(feature = "utoipa-support", derive(utoipa::ToSchema))]
 pub enum TimeInForce {
     /// 취소될 때까지 유효 (Good Till Cancelled)
     GTC,

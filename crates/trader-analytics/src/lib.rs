@@ -14,12 +14,17 @@
 //! - [`ml`]: ML/AI 기능 (패턴 인식, 피처 추출, 예측) - `ml` feature 필요
 
 pub mod backtest;
+pub mod global_scorer;
 pub mod indicators;
 pub mod journal_integration;
+pub mod liquidity_gate;
+pub mod market_regime_calculator;
 #[cfg(feature = "ml")]
 pub mod ml;
 pub mod performance;
 pub mod portfolio;
+pub mod route_state_calculator;
+pub mod trigger_calculator;
 
 // Performance 모듈 re-exports
 pub use performance::metrics::{
@@ -59,9 +64,26 @@ pub use indicators::{
     SmaParams,
     StochasticParams,
     StochasticResult,
+    // 구조적 피처
+    StructuralFeatures,
     TrendIndicators,
     VolatilityIndicators,
 };
+
+// RouteState 계산기 re-export
+pub use route_state_calculator::RouteStateCalculator;
+
+// MarketRegime 계산기 re-export
+pub use market_regime_calculator::{MarketRegimeCalculator, MarketRegimeResult};
+
+// Trigger 계산기 re-export
+pub use trigger_calculator::{TriggerCalculator, TriggerError};
+
+// Global Scorer re-export
+pub use global_scorer::{GlobalScorer, GlobalScorerError, GlobalScorerParams, GlobalScorerResult};
+
+// Liquidity Gate re-export
+pub use liquidity_gate::{LiquidityGate, LiquidityLevel};
 
 // ML 모듈 re-exports (ml feature 필요)
 #[cfg(feature = "ml")]

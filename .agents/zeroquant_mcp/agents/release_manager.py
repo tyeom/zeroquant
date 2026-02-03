@@ -16,7 +16,7 @@ class ReleaseManager(BaseAgent):
 
     async def execute(self, arguments: dict[str, Any]) -> str:
         """릴리즈 워크플로우 실행"""
-        self.logger.info("🚀 릴리즈 매니저 시작...")
+        self.log_progress("🚀 릴리즈 매니저 시작")
         
         mode = arguments.get("mode", "full")  # full, docs-only, preview
         custom_message = arguments.get("custom_message")
@@ -34,7 +34,7 @@ class ReleaseManager(BaseAgent):
             )
 
         # 1. 변경사항 분석
-        self.logger.info("🔍 [1/5] 변경사항 분석 중...")
+        self.log_progress("🔍 [1/5] 변경사항 분석 중...")
         results.append("## 🔍 1. 변경사항 분석\n\n")
         changes = self._analyze_changes()
         results.append(self._format_changes(changes))
@@ -46,7 +46,7 @@ class ReleaseManager(BaseAgent):
             )
 
         # 2. 문서 업데이트
-        self.logger.info("📝 [2/5] 문서 업데이트 중...")
+        self.log_progress("📝 [2/5] 문서 업데이트 중...")
         results.append("\n## 📝 2. 문서 업데이트\n\n")
 
         if mode == "preview":
@@ -56,27 +56,27 @@ class ReleaseManager(BaseAgent):
         results.append(self._format_doc_updates(doc_updates))
 
         # 3. 커밋 메시지 생성
-        self.logger.info("✍️ [3/5] 커밋 메시지 생성 중...")
+        self.log_progress("✍️ [3/5] 커밋 메시지 생성 중...")
         results.append("\n## ✍️ 3. 커밋 메시지\n\n")
         commit_msg = self._generate_commit_message(changes, custom_message)
         results.append(f"```\n{commit_msg}\n```\n\n")
 
         # 4. 커밋 실행
         if mode != "preview" and mode != "docs-only":
-            self.logger.info("📦 [4/5] 커밋 실행 중...")
+            self.log_progress("📦 [4/5] 커밋 실행 중...")
             results.append("## 📦 4. 커밋\n\n")
             commit_result = self._commit(commit_msg, doc_updates["updated_files"])
             results.append(commit_result)
 
             # 5. 푸시
             if not skip_push:
-                self.logger.info("🚀 [5/5] 원격 저장소로 푸시 중...")
+                self.log_progress("🚀 [5/5] 원격 저장소로 푸시 중...")
                 results.append("\n## 🚀 5. 푸시\n\n")
                 push_result = self._push()
                 results.append(push_result)
 
         # 요약
-        self.logger.info("✅ 릴리즈 매니저 완료")
+        self.log_progress("✅ 릴리즈 매니저 완료")
         
         if mode == "preview":
             summary = self.format_success(
@@ -95,6 +95,9 @@ class ReleaseManager(BaseAgent):
             )
 
         results.insert(0, summary + "\n\n")
+
+        # Progress log 추가
+        results.append(self.get_progress_section())
 
         return "\n".join(results)
 
@@ -119,6 +122,7 @@ class ReleaseManager(BaseAgent):
 
     def _analyze_changes(self) -> dict:
         """변경사항 분석"""
+        self.logger.info("📊 변경사항 분석 중...")
         # 스테이지된 파일 목록
         _, stdout, _ = self.run_command(["git", "diff", "--cached", "--name-only"])
         files = [f.strip() for f in stdout.strip().split('\n') if f.strip()]
@@ -130,7 +134,8 @@ class ReleaseManager(BaseAgent):
         change_types = self._classify_changes(files)
 
         # Diff 내용
-        _, diff_output, _ = self.run_command(["git", "diff", "--cached"])
+        self.logger.info("📄 Diff 조회 중...")
+        _, diff_output, _ = self.run_command(["git", "diff", "--cached"], stream_output=True)
 
         return {
             "files": files,
@@ -358,9 +363,10 @@ class ReleaseManager(BaseAgent):
                     )
 
         # 커밋 실행
+        self.logger.info("💾 Git commit 실행 중...")
         returncode, stdout, stderr = self.run_command([
             "git", "commit", "-m", commit_message
-        ])
+        ], stream_output=True)
 
         if returncode == 0:
             # 커밋 해시 추출
@@ -382,9 +388,10 @@ class ReleaseManager(BaseAgent):
         current_branch = branch_output.strip()
 
         # 푸시 실행
+        self.logger.info(f"⬆️ Git push 실행 중 (브랜치: {current_branch})...")
         returncode, stdout, stderr = self.run_command([
             "git", "push", "origin", current_branch
-        ])
+        ], stream_output=True)
 
         if returncode == 0:
             return f"✅ `origin/{current_branch}`로 푸시 완료\n"

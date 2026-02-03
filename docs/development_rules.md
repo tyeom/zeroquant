@@ -1,7 +1,7 @@
 # ZeroQuant 개발 규칙
 
-> 최종 업데이트: 2026-02-02
-> 버전: 1.1
+> 최종 업데이트: 2026-02-03
+> 버전: 1.2
 > 이 문서는 신규 기능 추가 시 반드시 확인해야 하는 규칙과 고려사항을 정의합니다.
 
 ---
@@ -101,6 +101,31 @@ pub async fn get_price(
 - **Axum**: 0.6 → 0.7에서 Router, State API 변경됨
 - **SQLx**: query!, query_as! 매크로 동작 확인 필요
 - **SolidJS**: reactivity 패턴 확인
+
+### 코드 탐색 도구 우선순위
+
+> **핵심 원칙**: 코드베이스 탐색 시 Serena MCP의 semantic tools를 우선 사용
+
+**Serena 우선 사용 (심볼 기반 탐색)**:
+```rust
+// ✅ 좋은 예 - Serena의 semantic tools 사용
+mcp__serena__find_symbol(name_path_pattern="MyStrategy", relative_path="crates/trader-strategy")
+mcp__serena__find_referencing_symbols(name_path="calculate_price", relative_path="...")
+mcp__serena__get_symbols_overview(relative_path="crates/trader-api/src/routes/strategies.rs")
+```
+
+**Grep 제한적 사용 (문자열 패턴 매칭)**:
+```bash
+# ℹ️ Grep은 다음 경우에만 사용
+# 1. 로그 메시지나 에러 메시지 검색
+# 2. 특정 문자열 리터럴 찾기
+# 3. 정규표현식 패턴 매칭이 필수인 경우
+```
+
+**이유**:
+- Serena는 클래스, 함수, 메서드 등 심볼 단위로 탐색 가능
+- 코드 구조와 의존성을 정확히 파악 가능
+- Grep은 단순 텍스트 검색으로 컨텍스트 부족
 
 ### UI-API 필드 매칭
 

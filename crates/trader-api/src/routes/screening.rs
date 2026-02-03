@@ -19,8 +19,11 @@ use axum::{
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 use utoipa::ToSchema;
+
+use trader_core::MacroEnvironment;
+use trader_data::cache::{MacroDataProvider, MacroDataProviderTrait};
 
 use crate::repository::{
     MomentumScreenResult, ScreeningFilter, ScreeningPreset, ScreeningRepository, ScreeningResult,
@@ -94,6 +97,26 @@ pub struct ScreeningRequest {
     #[serde(default)]
     pub min_volume_ratio: Option<String>,
 
+    // 구조적 피처 필터
+    #[serde(default)]
+    pub min_low_trend: Option<String>,
+    #[serde(default)]
+    pub min_vol_quality: Option<String>,
+    #[serde(default)]
+    pub min_breakout_score: Option<String>,
+    #[serde(default)]
+    pub only_alive_consolidation: Option<bool>,
+
+    // RouteState 필터
+    #[serde(default)]
+    pub filter_route_state: Option<String>,
+
+    // TTM Squeeze 필터
+    #[serde(default)]
+    pub filter_ttm_squeeze: Option<bool>,
+    #[serde(default)]
+    pub min_ttm_squeeze_cnt: Option<String>,
+
     // 정렬 및 페이지네이션
     #[serde(default)]
     pub sort_by: Option<String>,
@@ -114,6 +137,9 @@ pub struct ScreeningResponse {
     pub results: Vec<ScreeningResultDto>,
     /// 적용된 필터 요약
     pub filter_summary: String,
+    /// 매크로 위험도 (옵셔널)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub macro_risk: Option<String>,
 }
 
 /// 스크리닝 결과 DTO
@@ -144,6 +170,33 @@ pub struct ScreeningResultDto {
     pub week_52_low: Option<String>,
     pub distance_from_52w_high: Option<String>,
     pub distance_from_52w_low: Option<String>,
+
+    // 구조적 피처
+    pub low_trend: Option<f64>,
+    pub vol_quality: Option<f64>,
+    pub range_pos: Option<f64>,
+    pub dist_ma20: Option<f64>,
+    pub bb_width: Option<f64>,
+    pub rsi_14: Option<f64>,
+    pub breakout_score: Option<f64>,
+
+    // RouteState
+    pub route_state: Option<String>,
+
+    // MarketRegime
+    pub regime: Option<String>,
+
+    // Sector RS (섹터 상대강도)
+    pub sector_rs: Option<String>,
+    pub sector_rank: Option<i32>,
+
+    // TTM Squeeze (에너지 응축 지표)
+    pub ttm_squeeze: Option<bool>,
+    pub ttm_squeeze_cnt: Option<i32>,
+
+    // TRIGGER (진입 트리거)
+    pub trigger_score: Option<f64>,
+    pub trigger_label: Option<String>,
 }
 
 /// 프리셋 목록 응답
@@ -232,6 +285,10 @@ fn parse_decimal(s: &Option<String>) -> Option<Decimal> {
     s.as_ref().and_then(|v| v.parse::<Decimal>().ok())
 }
 
+fn parse_f64(s: &Option<String>) -> Option<f64> {
+    s.as_ref().and_then(|v| v.parse::<f64>().ok())
+}
+
 fn decimal_to_string(d: Option<Decimal>) -> Option<String> {
     d.map(|v| v.to_string())
 }
@@ -259,6 +316,13 @@ fn to_screening_filter(req: &ScreeningRequest) -> ScreeningFilter {
         max_distance_from_52w_high: parse_decimal(&req.max_distance_from_52w_high),
         min_distance_from_52w_low: parse_decimal(&req.min_distance_from_52w_low),
         min_volume_ratio: parse_decimal(&req.min_volume_ratio),
+        min_low_trend: parse_f64(&req.min_low_trend),
+        min_vol_quality: parse_f64(&req.min_vol_quality),
+        min_breakout_score: parse_f64(&req.min_breakout_score),
+        only_alive_consolidation: req.only_alive_consolidation,
+        filter_route_state: req.filter_route_state.clone(),
+        filter_ttm_squeeze: req.filter_ttm_squeeze,
+        min_ttm_squeeze_cnt: req.min_ttm_squeeze_cnt.as_ref().and_then(|v| v.parse::<i32>().ok()),
         sort_by: req.sort_by.clone(),
         sort_order: req.sort_order.clone(),
         limit: req.limit,
@@ -290,6 +354,21 @@ fn to_result_dto(r: ScreeningResult) -> ScreeningResultDto {
         week_52_low: decimal_to_string(r.week_52_low),
         distance_from_52w_high: decimal_to_string(r.distance_from_52w_high),
         distance_from_52w_low: decimal_to_string(r.distance_from_52w_low),
+        low_trend: r.low_trend,
+        vol_quality: r.vol_quality,
+        range_pos: r.range_pos,
+        dist_ma20: r.dist_ma20,
+        bb_width: r.bb_width,
+        rsi_14: r.rsi_14,
+        breakout_score: r.breakout_score,
+        route_state: r.route_state,
+        regime: r.regime,
+        sector_rs: decimal_to_string(r.sector_rs),
+        sector_rank: r.sector_rank,
+        ttm_squeeze: r.ttm_squeeze,
+        ttm_squeeze_cnt: r.ttm_squeeze_cnt,
+        trigger_score: r.trigger_score,
+        trigger_label: r.trigger_label,
     }
 }
 
@@ -305,6 +384,61 @@ fn to_momentum_dto(r: MomentumScreenResult) -> MomentumResultDto {
         avg_volume: r.avg_volume.to_string(),
         current_volume: r.current_volume.to_string(),
         volume_ratio: r.volume_ratio.to_string(),
+    }
+}
+
+/// 섹터 순위 쿼리
+#[derive(Debug, Clone, Deserialize)]
+pub struct SectorRankingQuery {
+    /// 시장 필터 (KR, US)
+    #[serde(default)]
+    pub market: Option<String>,
+    /// 계산 기간 (일, 기본: 20)
+    #[serde(default)]
+    pub days: Option<i32>,
+}
+
+/// 섹터 순위 응답
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct SectorRankingResponse {
+    /// 총 섹터 수
+    pub total: usize,
+    /// 계산 기간 (일)
+    pub days: i32,
+    /// 적용된 시장 필터
+    pub market: Option<String>,
+    /// 섹터 목록
+    pub results: Vec<SectorRsDto>,
+}
+
+/// 섹터 RS DTO
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct SectorRsDto {
+    /// 섹터명
+    pub sector: String,
+    /// 섹터 내 종목 수
+    pub symbol_count: i64,
+    /// 섹터 평균 수익률 (%)
+    pub avg_return_pct: String,
+    /// 시장 평균 수익률 (%)
+    pub market_return: String,
+    /// 상대강도 (RS)
+    pub relative_strength: String,
+    /// 종합 점수
+    pub composite_score: String,
+    /// 순위
+    pub rank: i32,
+}
+
+fn to_sector_rs_dto(r: crate::repository::SectorRsResult) -> SectorRsDto {
+    SectorRsDto {
+        sector: r.sector,
+        symbol_count: r.symbol_count,
+        avg_return_pct: r.avg_return_pct.to_string(),
+        market_return: r.market_return.to_string(),
+        relative_strength: r.relative_strength.to_string(),
+        composite_score: r.composite_score.to_string(),
+        rank: r.rank,
     }
 }
 
@@ -357,6 +491,43 @@ pub async fn run_screening(
         }
     };
 
+    // 섹터 RS 정보 추가
+    let results = match ScreeningRepository::enrich_with_sector_rs(
+        db_pool,
+        results,
+        request.market.as_deref(),
+    )
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            warn!("섹터 RS 추가 실패 (무시): {}", e);
+            vec![] // 실패하면 빈 결과 반환
+        }
+    };
+
+    // 매크로 환경 평가 (실패 시 기본값 사용)
+    let macro_risk_str = match fetch_and_evaluate_macro_env(3).await {
+        Ok(env) => {
+            info!("매크로 환경: {}", env.summary());
+            Some(format!(
+                "{} {} (EBS: {}, 추천: {}개)",
+                env.risk_level,
+                env.risk_level.icon(),
+                env.adjusted_ebs,
+                if env.recommendation_limit == usize::MAX {
+                    "무제한".to_string()
+                } else {
+                    env.recommendation_limit.to_string()
+                }
+            ))
+        }
+        Err(e) => {
+            warn!("매크로 환경 평가 실패 (무시): {}", e);
+            None
+        }
+    };
+
     let filter_summary = build_filter_summary(&request);
     let total = results.len();
     let dto_results: Vec<ScreeningResultDto> = results.into_iter().map(to_result_dto).collect();
@@ -365,6 +536,7 @@ pub async fn run_screening(
         total,
         results: dto_results,
         filter_summary,
+        macro_risk: macro_risk_str,
     })
     .into_response()
 }
@@ -427,6 +599,21 @@ pub async fn run_preset_screening(
             }
         };
 
+    // 섹터 RS 정보 추가
+    let results = match ScreeningRepository::enrich_with_sector_rs(
+        db_pool,
+        results,
+        query.market.as_deref(),
+    )
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            warn!("섹터 RS 추가 실패 (무시): {}", e);
+            vec![] // 실패하면 빈 결과 반환
+        }
+    };
+
     let filter_summary = format!(
         "프리셋: {}, 시장: {}",
         preset,
@@ -439,6 +626,7 @@ pub async fn run_preset_screening(
         total,
         results: dto_results,
         filter_summary,
+        macro_risk: None, // TODO: Phase 1-B Macro Filter 연동
     })
     .into_response()
 }
@@ -528,6 +716,99 @@ pub async fn run_momentum_screening(
     .into_response()
 }
 
+/// 섹터 순위 조회
+///
+/// GET /api/v1/sectors/ranking
+#[utoipa::path(
+    get,
+    path = "/api/v1/sectors/ranking",
+    params(
+        ("market" = Option<String>, Query, description = "시장 필터 (KR, US)"),
+        ("days" = Option<i32>, Query, description = "계산 기간 (일, 기본: 20)")
+    ),
+    responses(
+        (status = 200, description = "섹터 순위 조회 성공", body = SectorRankingResponse),
+        (status = 500, description = "서버 오류", body = ErrorResponse)
+    ),
+    tag = "sectors"
+)]
+pub async fn get_sector_ranking(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<SectorRankingQuery>,
+) -> impl IntoResponse {
+    debug!(
+        "섹터 순위 조회 요청: market={:?}, days={:?}",
+        query.market, query.days
+    );
+
+    let db_pool = match &state.db_pool {
+        Some(pool) => pool,
+        None => {
+            return error_response("DATABASE_ERROR", "Database not available").into_response();
+        }
+    };
+
+    let days = query.days.unwrap_or(20);
+    
+    let results = match ScreeningRepository::calculate_sector_rs(
+        db_pool,
+        query.market.as_deref(),
+        days,
+    )
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            warn!("섹터 순위 조회 실패: {}", e);
+            return error_response("SECTOR_RS_ERROR", &format!("섹터 순위 조회 실패: {}", e))
+                .into_response();
+        }
+    };
+
+    let total = results.len();
+    let dto_results: Vec<SectorRsDto> = results.into_iter().map(to_sector_rs_dto).collect();
+
+    Json(SectorRankingResponse {
+        total,
+        days,
+        market: query.market,
+        results: dto_results,
+    })
+    .into_response()
+}
+
+/// 매크로 경제 지표 조회 및 환경 평가.
+///
+/// # 파라미터
+///
+/// - `base_ebs`: 기본 EBS 기준값 (일반적으로 3)
+///
+/// # 반환
+///
+/// - `Ok(MacroEnvironment)`: 평가된 매크로 환경
+/// - `Err(String)`: 에러 메시지
+async fn fetch_and_evaluate_macro_env(base_ebs: u8) -> Result<MacroEnvironment, String> {
+    // MacroDataProvider 생성
+    let provider = MacroDataProvider::new()
+        .map_err(|e| format!("MacroDataProvider 생성 실패: {}", e))?;
+
+    // 매크로 데이터 조회
+    let data = provider
+        .fetch_macro_data()
+        .await
+        .map_err(|e| format!("매크로 데이터 조회 실패: {}", e))?;
+
+    // 매크로 환경 평가
+    let env = MacroEnvironment::evaluate(
+        data.usd_krw,
+        data.usd_change_pct,
+        data.nasdaq_change_pct,
+        base_ebs,
+    );
+
+    Ok(env)
+}
+
 /// 필터 요약 문자열 생성
 fn build_filter_summary(req: &ScreeningRequest) -> String {
     let mut parts = Vec::new();
@@ -570,4 +851,10 @@ pub fn screening_router() -> Router<Arc<AppState>> {
         .route("/presets", get(list_presets))
         .route("/presets/{preset}", get(run_preset_screening))
         .route("/momentum", get(run_momentum_screening))
+}
+
+/// 섹터 분석 라우터 생성
+pub fn sectors_router() -> Router<Arc<AppState>> {
+    Router::new()
+        .route("/ranking", get(get_sector_ranking))
 }

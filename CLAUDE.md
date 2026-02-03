@@ -1,6 +1,6 @@
 # ZeroQuant - Claude 세션 컨텍스트
 
-> 마지막 업데이트: 2026-02-03 | 버전: v0.6.3
+> 마지막 업데이트: 2026-02-03 | 버전: v0.6.4
 
 ---
 
@@ -67,6 +67,11 @@
    - ❌ 학습 데이터 기반 추측
    - ✅ `resolve-library-id` → `query-docs` 순서로 검증
 
+5. **코드 탐색** → Serena MCP 우선 사용
+   - ❌ 단순 Grep으로 텍스트 검색
+   - ✅ Serena의 semantic tools로 심볼 기반 탐색
+   - ℹ️ Grep은 문자열 패턴 매칭에만 제한적 사용
+
 ### 예시
 
 ```
@@ -79,6 +84,11 @@ Task(subagent_type="Plan", prompt="JWT 인증 추가 구현 계획")
 # 병렬 탐색 (한 메시지에 여러 Task 호출)
 Task(subagent_type="Explore", prompt="API 라우트 구조")
 Task(subagent_type="Explore", prompt="에러 타입 정의")
+
+# Serena를 사용한 코드 탐색
+mcp__serena__find_symbol(name_path_pattern="MyClass", relative_path="crates/trader-core")
+mcp__serena__find_referencing_symbols(name_path="MyClass", relative_path="crates/trader-core/src/domain/mod.rs")
+mcp__serena__get_symbols_overview(relative_path="crates/trader-api/src/routes/strategies.rs")
 ```
 
 ---

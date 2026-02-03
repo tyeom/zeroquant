@@ -10,6 +10,7 @@
 pub mod cache;
 pub mod error;
 pub mod manager;
+pub mod market_breadth;
 pub mod provider;
 pub mod storage;
 
@@ -39,3 +40,6 @@ pub use provider::{
     BinanceSymbolProvider, CompositeSymbolProvider, KrxSymbolProvider, SymbolInfoProvider,
     SymbolMetadata, SymbolResolver, YahooSymbolProvider,
 };
+
+// Market Breadth 계산 재내보내기
+pub use market_breadth::MarketBreadthCalculator;

@@ -22,8 +22,13 @@ use axum::Router;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
+// trader-core 도메인 타입 (ToSchema 지원)
+use trader_core::{OrderStatusType, OrderType, Side, SignalIndicators, TimeInForce};
+use trader_core::types::{MarketType, Symbol};
+
 // ==================== 각 모듈에서 스키마 Import ====================
 
+use crate::error::ApiErrorResponse;
 use crate::routes::{
     // Strategies 모듈
     strategies::{ApiError, StrategyListItem},
@@ -40,6 +45,8 @@ use crate::routes::{
     ScreeningResponse,
     StatsResponse,
     StrategiesListResponse,
+    // Signals 모듈
+    signals::{SignalMarkerDto, SignalSearchRequest, SignalSearchResponse, SymbolSignalsQuery, StrategySignalsQuery},
 };
 
 // ==================== OpenAPI 문서 정의 ====================
@@ -103,7 +110,8 @@ use crate::routes::{
         (name = "journal", description = "매매일지 - 체결 내역 및 손익 분석"),
         (name = "screening", description = "스크리닝 - 종목 필터링"),
         (name = "simulation", description = "시뮬레이션 - 모의 거래"),
-        (name = "monitoring", description = "모니터링 - 에러 추적 및 시스템 상태")
+        (name = "monitoring", description = "모니터링 - 에러 추적 및 시스템 상태"),
+        (name = "signals", description = "신호 마커 - 백테스트/실거래 신호 조회 및 검색")
     ),
     // ==================== 스키마 등록 ====================
     components(
@@ -113,8 +121,9 @@ use crate::routes::{
             ComponentHealth,
             ComponentStatus,
 
-            // ===== Common =====
+            // ===== Common Error Types =====
             ApiError,
+            ApiErrorResponse,
 
             // ===== Strategies =====
             StrategiesListResponse,
@@ -129,6 +138,22 @@ use crate::routes::{
             ScreeningRequest,
             ScreeningResponse,
             MomentumResponse,
+
+            // ===== Signals =====
+            SignalMarkerDto,
+            SignalSearchRequest,
+            SignalSearchResponse,
+            SymbolSignalsQuery,
+            StrategySignalsQuery,
+
+            // ===== Core Domain Types =====
+            Side,
+            OrderType,
+            OrderStatusType,
+            TimeInForce,
+            Symbol,
+            MarketType,
+            SignalIndicators,
         )
     ),
     // ==================== 경로 등록 ====================
@@ -154,6 +179,11 @@ use crate::routes::{
         crate::routes::screening::list_presets,
         crate::routes::screening::run_preset_screening,
         crate::routes::screening::run_momentum_screening,
+
+        // ===== Signals =====
+        crate::routes::signals::search_signals,
+        crate::routes::signals::get_signals_by_symbol,
+        crate::routes::signals::get_signals_by_strategy,
     )
 )]
 pub struct ApiDoc;

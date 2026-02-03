@@ -13,6 +13,8 @@ class SecurityReviewer(BaseAgent):
 
     async def execute(self, arguments: dict[str, Any]) -> str:
         """보안 검토 실행"""
+        self.log_progress("🔒 보안 검토 시작")
+
         target = arguments.get("target", "staged")
         severity_filter = arguments.get("severity", "all")  # all, critical, warning
 
@@ -20,6 +22,7 @@ class SecurityReviewer(BaseAgent):
         results.append("# 🔒 Security Review Report\n\n")
 
         # Diff 가져오기
+        self.log_progress(f"📄 변경사항 조회 중 (target: {target})")
         if target == "staged":
             diff = self._get_staged_diff()
         elif target == "commit":
@@ -42,6 +45,7 @@ class SecurityReviewer(BaseAgent):
 
         # 1. 코드 기반 체크
         if diff:
+            self.log_progress("🔍 [1/3] 코드 보안 체크 중...")
             self._check_hardcoded_secrets(diff, issues)
             self._check_sql_injection(diff, issues)
             self._check_command_injection(diff, issues)
@@ -49,13 +53,18 @@ class SecurityReviewer(BaseAgent):
             self._check_unsafe_operations(diff, issues)
         else:
             # 워크스페이스 전체 스캔
+            self.log_progress("🔍 [1/3] 워크스페이스 스캔 중...")
             self._scan_workspace(issues)
 
         # 2. 의존성 체크 (cargo audit)
+        self.log_progress("🔍 [2/3] 의존성 취약점 체크 중...")
         self._check_dependencies(issues)
 
         # 3. 설정 파일 체크
+        self.log_progress("🔍 [3/3] 설정 파일 체크 중...")
         self._check_config_files(issues)
+
+        self.log_progress("✅ 보안 검토 완료")
 
         # 필터링
         if severity_filter != "all":
@@ -100,16 +109,21 @@ class SecurityReviewer(BaseAgent):
             for idx, issue in enumerate(issues["info"], 1):
                 results.append(f"{idx}. {issue['title']} - `{issue['location']}`\n")
 
+        # Progress log 추가
+        results.append(self.get_progress_section())
+
         return "\n".join(results)
 
     def _get_staged_diff(self) -> str:
         """스테이지된 변경사항"""
-        _, stdout, _ = self.run_command(["git", "diff", "--cached"])
+        self.logger.info("📄 Git diff 조회 중...")
+        _, stdout, _ = self.run_command(["git", "diff", "--cached"], stream_output=True)
         return stdout
 
     def _get_commit_diff(self, commit_hash: str) -> str:
         """커밋 diff"""
-        _, stdout, _ = self.run_command(["git", "show", commit_hash])
+        self.logger.info(f"📄 커밋 {commit_hash[:7]} diff 조회 중...")
+        _, stdout, _ = self.run_command(["git", "show", commit_hash], stream_output=True)
         return stdout
 
     def _check_hardcoded_secrets(self, diff: str, issues: dict):
@@ -213,7 +227,8 @@ class SecurityReviewer(BaseAgent):
         """의존성 취약점 체크 (cargo audit)"""
         returncode, stdout, stderr = self.run_command(
             ["cargo", "audit"],
-            timeout=60
+            timeout=60,
+            stream_output=True
         )
 
         if returncode != 0:

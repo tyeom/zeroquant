@@ -11,8 +11,8 @@ class CodeSimplifier(BaseAgent):
 
     async def execute(self, arguments: dict[str, Any]) -> str:
         """코드 단순화 분석 실행"""
-        self.logger.info("🧹 코드 단순화 분석 시작...")
-        
+        self.log_progress("🧹 코드 단순화 분석 시작")
+
         scope = arguments.get("scope", "workspace")
         priority = arguments.get("priority", "all")
 
@@ -39,7 +39,7 @@ class CodeSimplifier(BaseAgent):
         issues = []
 
         # 1. 중복 코드
-        self.logger.info("🔍 [1/3] 중복 코드 검색 중...")
+        self.log_progress("🔍 [1/3] 중복 코드 검색 중")
         duplicates = self._find_duplicates(target_path)
         if duplicates:
             issues.append({
@@ -50,7 +50,7 @@ class CodeSimplifier(BaseAgent):
             })
 
         # 2. 복잡도
-        self.logger.info("🔍 [2/3] 복잡한 함수 검색 중...")
+        self.log_progress("🔍 [2/3] 복잡한 함수 검색 중")
         complex_functions = self._find_complex_functions(target_path)
         if complex_functions:
             issues.append({
@@ -61,10 +61,9 @@ class CodeSimplifier(BaseAgent):
             })
 
         # 3. 레거시 코드
-        self.logger.info("🔍 [3/3] 레거시 코드 검색 중...")
+        self.log_progress("🔍 [3/3] 레거시 코드 검색 중")
         legacy_code = self._find_legacy_code(target_path)
-        
-        self.logger.info("✅ 분석 완료")
+
         if legacy_code:
             issues.append({
                 "priority": "low",
@@ -72,6 +71,8 @@ class CodeSimplifier(BaseAgent):
                 "count": len(legacy_code),
                 "details": legacy_code[:3]
             })
+
+        self.log_progress("✅ 코드 단순화 분석 완료")
 
         # 우선순위 필터
         if priority != "all":
@@ -100,6 +101,8 @@ class CodeSimplifier(BaseAgent):
                     results.append(f"- {detail}\n")
                 results.append("\n")
 
+        results.append(self.get_progress_section())
+
         return "\n".join(results)
 
     def _find_duplicates(self, path: Path) -> list[str]:
@@ -113,7 +116,7 @@ class CodeSimplifier(BaseAgent):
             "--type", "rust",
             r"\.unwrap\(\)",
             str(path)
-        ])
+        ], stream_output=True)
 
         if stdout.strip():
             lines = stdout.strip().split('\n')
@@ -126,7 +129,7 @@ class CodeSimplifier(BaseAgent):
             "--type", "rust",
             r"\.clone\(\)",
             str(path)
-        ])
+        ], stream_output=True)
 
         if stdout.strip():
             lines = stdout.strip().split('\n')
@@ -180,7 +183,7 @@ class CodeSimplifier(BaseAgent):
             "--type", "rust",
             r"^//\s*fn\s+\w+",
             str(path)
-        ])
+        ], stream_output=True)
 
         if stdout.strip():
             lines = stdout.strip().split('\n')
@@ -193,7 +196,7 @@ class CodeSimplifier(BaseAgent):
             "--type", "rust",
             r"//\s*(TODO|FIXME)",
             str(path)
-        ])
+        ], stream_output=True)
 
         if stdout.strip():
             lines = stdout.strip().split('\n')

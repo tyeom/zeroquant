@@ -18,6 +18,7 @@
 //! - [`openapi`]: OpenAPI 문서 및 Swagger UI
 
 pub mod auth;
+pub mod cache;
 pub mod error;
 pub mod metrics;
 pub mod middleware;

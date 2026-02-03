@@ -12,7 +12,10 @@ pub mod klines;
 pub mod orders;
 pub mod portfolio;
 pub mod positions;
+pub mod reality_check;
 pub mod screening;
+pub mod signal_alert_rule;
+pub mod signal_marker;
 pub mod strategies;
 pub mod symbol_fundamental;
 pub mod symbol_info;
@@ -37,6 +40,11 @@ pub use positions::{
 };
 pub use screening::{
     MomentumScreenResult, ScreeningFilter, ScreeningPreset, ScreeningRepository, ScreeningResult,
+    SectorRsResult,
+};
+pub use reality_check::{
+    CalculationResult, DailyStats, PriceSnapshot, RankStats, RealityCheckRecord,
+    RealityCheckRepository, SnapshotInput, SourceStats,
 };
 pub use strategies::StrategyRepository;
 pub use symbol_fundamental::{
@@ -73,3 +81,8 @@ pub use cost_basis::{
     build_tracker_from_executions, CostBasisSummary, CostBasisTracker, FifoSaleResult, Lot,
     LotUsage, TradeExecution,
 };
+
+pub use signal_alert_rule::{
+    CreateAlertRuleRequest, SignalAlertRule, SignalAlertRuleRepository, UpdateAlertRuleRequest,
+};
+pub use signal_marker::SignalMarkerRepository;
