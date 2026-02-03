@@ -23,63 +23,55 @@ pub struct LiquidityGate {
 
 impl LiquidityGate {
     /// 시장별 기본 게이트 생성.
+    ///
+    /// MarketType만으로는 국가를 구분할 수 없으므로,
+    /// 보수적인 기준(한국 주식 기준)을 기본값으로 사용합니다.
+    /// 국가별 세분화가 필요한 경우 `for_country` 메서드를 사용하세요.
     pub fn for_market(market_type: MarketType) -> Self {
         match market_type {
-            MarketType::KrStock => {
-                // KOSPI/KOSDAQ 통합 (KOSDAQ 기준 100억 사용)
-                Self {
-                    market_type,
-                    min_volume_amount: dec!(10_000_000_000), // 100억원
-                    relaxed_min: dec!(8_000_000_000),        // 80억원
-                }
-            }
-            MarketType::UsStock => {
-                // NYSE/NASDAQ
-                Self {
-                    market_type,
-                    min_volume_amount: dec!(100_000_000), // $100M
-                    relaxed_min: dec!(50_000_000),         // $50M
-                }
-            }
-            MarketType::Stock => {
-                // 기타 주식 시장 (일본, 중국 등) - 보수적 기준
-                Self {
-                    market_type,
-                    min_volume_amount: dec!(10_000_000_000), // ¥10B 또는 등가
-                    relaxed_min: dec!(5_000_000_000),        // ¥5B 또는 등가
-                }
-            }
-            MarketType::Crypto => {
-                // 암호화폐 - USDT 기준
-                Self {
-                    market_type,
-                    min_volume_amount: dec!(1_000_000), // $1M
-                    relaxed_min: dec!(500_000),         // $500K
-                }
-            }
-            MarketType::Forex => {
-                // 외환 - 유동성이 매우 높으므로 기준 낮음
-                Self {
-                    market_type,
-                    min_volume_amount: dec!(10_000_000), // $10M
-                    relaxed_min: dec!(5_000_000),        // $5M
-                }
-            }
-            MarketType::Futures => {
-                // 선물/파생상품 - 높은 레버리지로 유동성 중요
-                Self {
-                    market_type,
-                    min_volume_amount: dec!(50_000_000), // $50M
-                    relaxed_min: dec!(25_000_000),       // $25M
-                }
-            }
+            // 주식 시장 - 한국 기준 (보수적)
+            MarketType::Stock | MarketType::KrStock => Self {
+                market_type: MarketType::Stock,
+                min_volume_amount: dec!(10_000_000_000), // 100억원
+                relaxed_min: dec!(8_000_000_000),        // 80억원
+            },
+            // 미국 주식 (레거시 타입 지원)
+            MarketType::UsStock => Self {
+                market_type: MarketType::Stock,
+                min_volume_amount: dec!(100_000_000), // $100M
+                relaxed_min: dec!(50_000_000),        // $50M
+            },
+            // 인덱스 - 주식과 동일 기준
+            MarketType::Index => Self {
+                market_type: MarketType::Stock,
+                min_volume_amount: dec!(10_000_000_000), // 100억원
+                relaxed_min: dec!(8_000_000_000),        // 80억원
+            },
+            // 암호화폐 - USDT 기준
+            MarketType::Crypto => Self {
+                market_type,
+                min_volume_amount: dec!(1_000_000), // $1M
+                relaxed_min: dec!(500_000),         // $500K
+            },
+            // 외환 - 유동성이 매우 높으므로 기준 낮음
+            MarketType::Forex => Self {
+                market_type,
+                min_volume_amount: dec!(10_000_000), // $10M
+                relaxed_min: dec!(5_000_000),        // $5M
+            },
+            // 선물/파생상품 - 높은 레버리지로 유동성 중요
+            MarketType::Futures => Self {
+                market_type,
+                min_volume_amount: dec!(50_000_000), // $50M
+                relaxed_min: dec!(25_000_000),       // $25M
+            },
         }
     }
 
     /// KOSPI 전용 게이트 생성.
     pub fn kospi() -> Self {
         Self {
-            market_type: MarketType::KrStock,
+            market_type: MarketType::Stock,
             min_volume_amount: dec!(20_000_000_000), // 200억원
             relaxed_min: dec!(15_000_000_000),       // 150억원
         }
@@ -88,7 +80,7 @@ impl LiquidityGate {
     /// KOSDAQ 전용 게이트 생성.
     pub fn kosdaq() -> Self {
         Self {
-            market_type: MarketType::KrStock,
+            market_type: MarketType::Stock,
             min_volume_amount: dec!(10_000_000_000), // 100억원
             relaxed_min: dec!(8_000_000_000),        // 80억원
         }
@@ -171,7 +163,7 @@ mod tests {
 
     #[test]
     fn test_kr_stock_gate() {
-        let gate = LiquidityGate::for_market(MarketType::KrStock);
+        let gate = LiquidityGate::for_market(MarketType::Stock);
 
         // 100억원 (기본 기준)
         assert!(gate.passes(dec!(10_000_000_000)));
@@ -213,7 +205,7 @@ mod tests {
 
     #[test]
     fn test_check_level() {
-        let gate = LiquidityGate::for_market(MarketType::KrStock);
+        let gate = LiquidityGate::for_market(MarketType::Stock);
 
         assert_eq!(
             gate.check_level(dec!(12_000_000_000)),

@@ -28,8 +28,11 @@ use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::VecDeque;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 use trader_core::{
+    domain::{RouteState, StrategyContext},
     MarketData, MarketDataType, MarketType, Order, Position, Side, Signal, SignalType, Symbol,
 };
 
@@ -88,6 +91,10 @@ pub struct InfinityBotConfig {
     /// 모멘텀 가중치 (장기, 중기, 단기)
     #[serde(default = "default_momentum_weights")]
     pub momentum_weights: [Decimal; 3],
+
+    /// 최소 GlobalScore (기본값: 50)
+    #[serde(default = "default_min_global_score")]
+    pub min_global_score: Decimal,
 }
 
 fn default_total_amount() -> Decimal {
@@ -120,6 +127,9 @@ fn default_long_ma() -> usize {
 fn default_momentum_weights() -> [Decimal; 3] {
     [dec!(0.3), dec!(0.2), dec!(0.3)]
 }
+fn default_min_global_score() -> Decimal {
+    dec!(50)
+}
 
 impl Default for InfinityBotConfig {
     fn default() -> Self {
@@ -135,6 +145,7 @@ impl Default for InfinityBotConfig {
             mid_ma_period: default_mid_ma(),
             long_ma_period: default_long_ma(),
             momentum_weights: default_momentum_weights(),
+            min_global_score: default_min_global_score(),
         }
     }
 }
@@ -179,6 +190,7 @@ impl Default for InfinityBotState {
 pub struct InfinityBotStrategy {
     config: Option<InfinityBotConfig>,
     symbol: Option<Symbol>,
+    context: Option<Arc<RwLock<StrategyContext>>>,
     state: InfinityBotState,
     /// 가격 히스토리
     prices: VecDeque<Decimal>,
@@ -198,6 +210,7 @@ impl InfinityBotStrategy {
         Self {
             config: None,
             symbol: None,
+            context: None,
             state: InfinityBotState::default(),
             prices: VecDeque::new(),
             short_ma: None,
@@ -249,6 +262,71 @@ impl InfinityBotStrategy {
         } else {
             Decimal::ZERO
         }
+    }
+
+    /// RouteState와 GlobalScore를 체크하여 진입 가능 여부 반환.
+    ///
+    /// # 진입 조건
+    ///
+    /// - RouteState::Attack: 적극 진입 가능
+    /// - RouteState::Armed: 조건부 허용
+    /// - RouteState::Overheat/Wait/Neutral: 진입 금지
+    /// - GlobalScore >= min_global_score: 진입 허용
+    fn can_enter(&self) -> bool {
+        let Some(config) = self.config.as_ref() else {
+            return false;
+        };
+        let ticker = &config.symbol;
+
+        let Some(ctx) = self.context.as_ref() else {
+            warn!("StrategyContext not available - entry blocked");
+            return false;
+        };
+
+        let Ok(ctx_lock) = ctx.try_read() else {
+            warn!("Failed to acquire context lock - entry blocked");
+            return false;
+        };
+
+        // RouteState 체크
+        if let Some(route_state) = ctx_lock.get_route_state(ticker) {
+            match route_state {
+                RouteState::Overheat | RouteState::Wait | RouteState::Neutral => {
+                    debug!(
+                        ticker = %ticker,
+                        route_state = ?route_state,
+                        "RouteState blocks entry"
+                    );
+                    return false;
+                }
+                RouteState::Armed => {
+                    debug!(ticker = %ticker, "RouteState::Armed - conditional entry");
+                }
+                RouteState::Attack => {
+                    debug!(ticker = %ticker, "RouteState::Attack - aggressive entry");
+                }
+            }
+        }
+
+        // GlobalScore 체크
+        if let Some(score) = ctx_lock.get_global_score(ticker) {
+            if score.overall_score < config.min_global_score {
+                debug!(
+                    ticker = %ticker,
+                    score = %score.overall_score,
+                    min_required = %config.min_global_score,
+                    "Low GlobalScore - skip entry"
+                );
+                return false;
+            }
+            debug!(
+                ticker = %ticker,
+                score = %score.overall_score,
+                "GlobalScore pass"
+            );
+        }
+
+        true
     }
 
     /// 라운드별 진입 조건 확인
@@ -454,6 +532,12 @@ impl InfinityBotStrategy {
 
         // 3. 추가 매수 확인
         if self.should_add_position(current_price) {
+            // StrategyContext 기반 필터링 (RouteState + GlobalScore)
+            if !self.can_enter() {
+                debug!("[InfinityBot] Entry blocked by StrategyContext filter");
+                return signals;
+            }
+
             let next_round = self.state.current_round + 1;
 
             if self.can_enter_round(next_round, current_price) {
@@ -532,7 +616,7 @@ impl Strategy for InfinityBotStrategy {
             "Initializing Infinity Bot strategy"
         );
 
-        self.symbol = Symbol::from_string(&ib_config.symbol, MarketType::KrStock);
+        self.symbol = Symbol::from_string(&ib_config.symbol, MarketType::Stock);
         self.config = Some(ib_config);
         self.state = InfinityBotState::default();
         self.prices.clear();
@@ -637,6 +721,11 @@ impl Strategy for InfinityBotStrategy {
             "initialized": self.initialized,
         })
     }
+
+    fn set_context(&mut self, context: Arc<RwLock<StrategyContext>>) {
+        self.context = Some(context);
+        info!("StrategyContext injected into Infinity Bot strategy");
+    }
 }
 
 #[cfg(test)]
@@ -648,6 +737,7 @@ mod tests {
         let config = InfinityBotConfig::default();
         assert_eq!(config.max_rounds, 50);
         assert_eq!(config.take_profit_pct, dec!(3));
+        assert_eq!(config.min_global_score, dec!(50));
     }
 
     #[tokio::test]

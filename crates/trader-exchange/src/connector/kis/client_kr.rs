@@ -325,7 +325,7 @@ impl KisKrClient {
     ///
     /// # 재시도
     /// 네트워크 오류, Rate Limit 시 자동 재시도 (설정에 따름)
-    pub async fn get_price(&self, stock_code: &str) -> Result<KrStockPrice, ExchangeError> {
+    pub async fn get_price(&self, stock_code: &str) -> Result<StockPrice, ExchangeError> {
         let tr_id = self.get_tr_id(tr_id::KR_PRICE_REAL, tr_id::KR_PRICE_PAPER);
         let url = format!(
             "{}/uapi/domestic-stock/v1/quotations/inquire-price",
@@ -1154,7 +1154,7 @@ impl KisKrClient {
 
 /// 국내 주식 시세 데이터.
 #[derive(Debug, Clone, Deserialize)]
-pub struct KrStockPrice {
+pub struct StockPrice {
     /// 종목코드
     #[serde(rename = "stck_shrn_iscd")]
     pub stock_code: String,
@@ -1534,7 +1534,7 @@ struct KisKrPriceResponse {
     rt_cd: String,
     msg_cd: String,
     msg1: String,
-    output: KrStockPrice,
+    output: StockPrice,
 }
 
 #[derive(Debug, Deserialize)]

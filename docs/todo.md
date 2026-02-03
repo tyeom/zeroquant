@@ -299,10 +299,10 @@ strategies/common/
 - 동일한 지표/필터 설정이 여러 전략에 중복 정의
 - 전략 추가 시 프론트엔드 코드 수정 필요
 
-#### 4.1 Schema Fragment 시스템
+#### 4.1 Schema Fragment 시스템 ✅ 완료
 
 **구현 항목**
-- [ ] `SchemaFragment` 구조체 정의 (trader-core)
+- [x] `SchemaFragment` 구조체 정의 (trader-core) → [schema.rs](crates/trader-core/src/domain/schema.rs)
   ```rust
   /// 재사용 가능한 UI 스키마 조각
   pub struct SchemaFragment {
@@ -324,7 +324,7 @@ strategies/common/
   }
   ```
 
-- [ ] 기본 Fragment 정의 (26개 전략 공통 요소)
+- [x] 기본 Fragment 정의 (26개 전략 공통 요소) → [schema_registry.rs](crates/trader-strategy/src/schema_registry.rs)
   ```rust
   // 지표 Fragment
   pub static RSI_FRAGMENT: SchemaFragment = fragment! {
@@ -366,9 +366,9 @@ strategies/common/
   };
   ```
 
-#### 4.2 FragmentRegistry (Fragment 관리)
+#### 4.2 FragmentRegistry (Fragment 관리) ✅ 완료
 
-- [ ] `FragmentRegistry` 구현
+- [x] `FragmentRegistry` 구현 → [schema_registry.rs](crates/trader-strategy/src/schema_registry.rs)
   ```rust
   pub struct FragmentRegistry {
       fragments: HashMap<String, SchemaFragment>,
@@ -389,7 +389,7 @@ strategies/common/
   }
   ```
 
-- [ ] 빌트인 Fragment 카탈로그
+- [x] 빌트인 Fragment 카탈로그 (17개 Fragment 구현)
   | 카테고리 | Fragment ID | 설명 |
   |----------|-------------|------|
   | Indicator | `indicator.rsi` | RSI 설정 |
@@ -409,9 +409,9 @@ strategies/common/
   | Asset | `asset.single` | 단일 심볼 |
   | Asset | `asset.universe` | 심볼 유니버스 |
 
-#### 4.3 StrategyConfig Derive 매크로
+#### 4.3 StrategyConfig Derive 매크로 ✅ 완료
 
-- [ ] `#[derive(StrategyConfig)]` 프로시저 매크로
+- [x] `#[derive(StrategyConfig)]` 프로시저 매크로 → [trader-strategy-macro/src/lib.rs](crates/trader-strategy-macro/src/lib.rs)
   ```rust
   use trader_strategy_macro::StrategyConfig;
 
@@ -437,7 +437,7 @@ strategies/common/
   }
   ```
 
-- [ ] 매크로가 생성하는 코드
+- [x] 매크로가 생성하는 코드 (`ui_schema()` 메서드 생성)
   ```rust
   impl RsiConfig {
       /// 전체 UI 스키마 생성
@@ -639,7 +639,7 @@ strategies/common/
 - 미체결 주문 상태 모름 → 중복 주문 위험
 
 **구현 항목**
-- [ ] `StrategyContext` 구조체 정의
+- [x] `StrategyContext` 구조체 정의 ✅ (trader-core/domain/context.rs)
   ```rust
   pub struct StrategyContext {
       // ===== 거래소 실시간 정보 =====
@@ -669,7 +669,7 @@ strategies/common/
       pub last_analysis_sync: DateTime<Utc>,
   }
   ```
-- [ ] `AccountInfo` - 실시간 계좌 정보
+- [x] `AccountInfo` - 실시간 계좌 정보 ✅ (`StrategyAccountInfo`로 구현)
   ```rust
   pub struct AccountInfo {
       pub total_balance: Decimal,       // 총 자산
@@ -678,7 +678,7 @@ strategies/common/
       pub unrealized_pnl: Decimal,      // 미실현 손익 합계
   }
   ```
-- [ ] `PositionInfo` - 포지션 상세 정보
+- [x] `PositionInfo` - 포지션 상세 정보 ✅ (`StrategyPositionInfo`로 구현)
   ```rust
   pub struct PositionInfo {
       pub symbol: Symbol,
@@ -691,7 +691,7 @@ strategies/common/
       pub liquidation_price: Option<Decimal>,  // 청산가 (레버리지)
   }
   ```
-- [ ] `ExchangeConstraints` - 거래소 제약
+- [x] `ExchangeConstraints` - 거래소 제약 ✅ (trader-core/domain/context.rs)
   ```rust
   pub struct ExchangeConstraints {
       pub tick_size: TickSizeProvider,
@@ -700,7 +700,7 @@ strategies/common/
       pub trading_hours: Option<TradingHours>,
   }
   ```
-- [ ] `ExchangeProvider` trait (거래소별 구현)
+- [x] `ExchangeProvider` trait (거래소별 구현) ✅ (trader-core/domain/exchange_provider.rs)
   ```rust
   #[async_trait]
   pub trait ExchangeProvider: Send + Sync {
@@ -709,7 +709,7 @@ strategies/common/
       async fn fetch_pending_orders(&self) -> Result<Vec<PendingOrder>>;
   }
   ```
-- [ ] `AnalyticsProvider` trait (분석 결과 주입)
+- [x] `AnalyticsProvider` trait (분석 결과 주입) ✅ (trader-core/domain/analytics_provider.rs)
   ```rust
   #[async_trait]
   pub trait AnalyticsProvider: Send + Sync {
@@ -723,7 +723,7 @@ strategies/common/
       async fn fetch_features(&self, symbols: &[Symbol]) -> Result<HashMap<Symbol, StructuralFeatures>>;
   }
   ```
-- [ ] `ContextSyncService` - 주기적 동기화 서비스
+- [x] `ContextSyncService` - 주기적 동기화 서비스 ✅ (trader-api/services/context_sync.rs)
   ```rust
   pub struct ContextSyncService {
       exchange_provider: Box<dyn ExchangeProvider>,
@@ -748,6 +748,12 @@ strategies/common/
   ```
 
 **Strategy trait 확장**
+- [x] `set_context` 메서드 ✅ (trader-strategy/traits.rs:58)
+- [x] `PositionAdjustable` trait ✅ *2026-02-03 구현* (trader-core/domain/position.rs)
+  - `should_adjust_position(&self, position: &Position) -> PositionAdjustment`
+- [x] `PositionAdjustment` struct ✅ *2026-02-03 구현* (trader-core/domain/position.rs)
+  - `AdjustmentType` enum: Add, Reduce, Close, StopLoss, TakeProfit, Rebalance, None
+
 ```rust
 pub trait Strategy: Send + Sync {
     // 기존 메서드들...
@@ -755,7 +761,7 @@ pub trait Strategy: Send + Sync {
     /// 컨텍스트 주입 (엔진에서 호출)
     fn set_context(&mut self, ctx: Arc<RwLock<StrategyContext>>);
 
-    /// 포지션 기반 의사결정 (선택적 구현)
+    /// 포지션 기반 의사결정 (선택적 구현) - 미구현
     fn should_adjust_position(&self, position: &PositionInfo) -> Option<PositionAdjustment> {
         None  // 기본: 조정 안 함
     }
@@ -953,7 +959,7 @@ fn check_overheat_exit(&self, ctx: &StrategyContext) -> Vec<Signal> {
 **목적**: "살아있는 횡보"와 "죽은 횡보"를 구분하여 돌파 가능성 예측
 
 **구현 항목**
-- [ ] `StructuralFeatures` 구조체 정의 (trader-analytics)
+- [x] `StructuralFeatures` 구조체 정의 (trader-analytics) ✅
   ```rust
   pub struct StructuralFeatures {
       pub low_trend: f64,      // Higher Low 강도
@@ -964,9 +970,9 @@ fn check_overheat_exit(&self, ctx: &StrategyContext) -> Vec<Signal> {
       pub rsi: f64,            // RSI 14일
   }
   ```
-- [ ] `from_candles()` 계산 로직 (공통 지표 모듈 활용)
-- [ ] 피처 캐싱 (Redis, 동일 OHLCV 재계산 방지)
-- [ ] 스크리닝 필터 조건으로 활용
+- [x] `from_candles()` 계산 로직 (공통 지표 모듈 활용) ✅
+- [x] 피처 캐싱 (Redis, 동일 OHLCV 재계산 방지) ✅ (trader-api/cache/structural.rs)
+- [x] 스크리닝 필터 조건으로 활용 ✅ (screening_integration.rs)
 
 **예상 시간**: 1주
 
@@ -978,7 +984,7 @@ fn check_overheat_exit(&self, ctx: &StrategyContext) -> Vec<Signal> {
 **목적**: 종목의 현재 매매 단계를 5단계로 분류
 
 **구현 항목**
-- [ ] `RouteState` enum 정의 (trader-core)
+- [x] `RouteState` enum 정의 (trader-core) ✅
   ```rust
   pub enum RouteState {
       Attack,    // TTM Squeeze 해제 + 모멘텀 상승 + RSI 45~65 + Range_Pos >= 0.8
@@ -988,9 +994,9 @@ fn check_overheat_exit(&self, ctx: &StrategyContext) -> Vec<Signal> {
       Neutral,   // 위 조건 미충족
   }
   ```
-- [ ] `RouteStateCalculator` 구현 (StructuralFeatures 활용)
-- [ ] `symbol_fundamental` 테이블에 `route_state` 컬럼 추가
-- [ ] 스크리닝 응답에 `route_state` 포함
+- [x] `RouteStateCalculator` 구현 (StructuralFeatures 활용) ✅
+- [x] `symbol_fundamental` 테이블에 `route_state` 컬럼 추가 ✅ (09_strategy_system.sql)
+- [x] 스크리닝 응답에 `route_state` 포함 ✅ (ScreeningResult.route_state)
 - [ ] ATTACK 상태 전환 시 텔레그램 알림
 
 **전략 연동**:
@@ -1009,7 +1015,7 @@ fn check_overheat_exit(&self, ctx: &StrategyContext) -> Vec<Signal> {
 **목적**: 종목의 추세 단계를 5단계로 분류하여 매매 타이밍 판단
 
 **구현 항목**
-- [ ] `MarketRegime` enum 정의 (trader-core)
+- [x] `MarketRegime` enum 정의 (trader-core) ✅
   ```rust
   pub enum MarketRegime {
       StrongUptrend,  // ① 강한 상승 추세 (rel_60d > 10 + slope > 0 + RSI 50~70)
@@ -1019,19 +1025,19 @@ fn check_overheat_exit(&self, ctx: &StrategyContext) -> Vec<Signal> {
       Downtrend,      // ⑤ 하락 / 약세
   }
   ```
-- [ ] 60일 상대강도(`rel_60d_%`) 계산 로직
-- [ ] 스크리닝 응답에 `regime` 필드 추가
+- [x] 60일 상대강도(`rel_60d_%`) 계산 로직 ✅ (calculate_relative_strength_60d)
+- [x] 스크리닝 응답에 `regime` 필드 추가 ✅ (ScreeningResult.regime)
 
 **예상 시간**: 4시간
 
 ---
 
-#### 1.2.2 TRIGGER 진입 트리거 시스템 ⭐ 신규
+#### 1.2.2 TRIGGER 진입 트리거 시스템 ✅ 완료
 
 **목적**: 여러 기술적 조건을 종합하여 진입 신호 강도와 트리거 라벨 생성
 
 **구현 항목**
-- [ ] `TriggerResult` 구조체 정의
+- [x] `TriggerResult` 구조체 정의 → [trigger.rs](crates/trader-core/src/domain/trigger.rs)
   ```rust
   pub struct TriggerResult {
       pub score: f64,              // 0~100
@@ -1048,41 +1054,41 @@ fn check_overheat_exit(&self, ctx: &StrategyContext) -> Vec<Signal> {
       Engulfing,      // 장악형 캔들 (+10점)
   }
   ```
-- [ ] 캔들 패턴 감지 로직 (망치형, 장악형)
-- [ ] 스크리닝 응답에 `trigger_score`, `trigger_label` 추가
+- [x] 캔들 패턴 감지 로직 (망치형, 장악형) → [candle_patterns.rs](crates/trader-analytics/src/indicators/candle_patterns.rs)
+- [x] 스크리닝 응답에 `trigger_score`, `trigger_label` 추가 → [screening.rs](crates/trader-api/src/routes/screening.rs)
 
 **예상 시간**: 8시간
 
 ---
 
-#### 1.2.3 TTM Squeeze 상세 구현 ⭐ 신규
+#### 1.2.3 TTM Squeeze 상세 구현 ✅ 완료
 
 **목적**: John Carter의 TTM Squeeze - BB가 KC 내부로 들어가면 에너지 응축 상태
 
 **구현 항목**
-- [ ] `TtmSqueeze` 구조체 정의
+- [x] `TtmSqueezeResult` 구조체 정의 → [volatility.rs](crates/trader-analytics/src/indicators/volatility.rs)
   ```rust
-  pub struct TtmSqueeze {
-      pub is_squeeze: bool,        // 현재 스퀴즈 상태
-      pub squeeze_count: u32,      // 연속 스퀴즈 일수
-      pub momentum: Decimal,       // 스퀴즈 모멘텀 (방향)
-      pub released: bool,          // 이번 봉에서 해제되었는가?
+  pub struct TtmSqueezeResult {
+      pub is_squeeze: bool,
+      pub squeeze_count: u32,
+      pub momentum: Decimal,
+      pub released: bool,
   }
   ```
-- [ ] Keltner Channel 계산 (KC = MA ± 1.5 * ATR)
-- [ ] BB vs KC 비교 로직
-- [ ] `symbol_fundamental` 테이블에 `ttm_squeeze`, `ttm_squeeze_cnt` 컬럼 추가
+- [x] Keltner Channel 계산 → `KeltnerChannelResult`
+- [x] BB vs KC 비교 로직 → `VolatilityIndicators::ttm_squeeze()`
+- [x] `symbol_fundamental` 테이블에 `ttm_squeeze`, `ttm_squeeze_cnt` 컬럼 추가
 
 **예상 시간**: 6시간
 
 ---
 
-#### 1.2.4 Macro Filter 매크로 환경 필터 ⭐ 신규
+#### 1.2.4 Macro Filter 매크로 환경 필터 ✅ 완료
 
 **목적**: USD/KRW 환율, 나스닥 지수 모니터링으로 시장 위험도 평가 및 동적 진입 기준 조정
 
 **구현 항목**
-- [ ] `MacroEnvironment` 구조체 정의
+- [x] `MacroEnvironment` 구조체 정의 → [macro_environment.rs](crates/trader-core/src/domain/macro_environment.rs)
   ```rust
   pub struct MacroEnvironment {
       pub risk_level: MacroRisk,
@@ -1107,74 +1113,53 @@ fn check_overheat_exit(&self, ctx: &StrategyContext) -> Vec<Signal> {
 
 ---
 
-#### 1.2.5 Market Breadth 시장 온도 ⭐ 신규
+#### 1.2.5 Market Breadth 시장 온도 ✅ 완료
 
 **목적**: 20일선 상회 종목 비율로 시장 전체 건강 상태 측정
 
 **구현 항목**
-- [ ] `MarketBreadth` 구조체 정의
-  ```rust
-  pub struct MarketBreadth {
-      pub all: f64,
-      pub kospi: f64,
-      pub kosdaq: f64,
-      pub temperature: MarketTemperature,
-  }
-
-  pub enum MarketTemperature {
-      Overheat,   // >= 65% 🔥
-      Neutral,    // 35~65% 🌤
-      Cold,       // <= 35% 🧊
-  }
-  ```
-- [ ] 시장별 Above_MA20 비율 계산
+- [x] `MarketBreadth` 구조체 정의 → [market_breadth.rs](crates/trader-core/src/domain/market_breadth.rs)
+- [x] `MarketTemperature` enum 정의
+- [x] 시장별 Above_MA20 비율 계산
 - [ ] 대시보드에 시장 온도 위젯 추가
 
 **예상 시간**: 4시간
 
 ---
 
-#### 1.2.6 추가 기술적 지표 ⭐ 신규
+#### 1.2.6 추가 기술적 지표 ✅ 완료
 
 **목적**: 분석 정확도 향상을 위한 추가 지표
 
 **구현 항목**
-- [ ] `HMA` (Hull Moving Average) - 빠른 반응, 낮은 휩소
-- [ ] `OBV` (On-Balance Volume) - 스마트 머니 추적
-- [ ] `SuperTrend` - 추세 추종 지표
-- [ ] `CandlePattern` 감지 - 망치형, 장악형
-
-```rust
-// trader-analytics/src/indicators/
-pub mod hma;         // Hull Moving Average
-pub mod obv;         // On-Balance Volume
-pub mod supertrend;  // SuperTrend
-pub mod candle_patterns; // 캔들 패턴 감지
-```
+- [x] `HMA` (Hull Moving Average) → [hma.rs](crates/trader-analytics/src/indicators/hma.rs)
+- [x] `OBV` (On-Balance Volume) → [obv.rs](crates/trader-analytics/src/indicators/obv.rs)
+- [x] `SuperTrend` → [supertrend.rs](crates/trader-analytics/src/indicators/supertrend.rs)
+- [x] `CandlePattern` 감지 → [candle_patterns.rs](crates/trader-analytics/src/indicators/candle_patterns.rs)
 
 **예상 시간**: 8시간
 
 ---
 
-#### 1.2.7 Sector RS 섹터 상대강도 ⭐ 신규
+#### 1.2.7 Sector RS 섹터 상대강도 ✅ 완료
 
 **목적**: 시장 대비 초과수익(Relative Strength)으로 진짜 주도 섹터 발굴
 
 **구현 항목**
-- [ ] 섹터별 RS 계산 (rel_20d_% 평균)
-- [ ] 종합 섹터 점수 = RS * 0.6 + 단순수익 * 0.4
-- [ ] 스크리닝에 `sector_rs`, `sector_rank` 필드 추가
+- [x] 섹터별 RS 계산 → [screening.rs](crates/trader-api/src/repository/screening.rs)
+- [x] 종합 섹터 점수 계산 로직
+- [x] 스크리닝에 `sector_rs`, `sector_rank` 필드 추가 → [screening_integration.rs](crates/trader-strategy/src/strategies/common/screening_integration.rs)
 
 **예상 시간**: 4시간
 
 ---
 
-#### 1.2.8 Reality Check 추천 검증 ⭐ 신규
+#### 1.2.8 Reality Check 추천 검증 ✅ 완료
 
 **목적**: 전일 추천 종목의 익일 실제 성과 자동 검증
 
 **구현 항목**
-- [ ] `price_snapshot` 테이블 (TimescaleDB hypertable)
+- [x] `price_snapshot` 테이블 (TimescaleDB hypertable) → [10_reality_check.sql](migrations/10_reality_check.sql)
   ```sql
   CREATE TABLE price_snapshot (
       snapshot_date DATE NOT NULL,
@@ -1188,27 +1173,15 @@ pub mod candle_patterns; // 캔들 패턴 감지
   );
   SELECT create_hypertable('price_snapshot', 'snapshot_date');
   ```
-- [ ] `reality_check` 테이블 (TimescaleDB hypertable)
-  ```sql
-  CREATE TABLE reality_check (
-      check_date DATE NOT NULL,
-      recommend_date DATE NOT NULL,
-      symbol VARCHAR(20) NOT NULL,
-      recommend_rank INT,
-      recommend_score DECIMAL(5,2),
-      entry_price DECIMAL(18,4),
-      next_close DECIMAL(18,4),
-      return_pct DECIMAL(8,4),
-      is_win BOOLEAN,
-      holding_days INT DEFAULT 1,
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      PRIMARY KEY (check_date, symbol)
-  );
-  SELECT create_hypertable('reality_check', 'check_date');
-  ```
-- [ ] 전일 추천 vs 금일 종가 비교 로직
-- [ ] `RealityCheckRepository` 구현
-- [ ] 통계 대시보드 API (`GET /api/v1/reality-check/stats`)
+- [x] `reality_check` 테이블 (TimescaleDB hypertable) → [10_reality_check.sql](migrations/10_reality_check.sql)
+- [x] 전일 추천 vs 금일 종가 비교 로직 → [reality_check.rs](crates/trader-api/src/repository/reality_check.rs)
+- [x] `RealityCheckRepository` 구현 → [reality_check.rs](crates/trader-api/src/repository/reality_check.rs)
+- [x] 통계 대시보드 API → [reality_check.rs](crates/trader-api/src/routes/reality_check.rs)
+  - `GET /api/v1/reality-check/stats` - 통계 조회
+  - `GET /api/v1/reality-check/results` - 검증 결과 목록
+  - `GET /api/v1/reality-check/snapshots` - 스냅샷 목록
+  - `POST /api/v1/reality-check/snapshots` - 스냅샷 저장
+  - `POST /api/v1/reality-check/calculate` - Reality Check 계산
 
 **활용**:
 - 전략 신뢰도 측정
@@ -1232,7 +1205,7 @@ pub mod candle_patterns; // 캔들 패턴 감지
 - 과거 데이터에서 특정 패턴(골든크로스, RSI 과매도 등) 검색 불가
 
 **구현 항목**
-- [ ] `SignalMarker` 구조체 정의 (trader-core)
+- [x] ✅ `SignalMarker` 구조체 정의 (trader-core) → [signal.rs:196-234](crates/trader-core/src/domain/signal.rs#L196-L234)
   ```rust
   /// 기술 신호 마커 - 캔들 차트에 표시할 신호 정보
   pub struct SignalMarker {
@@ -1291,36 +1264,8 @@ pub mod candle_patterns; // 캔들 패턴 감지
       pub vol_quality: Option<f64>,
   }
   ```
-- [ ] `SignalMarkerRepository` 구현 (저장/조회)
-  ```rust
-  #[async_trait]
-  pub trait SignalMarkerRepository {
-      /// 신호 마커 저장
-      async fn save(&self, marker: &SignalMarker) -> Result<()>;
-
-      /// 심볼+기간으로 조회
-      async fn find_by_symbol(
-          &self,
-          symbol: &Symbol,
-          start: DateTime<Utc>,
-          end: DateTime<Utc>,
-      ) -> Result<Vec<SignalMarker>>;
-
-      /// 전략별 조회
-      async fn find_by_strategy(
-          &self,
-          strategy_id: &str,
-          limit: usize,
-      ) -> Result<Vec<SignalMarker>>;
-
-      /// 특정 지표 조건으로 검색 (예: RSI < 30인 신호)
-      async fn search_by_indicator(
-          &self,
-          filter: IndicatorFilter,
-      ) -> Result<Vec<SignalMarker>>;
-  }
-  ```
-- [ ] 백테스트 엔진에서 SignalMarker 자동 기록
+- [x] ✅ `SignalMarkerRepository` 구현 (저장/조회) → [signal_marker.rs](crates/trader-api/src/repository/signal_marker.rs)
+- [x] ✅ 백테스트 엔진에서 SignalMarker 자동 기록 → [engine.rs:533](crates/trader-analytics/src/backtest/engine.rs#L533)
   ```rust
   // engine.rs에서 신호 발생 시 마커 생성
   fn process_signal(&mut self, signal: &Signal, kline: &Kline) {
@@ -1329,26 +1274,21 @@ pub mod candle_patterns; // 캔들 패턴 감지
       // ... 기존 로직
   }
   ```
-- [ ] 지표 패턴 검색 API
-  ```rust
-  // POST /api/v1/signals/search
-  #[derive(Deserialize)]
-  pub struct SignalSearchRequest {
-      pub symbol: Option<String>,
-      pub start_date: DateTime<Utc>,
-      pub end_date: DateTime<Utc>,
-      pub filters: Vec<IndicatorFilter>,  // RSI < 30, MACD 크로스 등
-      pub strategy_id: Option<String>,
-  }
-  ```
+- [x] ✅ 지표 패턴 검색 API → [signals.rs:184](crates/trader-api/src/routes/signals.rs#L184)
 
 **API 엔드포인트**
-- [ ] `GET /api/v1/signals/markers/{symbol}` - 심볼별 신호 마커 조회
-- [ ] `GET /api/v1/signals/markers/backtest/{id}` - 백테스트 결과의 신호 목록
-- [ ] `POST /api/v1/signals/search` - 지표 조건 검색
+- [x] ✅ `GET /api/v1/signals/by-symbol` - 심볼별 신호 마커 조회 → [signals.rs:226](crates/trader-api/src/routes/signals.rs#L226)
+- [x] ✅ `GET /api/v1/signals/markers/backtest/{id}` - 백테스트 결과의 신호 목록 *2026-02-03 구현* → [signals.rs:330](crates/trader-api/src/routes/signals.rs#L330)
+- [x] ✅ `POST /api/v1/signals/search` - 지표 조건 검색 → [signals.rs:184](crates/trader-api/src/routes/signals.rs#L184)
+- [x] ✅ `GET /api/v1/signals/by-strategy` - 전략별 신호 조회 → [signals.rs:270](crates/trader-api/src/routes/signals.rs#L270)
 
 **텔레그램 알림 연동**
-- [ ] `SignalAlertService` - 신호 발생 시 텔레그램 알림
+- [x] ✅ `SignalAlertService` 기본 구조체 → [signal_alert.rs:96](crates/trader-api/src/services/signal_alert.rs#L96)
+- [x] ✅ `AlertRule` 구조체 *2026-02-03 구현* → [alert.rs](crates/trader-core/src/domain/alert.rs)
+- [x] ✅ `AlertCondition` enum *2026-02-03 구현* → [alert.rs](crates/trader-core/src/domain/alert.rs)
+  - Indicator, Price, RouteStateChange, GlobalScore, And, Or
+- [x] ✅ `IndicatorFilter` 구조체 *2026-02-03 구현* → [alert.rs](crates/trader-core/src/domain/alert.rs)
+- [x] ✅ `ComparisonOperator` enum *2026-02-03 구현* (Eq, Ne, Gt, Gte, Lt, Lte, Between, CrossAbove, CrossBelow)
   ```rust
   pub struct SignalAlertService {
       telegram: TelegramNotifier,
@@ -1406,12 +1346,12 @@ pub mod candle_patterns; // 캔들 패턴 감지
       }
   }
   ```
-- [ ] 알림 규칙 설정 API
+- [ ] ❌ 알림 규칙 설정 API **미구현**
   - [ ] `GET /api/v1/alerts/rules` - 알림 규칙 목록
   - [ ] `POST /api/v1/alerts/rules` - 규칙 생성
   - [ ] `PUT /api/v1/alerts/rules/{id}` - 규칙 수정
   - [ ] `DELETE /api/v1/alerts/rules/{id}` - 규칙 삭제
-- [ ] 기본 제공 알림 규칙
+- [ ] ❌ 기본 제공 알림 규칙 **미구현**
   - ATTACK 상태 진입 시 알림
   - 고강도(strength > 0.8) 진입 신호
   - RSI 극단값(< 25 또는 > 75) 신호
@@ -1436,16 +1376,16 @@ pub mod candle_patterns; // 캔들 패턴 감지
 **목적**: 모든 기술적 지표를 단일 점수(0~100)로 종합
 
 **구현 항목**
-- [ ] `GlobalScorer` 구현 (trader-analytics)
-  - [ ] 7개 팩터 가중치 (RR 0.25, T1 0.18, SL 0.12, NEAR 0.12, MOM 0.10, LIQ 0.13, TEC 0.10)
-  - [ ] 페널티 시스템 7개
-  - [ ] 정규화 유틸리티
-- [ ] `LiquidityGate` 시장별 설정
-- [ ] `ERS (Entry Ready Score)` 계산
+- [x] ✅ `GlobalScorer` 구현 (trader-analytics) → [global_scorer.rs](crates/trader-analytics/src/global_scorer.rs)
+  - [x] ✅ 7개 팩터 가중치 (RR 0.25, T1 0.18, SL 0.12, NEAR 0.12, MOM 0.10, LIQ 0.13, TEC 0.10) → [global_scorer.rs:56-79](crates/trader-analytics/src/global_scorer.rs#L56-L79)
+  - [x] ✅ 페널티 시스템 7개 → [global_scorer.rs:17-23](crates/trader-analytics/src/global_scorer.rs#L17-L23)
+  - [x] ✅ 정규화 유틸리티 (GlobalScorerParams) → [global_scorer.rs:82-126](crates/trader-analytics/src/global_scorer.rs#L82-L126)
+- [x] ✅ `LiquidityGate` 시장별 설정 → [liquidity_gate.rs](crates/trader-analytics/src/liquidity_gate.rs)
+- [x] ✅ `ERS (Entry Ready Score)` 계산 → GlobalScorer::calculate의 momentum 팩터에 포함
 
 **API**
-- [ ] `POST /api/v1/ranking/global` - 글로벌 랭킹 조회
-- [ ] `GET /api/v1/ranking/top?market=KR&n=10` - TOP N 조회
+- [x] ✅ `POST /api/v1/ranking/global` - 글로벌 랭킹 조회 → [ranking.rs:calculate_global](crates/trader-api/src/routes/ranking.rs)
+- [x] ✅ `GET /api/v1/ranking/top?market=KR&n=10` - TOP N 조회 → [ranking.rs:get_top_ranked](crates/trader-api/src/routes/ranking.rs)
 - [ ] 스크리닝 API에 `global_score` 필드 추가
 
 **전략 연동**:
@@ -1472,12 +1412,13 @@ pub mod candle_patterns; // 캔들 패턴 감지
 **구현 단계** (총 6 Phase, 7주):
 
 ##### Phase 1: 데이터 모델 확장 (1주)
-- [ ] `MultiTimeframeConfig` 구조체 정의
+- [x] `MultiTimeframeConfig` 구조체 정의 ✅ *2026-02-03 구현*
   ```rust
+  // crates/trader-core/src/domain/context.rs
   pub struct MultiTimeframeConfig {
-      pub primary: Timeframe,              // 주 실행 주기
-      pub secondary: Vec<Timeframe>,       // 추가 분석용 (최대 2개)
-      pub lookback_periods: HashMap<Timeframe, usize>,  // TF별 캔들 개수
+      pub timeframes: HashMap<Timeframe, usize>,  // TF별 캔들 개수
+      pub primary_timeframe: Option<Timeframe>,   // 기본 타임프레임
+      pub auto_sync: bool,                        // 자동 동기화 여부
   }
   ```
 - [ ] `StrategyConfig`에 `multi_timeframe` 필드 추가
@@ -1485,14 +1426,20 @@ pub mod candle_patterns; // 캔들 패턴 감지
 - [ ] 유효성 검증 (Secondary는 Primary보다 큰 TF만 허용)
 
 ##### Phase 2: 데이터 조회 API (1주)
-- [ ] `OhlcvCache::get_multi_timeframe_klines()` 구현
+- [x] `AnalyticsProviderImpl::fetch_multi_timeframe_klines()` 구현 ✅ *2026-02-03 구현*
   ```rust
-  pub async fn get_multi_timeframe_klines(
+  // crates/trader-analytics/src/analytics_provider_impl.rs
+  pub async fn fetch_multi_timeframe_klines(
       &self,
-      symbol: &Symbol,
-      timeframes: &[Timeframe],
-      limit: usize,
-  ) -> Result<HashMap<Timeframe, Vec<Kline>>>
+      ticker: &str,
+      config: &MultiTimeframeConfig,
+  ) -> Result<Vec<(Timeframe, Vec<Kline>)>, AnalyticsError>
+
+  pub async fn fetch_multi_timeframe_klines_batch(
+      &self,
+      tickers: &[&str],
+      config: &MultiTimeframeConfig,
+  ) -> Result<HashMap<String, Vec<(Timeframe, Vec<Kline>)>>, AnalyticsError>
   ```
 - [ ] Redis 멀티키 조회 최적화 (병렬 GET)
 - [ ] PostgreSQL 단일 쿼리 최적화 (UNION ALL)
@@ -1500,17 +1447,20 @@ pub mod candle_patterns; // 캔들 패턴 감지
 - [ ] 성능 테스트 (목표: 3 TF 조회 < 50ms)
 
 ##### Phase 3: Context Layer 통합 (1주)
-- [ ] `StrategyContext`에 `klines_by_timeframe` 필드 추가
+- [x] `StrategyContext`에 `klines_by_timeframe` 필드 추가 ✅ *2026-02-03 구현*
   ```rust
+  // crates/trader-core/src/domain/context.rs
   pub struct StrategyContext {
-      pub klines_by_timeframe: HashMap<Timeframe, Vec<Kline>>,
-      // ... 기존 필드
+      pub klines_by_timeframe: HashMap<String, HashMap<Timeframe, Vec<Kline>>>,
+      // ticker → (timeframe → klines)
   }
-  
+
   impl StrategyContext {
-      pub fn get_klines(&self, tf: Timeframe) -> Result<&[Kline]>;
-      pub fn primary_klines(&self) -> Result<&[Kline]>;
-      pub fn latest_kline(&self, tf: Timeframe) -> Result<&Kline>;
+      pub fn get_klines(&self, ticker: &str, tf: Timeframe) -> &[Kline];
+      pub fn get_multi_timeframe_klines(&self, ticker: &str, tfs: &[Timeframe]) -> Vec<(Timeframe, &[Kline])>;
+      pub fn get_available_timeframes(&self, ticker: &str) -> Vec<(Timeframe, usize)>;
+      pub fn update_klines(&mut self, ticker: &str, tf: Timeframe, klines: Vec<Kline>);
+      pub fn update_multi_timeframe_klines(&mut self, ticker: &str, data: Vec<(Timeframe, Vec<Kline>)>);
   }
   ```
 - [ ] Timeframe Alignment 로직 (미래 데이터 누출 방지)
@@ -1603,18 +1553,14 @@ impl Strategy for RsiMultiTimeframeStrategy {
 **[의존성: P1-A,P1-B,P1-C 완료 후]**
 
 **구현 항목**
-- [ ] 전략에서 스크리닝 결과 활용 인터페이스 정의
-  ```rust
-  pub trait ScreeningAware {
-      fn set_screening_results(&mut self, results: Vec<ScreeningResult>);
-      fn filter_by_route_state(&self, state: RouteState) -> Vec<&ScreeningResult>;
-  }
-  ```
-- [ ] 코스닥 급등주 전략: ATTACK 상태 종목만 진입
-- [ ] 스노우볼 전략: 저PBR+고배당 + Global Score 상위
-- [ ] 섹터 모멘텀 전략: 섹터별 TOP 5 자동 선택
+- [x] ✅ 전략에서 스크리닝 결과 활용 인터페이스 정의 → [screening_integration.rs](crates/trader-strategy/src/strategies/common/screening_integration.rs)
+  - ⚠️ **미연동**: 전략에서 실제 호출하지 않음 (테스트에서만 사용)
+- [ ] 코스닥 급등주 전략: ATTACK 상태 종목만 진입 ← **미연동**
+- [ ] 스노우볼 전략: 저PBR+고배당 + Global Score 상위 ← **미연동**
+- [ ] 섹터 모멘텀 전략: 섹터별 TOP 5 자동 선택 ← **미연동**
+- [x] ✅ 참고 구현: `grid.rs`의 `can_enter()` 패턴 → [grid.rs:218-264](crates/trader-strategy/src/strategies/grid.rs#L218-L264)
 
-**예상 시간**: 8시간
+**예상 시간**: 8시간 (전략 연동 작업)
 
 ---
 
@@ -1847,8 +1793,8 @@ frontend/src/
 - [ ] `DisclosureProvider` trait + SEC EDGAR
 - [ ] LLM 분석 (공시/뉴스 감성 분석)
 
-### 텔레그램 봇 명령어
-- [ ] `/portfolio`, `/status`, `/stop`, `/report`, `/attack`
+### 텔레그램 봇 명령어 ✅ 완료
+- [x] `/portfolio`, `/status`, `/stop`, `/report`, `/attack` → [bot_handler.rs](crates/trader-notification/src/bot_handler.rs), [telegram_bot.rs](crates/trader-api/src/services/telegram_bot.rs)
 
 ### 미구현 전략 (4개)
 - [ ] SPAC No-Loss, All at Once ETF, Rotation Savings, Dual KrStock UsBond

@@ -3,6 +3,12 @@
 //! 단기 이동평균이 장기 이동평균을 상향 돌파하면 매수,
 //! 하향 돌파하면 매도하는 클래식한 추세 추종 전략입니다.
 //!
+//! # StrategyContext 활용 (v2.0)
+//!
+//! - `RouteState`: 진입 가능 여부 판단
+//! - `GlobalScore`: 종목 품질 필터링
+//! - `MarketRegime`: 추세 확인
+//!
 //! # 전략 로직
 //! - 골든 크로스 (단기 SMA > 장기 SMA): 매수 신호
 //! - 데드 크로스 (단기 SMA < 장기 SMA): 매도 신호
@@ -11,10 +17,14 @@ use crate::strategies::common::deserialize_symbol;
 use crate::Strategy;
 use async_trait::async_trait;
 use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::VecDeque;
-use tracing::info;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use tracing::{debug, info};
+use trader_core::domain::{RouteState, StrategyContext};
 use trader_core::{
     MarketData, MarketDataType, MarketType, Order, Position, Side, Signal, SignalType, Symbol,
 };
@@ -37,6 +47,10 @@ pub struct SmaConfig {
     /// 거래 금액
     #[serde(default = "default_amount")]
     pub amount: Decimal,
+
+    /// 최소 GlobalScore (기본값: 50)
+    #[serde(default = "default_min_score")]
+    pub min_global_score: Decimal,
 }
 
 fn default_short_period() -> usize {
@@ -51,6 +65,10 @@ fn default_amount() -> Decimal {
     Decimal::from(100000)
 }
 
+fn default_min_score() -> Decimal {
+    dec!(50)
+}
+
 impl Default for SmaConfig {
     fn default() -> Self {
         Self {
@@ -58,6 +76,7 @@ impl Default for SmaConfig {
             short_period: 10,
             long_period: 20,
             amount: Decimal::from(100000),
+            min_global_score: dec!(50),
         }
     }
 }
@@ -68,6 +87,7 @@ pub struct SmaStrategy {
     config: Option<SmaConfig>,
     /// 심볼
     symbol: Option<Symbol>,
+    context: Option<Arc<RwLock<StrategyContext>>>,
     /// 가격 히스토리
     prices: VecDeque<Decimal>,
     /// 포지션 오픈 여부
@@ -86,6 +106,7 @@ impl SmaStrategy {
         Self {
             config: None,
             symbol: None,
+            context: None,
             prices: VecDeque::new(),
             position_open: false,
             prev_short_sma: None,
@@ -103,6 +124,55 @@ impl SmaStrategy {
         let sum: Decimal = self.prices.iter().take(period).sum();
         Some(sum / Decimal::from(period))
     }
+
+    /// StrategyContext 기반 진입 가능 여부 체크.
+    fn can_enter(&self) -> bool {
+        let Some(config) = self.config.as_ref() else {
+            return false;
+        };
+        let ticker = &config.symbol;
+
+        let Some(ctx) = self.context.as_ref() else {
+            // Context 없으면 진입 허용 (하위 호환성)
+            return true;
+        };
+
+        let Ok(ctx_lock) = ctx.try_read() else {
+            return true;
+        };
+
+        // RouteState 체크
+        if let Some(route_state) = ctx_lock.get_route_state(ticker) {
+            match route_state {
+                RouteState::Overheat | RouteState::Wait | RouteState::Neutral => {
+                    debug!(
+                        ticker = %ticker,
+                        route_state = ?route_state,
+                        "RouteState 진입 제한"
+                    );
+                    return false;
+                }
+                RouteState::Armed | RouteState::Attack => {
+                    // 진입 가능
+                }
+            }
+        }
+
+        // GlobalScore 체크
+        if let Some(score) = ctx_lock.get_global_score(ticker) {
+            if score.overall_score < config.min_global_score {
+                debug!(
+                    ticker = %ticker,
+                    score = %score.overall_score,
+                    min_required = %config.min_global_score,
+                    "GlobalScore 미달"
+                );
+                return false;
+            }
+        }
+
+        true
+    }
 }
 
 impl Default for SmaStrategy {
@@ -118,11 +188,11 @@ impl Strategy for SmaStrategy {
     }
 
     fn version(&self) -> &str {
-        "1.0.0"
+        "2.0.0"
     }
 
     fn description(&self) -> &str {
-        "Simple Moving Average crossover strategy. Buy on golden cross, sell on death cross."
+        "StrategyContext 기반 이동평균 크로스오버 전략 (RouteState, GlobalScore 필터링)"
     }
 
     async fn initialize(
@@ -202,12 +272,12 @@ impl Strategy for SmaStrategy {
             // 데드 크로스: 단기가 장기를 하향 돌파
             let death_cross = prev_short >= prev_long && short_sma < long_sma;
 
-            if golden_cross && !self.position_open {
+            if golden_cross && !self.position_open && self.can_enter() {
                 info!(
                     short_sma = %short_sma,
                     long_sma = %long_sma,
                     price = %price,
-                    "Golden cross - BUY signal"
+                    "골든 크로스 - 매수 신호"
                 );
 
                 signals.push(
@@ -228,7 +298,7 @@ impl Strategy for SmaStrategy {
                     short_sma = %short_sma,
                     long_sma = %long_sma,
                     price = %price,
-                    "Death cross - SELL signal"
+                    "데드 크로스 - 매도 신호"
                 );
 
                 signals.push(
@@ -290,6 +360,11 @@ impl Strategy for SmaStrategy {
             "current_short_sma": self.prev_short_sma.map(|s| s.to_string()),
             "current_long_sma": self.prev_long_sma.map(|s| s.to_string()),
         })
+    }
+
+    fn set_context(&mut self, context: Arc<RwLock<StrategyContext>>) {
+        self.context = Some(context);
+        info!("StrategyContext injected into SMA strategy");
     }
 }
 
@@ -379,6 +454,6 @@ register_strategy! {
     timeframe: "15m",
     symbols: [],
     category: Intraday,
-    markets: [Crypto, KrStock, UsStock],
+    markets: [Crypto, Stock, Stock],
     type: SmaStrategy
 }

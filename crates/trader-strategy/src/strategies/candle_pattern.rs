@@ -36,6 +36,9 @@ use tracing::{debug, info, warn};
 use trader_core::{
     MarketData, MarketDataType, MarketType, Order, Position, Side, Signal, SignalType, Symbol,
 };
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use trader_core::domain::{RouteState, StrategyContext};
 
 /// 캔들스틱 패턴 종류
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -140,6 +143,10 @@ pub struct CandlePatternConfig {
     /// 활성화할 패턴 타입 (빈 경우 모두 활성화)
     #[serde(default)]
     pub enabled_patterns: Vec<CandlePatternType>,
+
+    /// 최소 GlobalScore (기본값: 50)
+    #[serde(default = "default_min_global_score")]
+    pub min_global_score: Decimal,
 }
 
 fn default_trade_amount() -> Decimal {
@@ -163,6 +170,9 @@ fn default_stop_loss() -> Decimal {
 fn default_take_profit() -> Decimal {
     dec!(6)
 }
+fn default_min_global_score() -> Decimal {
+    dec!(50)
+}
 
 impl Default for CandlePatternConfig {
     fn default() -> Self {
@@ -176,6 +186,7 @@ impl Default for CandlePatternConfig {
             stop_loss_pct: default_stop_loss(),
             take_profit_pct: default_take_profit(),
             enabled_patterns: Vec::new(),
+            min_global_score: default_min_global_score(),
         }
     }
 }
@@ -211,6 +222,7 @@ impl Default for CandlePatternState {
 pub struct CandlePatternStrategy {
     config: Option<CandlePatternConfig>,
     symbol: Option<Symbol>,
+    context: Option<Arc<RwLock<StrategyContext>>>,
     state: CandlePatternState,
     /// 캔들 히스토리
     candles: VecDeque<CandleData>,
@@ -224,11 +236,42 @@ impl CandlePatternStrategy {
         Self {
             config: None,
             symbol: None,
+            context: None,
             state: CandlePatternState::default(),
             candles: VecDeque::new(),
             volumes: VecDeque::new(),
             initialized: false,
         }
+    }
+
+    /// RouteState와 GlobalScore를 체크하여 진입 가능 여부 반환.
+    fn can_enter(&self) -> bool {
+        let Some(config) = self.config.as_ref() else {
+            return false;
+        };
+        let ticker = &config.symbol;
+        let Some(ctx) = self.context.as_ref() else {
+            return true;
+        };
+        let Ok(ctx_lock) = ctx.try_read() else {
+            return true;
+        };
+
+        // RouteState 체크
+        if let Some(route_state) = ctx_lock.get_route_state(ticker) {
+            match route_state {
+                RouteState::Overheat | RouteState::Wait | RouteState::Neutral => return false,
+                RouteState::Armed | RouteState::Attack => {}
+            }
+        }
+
+        // GlobalScore 체크
+        if let Some(score) = ctx_lock.get_global_score(ticker) {
+            if score.overall_score < config.min_global_score {
+                return false;
+            }
+        }
+        true
     }
 
     /// 캔들 몸통 크기
@@ -772,6 +815,12 @@ impl CandlePatternStrategy {
             return signals;
         }
 
+        // 매수 신호 생성 전 can_enter 체크
+        if best_pattern.direction == PatternDirection::Bullish && !self.can_enter() {
+            debug!("[CandlePattern] can_enter() 실패 - 매수 신호 스킵");
+            return signals;
+        }
+
         // 신호 생성
         let quantity = config.trade_amount / current_price;
         let (side, signal_type) = match best_pattern.direction {
@@ -840,7 +889,7 @@ impl Strategy for CandlePatternStrategy {
             "Initializing Candle Pattern strategy"
         );
 
-        self.symbol = Symbol::from_string(&cp_config.symbol, MarketType::KrStock);
+        self.symbol = Symbol::from_string(&cp_config.symbol, MarketType::Stock);
         self.config = Some(cp_config);
         self.state = CandlePatternState::default();
         self.candles.clear();
@@ -945,6 +994,11 @@ impl Strategy for CandlePatternStrategy {
             "initialized": self.initialized,
         })
     }
+
+    fn set_context(&mut self, context: Arc<RwLock<StrategyContext>>) {
+        self.context = Some(context);
+        info!("StrategyContext injected into CandlePattern strategy");
+    }
 }
 
 #[cfg(test)]
@@ -989,6 +1043,6 @@ register_strategy! {
     timeframe: "15m",
     symbols: [],
     category: Intraday,
-    markets: [Crypto, KrStock, UsStock],
+    markets: [Crypto, Stock, Stock],
     type: CandlePatternStrategy
 }

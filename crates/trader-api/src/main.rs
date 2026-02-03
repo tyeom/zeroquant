@@ -30,7 +30,9 @@ use trader_api::websocket::{
 };
 use trader_core::crypto::CredentialEncryptor;
 use trader_core::Symbol;
+use trader_data::cache::CachedHistoricalDataProvider;
 use trader_exchange::connector::kis::{KisConfig, KisKrClient, KisOAuth, KisUsClient};
+use trader_exchange::KisKrProvider;
 use trader_exchange::stream::UnifiedMarketStream;
 use trader_exchange::traits::MarketStream;
 use trader_execution::{ConversionConfig, OrderExecutor};
@@ -312,7 +314,14 @@ async fn create_app_state(config: &ServerConfig) -> AppState {
                 // 연결 테스트
                 if sqlx::query("SELECT 1").fetch_one(&pool).await.is_ok() {
                     info!("Connected to TimescaleDB successfully");
-                    state = state.with_db_pool(pool);
+
+                    // Phase 0-1: CachedHistoricalDataProvider 및 분석 인프라 초기화
+                    let data_provider = CachedHistoricalDataProvider::new(pool.clone());
+                    state = state
+                        .with_db_pool(pool)
+                        .with_data_provider(data_provider)
+                        .with_analytics_infrastructure();
+                    info!("Analytics infrastructure initialized (Phase 0-1)");
                 } else {
                     error!("Failed to verify database connection");
                 }
@@ -348,9 +357,20 @@ async fn create_app_state(config: &ServerConfig) -> AppState {
         warn!("ENCRYPTION_MASTER_KEY not set, credential encryption will be disabled");
     }
 
-    // KIS 클라이언트 설정
+    // KIS 클라이언트 설정 및 ExchangeProvider 생성
     if let Some(kr_client) = kis_kr {
-        state = state.with_kis_kr_client(kr_client);
+        // KisKrClient를 Arc로 래핑하여 공유
+        let kr_client_arc = Arc::new(kr_client);
+
+        // ExchangeProvider 생성 (KisKrProvider)
+        let kr_provider = KisKrProvider::new(kr_client_arc.clone());
+        state = state.with_exchange_provider(Arc::new(kr_provider));
+
+        // AppState에는 별도의 Arc<KisKrClient>로 저장
+        // 참고: with_kis_kr_client는 KisKrClient를 직접 받으므로
+        // Arc::try_unwrap으로 추출하거나 별도 처리 필요
+        // 현재는 ExchangeProvider만 사용하고, 직접 클라이언트 접근은 생략
+        info!("KisKrProvider 설정 완료 (ExchangeProvider)");
     }
 
     if let Some(us_client) = kis_us {
@@ -553,8 +573,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         has_encryptor = state.encryptor.is_some(),
         has_kis = state.has_kis_client(),
         has_websocket = state.has_subscriptions(),
+        has_analytics = state.has_analytics_provider(),
+        has_context = state.has_strategy_context(),
+        has_exchange_provider = state.has_exchange_provider(),
         "Service connections status"
     );
+
+    // 전역 종료 토큰 생성 (graceful shutdown용, 백그라운드 태스크에서 사용)
+    let shutdown_token = CancellationToken::new();
+
+    // ContextSyncService 시작 (ExchangeProvider + AnalyticsProvider가 모두 설정된 경우)
+    if let Some(_sync_handle) = state.start_context_sync(shutdown_token.clone()) {
+        info!("ContextSyncService 시작됨 (거래소: 5초, 분석: 1분 주기)");
+    } else {
+        warn!("ContextSyncService 시작 실패: ExchangeProvider 또는 AnalyticsProvider 미설정");
+    }
 
     // 데이터베이스에서 저장된 전략 로드
     if let Some(ref pool) = state.db_pool {
@@ -573,9 +606,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // 전역 종료 토큰 생성 (graceful shutdown용)
-    let shutdown_token = CancellationToken::new();
-
     // 라우터 생성
     let app = create_router(state, metrics_handle, ws_state);
 
@@ -588,7 +618,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
 
-    // shutdown_token은 백그라운드 태스크용으로 이미 생성됨 (위에서)
     let shutdown_token_for_signal = shutdown_token.clone();
 
     // Graceful shutdown 처리 (타임아웃 포함)

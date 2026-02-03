@@ -5,15 +5,22 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::RwLock;
+use tokio_util::sync::CancellationToken;
 use trader_analytics::ml::MlService;
+use trader_analytics::AnalyticsProviderImpl;
 use trader_core::crypto::CredentialEncryptor;
+use trader_core::{AnalyticsProvider, ExchangeProvider, StrategyContext};
+use trader_data::cache::CachedHistoricalDataProvider;
 use trader_data::{RedisCache, RedisConfig, SymbolResolver};
 use trader_exchange::connector::kis::{KisKrClient, KisOAuth, KisUsClient};
 use trader_execution::OrderExecutor;
 use trader_risk::RiskManager;
 use trader_strategy::StrategyEngine;
 use uuid::Uuid;
+
+use crate::services::context_sync::start_context_sync_service;
 
 use crate::websocket::{ServerMessage, SharedSubscriptionManager};
 
@@ -89,6 +96,26 @@ pub struct AppState {
     /// ML 서비스 - 패턴 인식, 피처 추출, 가격 예측
     pub ml_service: Arc<RwLock<MlService>>,
 
+    // ===== Phase 0-1 분석 인프라 =====
+    /// 캐싱된 히스토리컬 데이터 제공자 (캔들 데이터 조회)
+    pub data_provider: Option<Arc<CachedHistoricalDataProvider>>,
+
+    /// 분석 결과 제공자 (AnalyticsProviderImpl)
+    ///
+    /// StrategyContext를 업데이트하기 위한 분석 데이터를 제공합니다.
+    pub analytics_provider: Option<Arc<dyn AnalyticsProvider>>,
+
+    /// 전략 컨텍스트 (공유)
+    ///
+    /// ContextSyncService가 주기적으로 업데이트하며,
+    /// 모든 전략이 이 컨텍스트를 통해 분석 결과에 접근합니다.
+    pub strategy_context: Option<Arc<RwLock<StrategyContext>>>,
+
+    /// 거래소 정보 제공자 (ExchangeProvider)
+    ///
+    /// 계좌 정보, 포지션, 미체결 주문을 조회합니다.
+    pub exchange_provider: Option<Arc<dyn ExchangeProvider>>,
+
     /// 서버 시작 시간 (업타임 계산용)
     pub started_at: chrono::DateTime<chrono::Utc>,
 
@@ -131,6 +158,10 @@ impl AppState {
             subscriptions: None,
             symbol_resolver: None,
             ml_service: Arc::new(RwLock::new(ml_service)),
+            data_provider: None,
+            analytics_provider: None,
+            strategy_context: None,
+            exchange_provider: None,
             started_at: chrono::Utc::now(),
             version: env!("CARGO_PKG_VERSION").to_string(),
         }
@@ -155,6 +186,100 @@ impl AppState {
         self.symbol_resolver = Some(Arc::new(SymbolResolver::new(pool.clone())));
         self.db_pool = Some(pool);
         self
+    }
+
+    /// CachedHistoricalDataProvider 설정.
+    ///
+    /// 캔들 데이터를 캐싱하여 제공합니다.
+    /// 이 provider는 AnalyticsProviderImpl의 의존성입니다.
+    pub fn with_data_provider(mut self, provider: CachedHistoricalDataProvider) -> Self {
+        self.data_provider = Some(Arc::new(provider));
+        self
+    }
+
+    /// 분석 인프라 초기화 (Phase 0-1 연결).
+    ///
+    /// CachedHistoricalDataProvider가 먼저 설정되어 있어야 합니다.
+    /// 이 메서드는 AnalyticsProviderImpl과 StrategyContext를 생성하고 연결합니다.
+    ///
+    /// # Panics
+    ///
+    /// data_provider가 설정되지 않은 경우 패닉합니다.
+    pub fn with_analytics_infrastructure(mut self) -> Self {
+        let data_provider = self
+            .data_provider
+            .clone()
+            .expect("data_provider must be set before calling with_analytics_infrastructure");
+
+        // AnalyticsProviderImpl 생성
+        let analytics_provider = AnalyticsProviderImpl::new(data_provider);
+        self.analytics_provider = Some(Arc::new(analytics_provider));
+
+        // 공유 StrategyContext 생성
+        self.strategy_context = Some(Arc::new(RwLock::new(StrategyContext::default())));
+
+        tracing::info!("분석 인프라 초기화 완료 (AnalyticsProvider + StrategyContext)");
+        self
+    }
+
+    /// AnalyticsProvider 설정 여부 확인.
+    pub fn has_analytics_provider(&self) -> bool {
+        self.analytics_provider.is_some()
+    }
+
+    /// StrategyContext 설정 여부 확인.
+    pub fn has_strategy_context(&self) -> bool {
+        self.strategy_context.is_some()
+    }
+
+    /// StrategyContext 참조 반환 (읽기용).
+    pub async fn get_strategy_context(&self) -> Option<StrategyContext> {
+        if let Some(ctx) = &self.strategy_context {
+            Some(ctx.read().await.clone())
+        } else {
+            None
+        }
+    }
+
+    /// ExchangeProvider 설정.
+    ///
+    /// 거래소별 Provider를 설정합니다 (예: KisKrProvider, BinanceProvider).
+    pub fn with_exchange_provider(mut self, provider: Arc<dyn ExchangeProvider>) -> Self {
+        self.exchange_provider = Some(provider);
+        self
+    }
+
+    /// ExchangeProvider 설정 여부 확인.
+    pub fn has_exchange_provider(&self) -> bool {
+        self.exchange_provider.is_some()
+    }
+
+    /// ContextSyncService 시작.
+    ///
+    /// ExchangeProvider와 AnalyticsProvider가 모두 설정되어 있어야 합니다.
+    /// StrategyContext를 주기적으로 동기화하는 백그라운드 태스크를 시작합니다.
+    ///
+    /// # Arguments
+    ///
+    /// * `shutdown` - Graceful shutdown을 위한 CancellationToken
+    ///
+    /// # Returns
+    ///
+    /// 백그라운드 태스크의 JoinHandle. None이면 필요한 provider가 설정되지 않은 것입니다.
+    pub fn start_context_sync(
+        &self,
+        shutdown: CancellationToken,
+    ) -> Option<tokio::task::JoinHandle<()>> {
+        let exchange_provider = self.exchange_provider.clone()?;
+        let analytics_provider = self.analytics_provider.clone()?;
+        let strategy_context = self.strategy_context.clone()?;
+
+        Some(start_context_sync_service(
+            exchange_provider,
+            analytics_provider,
+            strategy_context,
+            shutdown,
+        ))
     }
 
     /// Redis 캐시 설정.
@@ -444,6 +569,7 @@ impl AppState {
 /// 테스트용 AppState 생성 헬퍼.
 ///
 /// 실제 DB 연결 없이 테스트할 수 있는 최소한의 상태를 생성합니다.
+/// 분석 인프라(AnalyticsProvider, StrategyContext)는 포함되지 않습니다.
 #[cfg(any(test, feature = "test-utils"))]
 pub fn create_test_state() -> AppState {
     use rust_decimal_macros::dec;
@@ -462,5 +588,7 @@ pub fn create_test_state() -> AppState {
 
     let mut state = AppState::new(strategy_engine, risk_manager, executor);
     state.ml_service = Arc::new(RwLock::new(ml_service));
+    // 테스트용 StrategyContext 추가 (분석 인프라 없이도 컨텍스트 접근 가능)
+    state.strategy_context = Some(Arc::new(RwLock::new(StrategyContext::default())));
     state
 }

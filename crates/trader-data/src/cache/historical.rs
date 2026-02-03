@@ -182,16 +182,13 @@ impl CachedHistoricalDataProvider {
             .await?;
 
         // 7. canonical 심볼로 Kline 변환
+        // Symbol 생성자를 통해 country 필드 자동 추론
         let klines: Vec<Kline> = records
             .into_iter()
             .map(|kline| {
                 Kline {
-                    symbol: Symbol {
-                        base: symbol.to_string(), // canonical 심볼 사용
-                        quote: quote_currency.clone(),
-                        market_type,
-                        exchange_symbol: Some(source_symbol.clone()),
-                    },
+                    symbol: Symbol::new(symbol, &quote_currency, market_type)
+                        .with_exchange_symbol(&source_symbol),
                     ..kline
                 }
             })
@@ -233,8 +230,8 @@ impl CachedHistoricalDataProvider {
             _ => "USD".to_string(),
         };
         let market_type = match info.market.as_str() {
-            "KR" => MarketType::KrStock,
-            "US" => MarketType::UsStock,
+            "KR" => MarketType::Stock,
+            "US" => MarketType::Stock,
             "CRYPTO" => MarketType::Crypto,
             _ => MarketType::Stock,
         };
@@ -329,16 +326,13 @@ impl CachedHistoricalDataProvider {
         );
 
         // 4. canonical 심볼로 Kline 변환
+        // Symbol 생성자를 통해 country 필드 자동 추론
         let klines: Vec<Kline> = raw_klines
             .into_iter()
             .map(|kline| {
                 Kline {
-                    symbol: Symbol {
-                        base: symbol.to_string(), // canonical 심볼 사용
-                        quote: quote_currency.clone(),
-                        market_type,
-                        exchange_symbol: Some(source_symbol.clone()),
-                    },
+                    symbol: Symbol::new(symbol, &quote_currency, market_type)
+                        .with_exchange_symbol(&source_symbol),
                     ..kline
                 }
             })

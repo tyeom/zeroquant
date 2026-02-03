@@ -27,7 +27,10 @@ use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::VecDeque;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
+use trader_core::domain::{RouteState, StrategyContext};
 use trader_core::{MarketData, MarketDataType, Order, Position, Side, Signal, Symbol};
 
 /// 코스피 양방향 전략 설정.
@@ -88,6 +91,10 @@ pub struct KospiBothSideConfig {
     /// 손절 비율 (기본값: 5%)
     #[serde(default = "default_stop_loss")]
     pub stop_loss_pct: f64,
+
+    /// 최소 글로벌 스코어 (기본값: 60)
+    #[serde(default = "default_min_global_score")]
+    pub min_global_score: Decimal,
 }
 
 fn default_leverage_ticker() -> String {
@@ -133,6 +140,10 @@ fn default_stop_loss() -> f64 {
     5.0
 }
 
+fn default_min_global_score() -> Decimal {
+    dec!(60)
+}
+
 impl Default for KospiBothSideConfig {
     fn default() -> Self {
         Self {
@@ -150,6 +161,7 @@ impl Default for KospiBothSideConfig {
             rsi_oversold: 30.0,
             rsi_overbought: 70.0,
             stop_loss_pct: 5.0,
+            min_global_score: dec!(60),
         }
     }
 }
@@ -251,6 +263,7 @@ pub struct KospiBothSideStrategy {
     config: Option<KospiBothSideConfig>,
     leverage_symbol: Option<Symbol>,
     inverse_symbol: Option<Symbol>,
+    context: Option<Arc<RwLock<StrategyContext>>>,
 
     /// 레버리지 포지션
     leverage_position: Option<EtfPosition>,
@@ -284,6 +297,7 @@ impl KospiBothSideStrategy {
             config: None,
             leverage_symbol: None,
             inverse_symbol: None,
+            context: None,
             leverage_position: None,
             inverse_position: None,
             leverage_indicators: TechnicalIndicators::new(70),
@@ -303,6 +317,52 @@ impl KospiBothSideStrategy {
             Some(date) => current_time.date_naive() != date,
             None => true,
         }
+    }
+
+    /// RouteState와 GlobalScore 기반 진입 조건 체크
+    fn can_enter(&self) -> bool {
+        let context = match &self.context {
+            Some(ctx) => ctx,
+            None => return true,
+        };
+
+        let config = match &self.config {
+            Some(cfg) => cfg,
+            None => return true,
+        };
+
+        let ctx = match context.try_read() {
+            Ok(ctx) => ctx,
+            Err(_) => return true,
+        };
+
+        // RouteState 체크 (레버리지 심볼 기준)
+        if let Some(symbol) = &self.leverage_symbol {
+            if let Some(route) = ctx.get_route_state(&symbol.base) {
+                match route {
+                    RouteState::Wait | RouteState::Overheat => {
+                        debug!("[KospiBothSide] RouteState가 {:?}이므로 진입 불가", route);
+                        return false;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // GlobalScore 체크 (레버리지 심볼 기준)
+        if let Some(symbol) = &self.leverage_symbol {
+            if let Some(score) = ctx.get_global_score(&symbol.base) {
+                if score.overall_score < config.min_global_score {
+                    debug!(
+                        "[KospiBothSide] GlobalScore {} < {} 기준 미달",
+                        score.overall_score, config.min_global_score
+                    );
+                    return false;
+                }
+            }
+        }
+
+        true
     }
 
     /// 레버리지 매수 조건 확인.
@@ -534,14 +594,19 @@ impl KospiBothSideStrategy {
             if price == Decimal::ZERO {
                 warn!("레버리지 ETF 가격 데이터 없음, 신호 생성 건너뜀");
             } else if self.leverage_position.is_none() && self.should_buy_leverage() {
-                signals.push(
-                    Signal::entry("kospi_bothside", sym.clone(), Side::Buy)
-                        .with_strength(config.leverage_ratio)
-                        .with_prices(Some(price), None, None)
-                        .with_metadata("etf_type", json!("leverage"))
-                        .with_metadata("action", json!("buy_leverage")),
-                );
-                info!(price = %price, "레버리지 매수 신호");
+                // can_enter() 체크: RouteState, GlobalScore 기반 진입 제한
+                if !self.can_enter() {
+                    debug!("[KospiBothSide] can_enter() 실패 - 레버리지 매수 신호 스킵");
+                } else {
+                    signals.push(
+                        Signal::entry("kospi_bothside", sym.clone(), Side::Buy)
+                            .with_strength(config.leverage_ratio)
+                            .with_prices(Some(price), None, None)
+                            .with_metadata("etf_type", json!("leverage"))
+                            .with_metadata("action", json!("buy_leverage")),
+                    );
+                    info!(price = %price, "레버리지 매수 신호");
+                }
             } else if self.leverage_position.is_some() && self.should_sell_leverage() {
                 signals.push(
                     Signal::exit("kospi_bothside", sym.clone(), Side::Sell)
@@ -567,14 +632,19 @@ impl KospiBothSideStrategy {
             if price == Decimal::ZERO {
                 warn!("인버스 ETF 가격 데이터 없음, 신호 생성 건너뜀");
             } else if self.inverse_position.is_none() && self.should_buy_inverse() {
-                signals.push(
-                    Signal::entry("kospi_bothside", sym.clone(), Side::Buy)
-                        .with_strength(config.inverse_ratio)
-                        .with_prices(Some(price), None, None)
-                        .with_metadata("etf_type", json!("inverse"))
-                        .with_metadata("action", json!("buy_inverse")),
-                );
-                info!(price = %price, "인버스 매수 신호");
+                // can_enter() 체크: RouteState, GlobalScore 기반 진입 제한
+                if !self.can_enter() {
+                    debug!("[KospiBothSide] can_enter() 실패 - 인버스 매수 신호 스킵");
+                } else {
+                    signals.push(
+                        Signal::entry("kospi_bothside", sym.clone(), Side::Buy)
+                            .with_strength(config.inverse_ratio)
+                            .with_prices(Some(price), None, None)
+                            .with_metadata("etf_type", json!("inverse"))
+                            .with_metadata("action", json!("buy_inverse")),
+                    );
+                    info!(price = %price, "인버스 매수 신호");
+                }
             } else if self.inverse_position.is_some() && self.should_sell_inverse() {
                 signals.push(
                     Signal::exit("kospi_bothside", sym.clone(), Side::Sell)
@@ -838,6 +908,11 @@ impl Strategy for KospiBothSideStrategy {
             "total_pnl": self.total_pnl.to_string(),
         })
     }
+
+    fn set_context(&mut self, context: Arc<RwLock<StrategyContext>>) {
+        self.context = Some(context);
+        info!("StrategyContext injected into KospiBothSide strategy");
+    }
 }
 
 #[cfg(test)]
@@ -892,6 +967,6 @@ register_strategy! {
     timeframe: "15m",
     symbols: ["122630", "252670"],
     category: Intraday,
-    markets: [KrStock],
+    markets: [Stock],
     type: KospiBothSideStrategy
 }

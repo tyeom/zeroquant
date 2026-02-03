@@ -2,12 +2,15 @@
 //!
 //! 이 모듈은 트레이딩 심볼 관련 타입을 정의합니다:
 //! - `MarketType` - 시장 유형 (암호화폐, 주식, 외환 등)
+//! - `Country` - 국가/지역 코드
 //! - `Symbol` - 거래 가능한 상품을 나타내는 심볼
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-/// 시장 유형 분류.
+/// 시장 유형 분류 (정규화).
+///
+/// UsStock, KrStock 등은 향후 Stock + Country 조합으로 대체됩니다.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(feature = "utoipa-support", derive(utoipa::ToSchema))]
@@ -16,14 +19,42 @@ pub enum MarketType {
     Crypto,
     /// 주식 시장 (일반)
     Stock,
-    /// 미국 주식 시장
-    UsStock,
-    /// 한국 주식 시장
-    KrStock,
     /// 외환 시장
     Forex,
     /// 선물/파생상품 시장
     Futures,
+    /// 지수
+    Index,
+    /// 미국 주식 시장 (향후 Stock + Country::US로 대체 예정)
+    #[serde(rename = "us_stock")]
+    UsStock,
+    /// 한국 주식 시장 (향후 Stock + Country::KR로 대체 예정)
+    #[serde(rename = "kr_stock")]
+    KrStock,
+}
+
+impl MarketType {
+    /// 정규화된 MarketType 반환 (UsStock/KrStock을 Stock으로 변환).
+    pub fn normalize(&self) -> Self {
+        match self {
+            MarketType::UsStock | MarketType::KrStock => MarketType::Stock,
+            _ => *self,
+        }
+    }
+
+    /// 레거시 타입인지 확인 (UsStock, KrStock).
+    pub fn is_legacy(&self) -> bool {
+        matches!(self, MarketType::UsStock | MarketType::KrStock)
+    }
+
+    /// MarketType에서 Country 추출 (레거시 타입용).
+    pub fn to_country(&self) -> Option<Country> {
+        match self {
+            MarketType::UsStock => Some(Country::US),
+            MarketType::KrStock => Some(Country::KR),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for MarketType {
@@ -31,27 +62,112 @@ impl fmt::Display for MarketType {
         match self {
             MarketType::Crypto => write!(f, "crypto"),
             MarketType::Stock => write!(f, "stock"),
-            MarketType::UsStock => write!(f, "us_stock"),
-            MarketType::KrStock => write!(f, "kr_stock"),
             MarketType::Forex => write!(f, "forex"),
             MarketType::Futures => write!(f, "futures"),
+            MarketType::Index => write!(f, "index"),
+            MarketType::UsStock => write!(f, "us_stock"),
+            MarketType::KrStock => write!(f, "kr_stock"),
+        }
+    }
+}
+
+/// 국가/지역 코드.
+///
+/// ISO 3166-1 alpha-2 기반이지만 주요 금융 시장에 맞게 조정됨.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+#[cfg_attr(feature = "utoipa-support", derive(utoipa::ToSchema))]
+pub enum Country {
+    /// 한국
+    KR,
+    /// 미국
+    US,
+    /// 일본
+    JP,
+    /// 중국
+    CN,
+    /// 홍콩
+    HK,
+    /// 싱가포르
+    SG,
+    /// 영국
+    GB,
+    /// 호주
+    AU,
+    /// 캐나다
+    CA,
+    /// 글로벌/특정 국가 없음 (암호화폐, 외환 등)
+    Global,
+}
+
+impl Country {
+    /// 국가 코드 문자열에서 Country 생성.
+    pub fn from_code(code: &str) -> Option<Self> {
+        match code.to_uppercase().as_str() {
+            "KR" | "KOREA" => Some(Country::KR),
+            "US" | "USA" => Some(Country::US),
+            "JP" | "JAPAN" => Some(Country::JP),
+            "CN" | "CHINA" => Some(Country::CN),
+            "HK" | "HONG KONG" => Some(Country::HK),
+            "SG" | "SINGAPORE" => Some(Country::SG),
+            "GB" | "UK" => Some(Country::GB),
+            "AU" | "AUSTRALIA" => Some(Country::AU),
+            "CA" | "CANADA" => Some(Country::CA),
+            "GLOBAL" | "" => Some(Country::Global),
+            _ => None,
+        }
+    }
+
+    /// 통화 코드 반환.
+    pub fn default_currency(&self) -> &'static str {
+        match self {
+            Country::KR => "KRW",
+            Country::US => "USD",
+            Country::JP => "JPY",
+            Country::CN => "CNY",
+            Country::HK => "HKD",
+            Country::SG => "SGD",
+            Country::GB => "GBP",
+            Country::AU => "AUD",
+            Country::CA => "CAD",
+            Country::Global => "USD",
+        }
+    }
+}
+
+impl fmt::Display for Country {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Country::KR => write!(f, "KR"),
+            Country::US => write!(f, "US"),
+            Country::JP => write!(f, "JP"),
+            Country::CN => write!(f, "CN"),
+            Country::HK => write!(f, "HK"),
+            Country::SG => write!(f, "SG"),
+            Country::GB => write!(f, "GB"),
+            Country::AU => write!(f, "AU"),
+            Country::CA => write!(f, "CA"),
+            Country::Global => write!(f, "GLOBAL"),
         }
     }
 }
 
 /// 거래 가능한 상품을 나타내는 트레이딩 심볼.
 ///
-/// 심볼은 기준 자산, 호가 자산, 시장 유형으로 구성됩니다.
-/// 예: 암호화폐의 BTC/USDT, 주식의 AAPL/USD.
+/// 심볼은 기준 자산, 호가 자산, 시장 유형, 국가로 구성됩니다.
+/// 예: 암호화폐의 BTC/USDT, 한국 주식의 005930/KRW.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa-support", derive(utoipa::ToSchema))]
 pub struct Symbol {
-    /// 기준 자산 (예: BTC, AAPL, EUR)
+    /// 기준 자산 (예: BTC, 005930, AAPL, EUR)
     pub base: String,
-    /// 호가 자산 (예: USDT, USD, JPY)
+    /// 호가 자산 (예: USDT, KRW, USD, JPY)
     pub quote: String,
     /// 시장 유형
     pub market_type: MarketType,
+    /// 국가/지역 (주식 시장에서 사용, 암호화폐는 Global)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub country: Option<Country>,
     /// 거래소별 심볼 형식 (선택)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exchange_symbol: Option<String>,
@@ -59,33 +175,83 @@ pub struct Symbol {
 
 impl Symbol {
     /// 새 심볼을 생성합니다.
+    ///
+    /// country는 market_type에서 자동 추론됩니다 (UsStock→US, KrStock→KR).
     pub fn new(base: impl Into<String>, quote: impl Into<String>, market_type: MarketType) -> Self {
+        // 레거시 MarketType에서 Country 자동 추론
+        let country = market_type.to_country();
+
         Self {
             base: base.into().to_uppercase(),
             quote: quote.into().to_uppercase(),
             market_type,
+            country,
+            exchange_symbol: None,
+        }
+    }
+
+    /// 국가를 명시적으로 지정하여 심볼 생성.
+    pub fn new_with_country(
+        base: impl Into<String>,
+        quote: impl Into<String>,
+        market_type: MarketType,
+        country: Country,
+    ) -> Self {
+        Self {
+            base: base.into().to_uppercase(),
+            quote: quote.into().to_uppercase(),
+            market_type,
+            country: Some(country),
             exchange_symbol: None,
         }
     }
 
     /// 암호화폐 심볼을 생성합니다.
     pub fn crypto(base: impl Into<String>, quote: impl Into<String>) -> Self {
-        Self::new(base, quote, MarketType::Crypto)
+        Self {
+            base: base.into().to_uppercase(),
+            quote: quote.into().to_uppercase(),
+            market_type: MarketType::Crypto,
+            country: Some(Country::Global),
+            exchange_symbol: None,
+        }
     }
 
-    /// 주식 심볼을 생성합니다.
+    /// 주식 심볼을 생성합니다 (국가 지정 필요).
     pub fn stock(base: impl Into<String>, quote: impl Into<String>) -> Self {
         Self::new(base, quote, MarketType::Stock)
     }
 
+    /// 한국 주식 심볼을 생성합니다.
+    pub fn kr_stock(base: impl Into<String>, quote: impl Into<String>) -> Self {
+        Self::new_with_country(base, quote, MarketType::Stock, Country::KR)
+    }
+
+    /// 미국 주식 심볼을 생성합니다.
+    pub fn us_stock(base: impl Into<String>, quote: impl Into<String>) -> Self {
+        Self::new_with_country(base, quote, MarketType::Stock, Country::US)
+    }
+
     /// 외환 심볼을 생성합니다.
     pub fn forex(base: impl Into<String>, quote: impl Into<String>) -> Self {
-        Self::new(base, quote, MarketType::Forex)
+        Self {
+            base: base.into().to_uppercase(),
+            quote: quote.into().to_uppercase(),
+            market_type: MarketType::Forex,
+            country: Some(Country::Global),
+            exchange_symbol: None,
+        }
     }
 
     /// 거래소별 심볼 형식을 설정합니다.
     pub fn with_exchange_symbol(mut self, exchange_symbol: impl Into<String>) -> Self {
         self.exchange_symbol = Some(exchange_symbol.into());
+        self
+    }
+
+    /// 국가를 설정합니다.
+    pub fn with_country(mut self, country: Country) -> Self {
+        self.country = Some(country);
         self
     }
 
@@ -97,6 +263,11 @@ impl Symbol {
         } else {
             None
         }
+    }
+
+    /// 국가 정보를 반환합니다 (없으면 Global).
+    pub fn country(&self) -> Country {
+        self.country.unwrap_or(Country::Global)
     }
 
     /// 표준 심볼 문자열 형식을 반환합니다.

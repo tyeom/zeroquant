@@ -47,11 +47,10 @@ pub mod websocket_us;
 pub use auth::{KisOAuth, TokenState};
 pub use client_kr::{
     KisKrClient, KrAccountSummary, KrBalance, KrBuyPower, KrHolding, KrMinuteOhlcv, KrOhlcv,
-    KrOrderBook, KrOrderExecution, KrOrderHistory, KrOrderResponse, KrStockPrice,
+    KrOrderBook, KrOrderExecution, KrOrderHistory, KrOrderResponse, StockPrice,
 };
 pub use client_us::{
     KisUsClient, UsBalance, UsHolding, UsMarketSession, UsOhlcv, UsOrderExecution, UsOrderResponse,
-    UsStockPrice,
 };
 pub use config::{KisAccountType, KisConfig, KisEnvironment};
 pub use holiday::{HolidayChecker, MarketStatus};

@@ -33,7 +33,10 @@ use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
+use trader_core::domain::{RouteState, StrategyContext};
 
 use crate::strategies::common::rebalance::{
     PortfolioPosition, RebalanceCalculator, RebalanceConfig, RebalanceOrderSide, TargetAllocation,
@@ -129,6 +132,14 @@ pub struct HaaConfig {
 
     /// 리밸런싱 임계값
     pub rebalance_threshold: Decimal,
+
+    /// 최소 GlobalScore (기본값: 60)
+    #[serde(default = "default_min_global_score")]
+    pub min_global_score: Decimal,
+}
+
+fn default_min_global_score() -> Decimal {
+    dec!(60)
 }
 
 /// 시장 타입.
@@ -171,6 +182,7 @@ impl HaaConfig {
             cash_symbol: "BIL".to_string(),
             invest_rate: dec!(1.0),
             rebalance_threshold: dec!(0.03),
+            min_global_score: dec!(60),
         }
     }
 
@@ -206,6 +218,7 @@ impl HaaConfig {
             cash_symbol: "BIL".to_string(),
             invest_rate: dec!(1.0),
             rebalance_threshold: dec!(0.03),
+            min_global_score: dec!(60),
         }
     }
 
@@ -258,6 +271,8 @@ enum PortfolioMode {
 /// HAA 전략.
 pub struct HaaStrategy {
     config: Option<HaaConfig>,
+    /// StrategyContext (RouteState, GlobalScore 조회용)
+    context: Option<Arc<RwLock<StrategyContext>>>,
     /// 자산별 가격 히스토리 (최신 가격이 앞에)
     price_history: HashMap<String, Vec<Decimal>>,
     /// 현재 포지션
@@ -277,6 +292,7 @@ impl HaaStrategy {
     pub fn new() -> Self {
         Self {
             config: None,
+            context: None,
             price_history: HashMap::new(),
             positions: HashMap::new(),
             last_rebalance_ym: None,
@@ -295,6 +311,7 @@ impl HaaStrategy {
 
         Self {
             config: Some(config),
+            context: None,
             price_history: HashMap::new(),
             positions: HashMap::new(),
             last_rebalance_ym: None,
@@ -509,6 +526,58 @@ impl HaaStrategy {
         }
     }
 
+    /// StrategyContext를 통해 진입 가능 여부 확인.
+    ///
+    /// RouteState와 GlobalScore를 확인하여 진입 적합성을 판단합니다.
+    fn can_enter(&self, ticker: &str) -> bool {
+        let config = match self.config.as_ref() {
+            Some(c) => c,
+            None => return true, // 설정 없으면 기본 허용
+        };
+
+        let ctx = match self.context.as_ref() {
+            Some(c) => c,
+            None => return true, // 컨텍스트 없으면 기본 허용
+        };
+
+        let ctx_lock = match ctx.try_read() {
+            Ok(lock) => lock,
+            Err(_) => return true, // 락 실패 시 기본 허용
+        };
+
+        // 1. RouteState 확인 - Overheat/Neutral 시 진입 제한
+        if let Some(state) = ctx_lock.get_route_state(ticker) {
+            match state {
+                RouteState::Overheat | RouteState::Neutral => {
+                    debug!(
+                        ticker = ticker,
+                        route_state = ?state,
+                        "RouteState not favorable for entry"
+                    );
+                    return false;
+                }
+                RouteState::Attack | RouteState::Armed | RouteState::Wait => {
+                    // 진입 가능
+                }
+            }
+        }
+
+        // 2. GlobalScore 확인 - 저품질 종목 제외
+        if let Some(score) = ctx_lock.get_global_score(ticker) {
+            if score.overall_score < config.min_global_score {
+                debug!(
+                    ticker = ticker,
+                    score = %score.overall_score,
+                    min_required = %config.min_global_score,
+                    "GlobalScore too low, skipping"
+                );
+                return false;
+            }
+        }
+
+        true
+    }
+
     /// 리밸런싱 필요 여부 확인.
     fn should_rebalance(&self, current_time: DateTime<Utc>) -> bool {
         let current_ym = format!("{}_{}", current_time.year(), current_time.month());
@@ -567,6 +636,15 @@ impl HaaStrategy {
                 RebalanceOrderSide::Buy => Side::Buy,
                 RebalanceOrderSide::Sell => Side::Sell,
             };
+
+            // BUY 신호 생성 전 can_enter() 확인
+            if side == Side::Buy && !self.can_enter(&order.symbol) {
+                debug!(
+                    symbol = %order.symbol,
+                    "[HAA] RouteState/GlobalScore 조건 미충족, 매수 신호 스킵"
+                );
+                continue;
+            }
 
             let quote_currency = match config.market {
                 HaaMarketType::US => "USD",
@@ -735,6 +813,11 @@ impl Strategy for HaaStrategy {
                 .collect::<HashMap<_, _>>(),
             "cash_balance": self.cash_balance.to_string(),
         })
+    }
+
+    fn set_context(&mut self, context: Arc<RwLock<StrategyContext>>) {
+        self.context = Some(context);
+        info!("StrategyContext injected into HAA strategy");
     }
 }
 
@@ -941,6 +1024,6 @@ register_strategy! {
     timeframe: "1d",
     symbols: ["TIP", "SPY", "IWM", "VEA", "VWO", "TLT", "IEF", "PDBC", "VNQ", "BIL"],
     category: Monthly,
-    markets: [UsStock],
+    markets: [Stock],
     type: HaaStrategy
 }

@@ -3,11 +3,12 @@
 //! 백테스트 및 실거래에서 발생한 기술 신호를 조회하고 검색합니다.
 
 use axum::{
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     routing::{get, post},
     Json, Router,
 };
+use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -15,7 +16,7 @@ use std::sync::Arc;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::error::ApiErrorResponse;
-use crate::repository::SignalMarkerRepository;
+use crate::repository::{BacktestResultsRepository, SignalMarkerRepository};
 use crate::AppState;
 use trader_core::{SignalIndicators, SignalMarker};
 
@@ -298,6 +299,91 @@ pub async fn get_signals_by_strategy(
     Ok(Json(SignalSearchResponse { total, signals }))
 }
 
+/// 백테스트 신호(거래) 응답
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct BacktestSignalsResponse {
+    /// 백테스트 ID
+    pub backtest_id: Uuid,
+
+    /// 전략 ID
+    pub strategy_id: String,
+
+    /// 전략 유형
+    pub strategy_type: String,
+
+    /// 심볼
+    pub symbol: String,
+
+    /// 총 거래 수
+    pub total_trades: usize,
+
+    /// 거래 목록 (JSON 형태)
+    pub trades: JsonValue,
+}
+
+/// 백테스트 신호(거래) 조회
+///
+/// 특정 백테스트의 신호 및 거래 내역을 조회합니다.
+#[utoipa::path(
+    get,
+    path = "/api/v1/signals/markers/backtest/{id}",
+    params(
+        ("id" = Uuid, Path, description = "백테스트 결과 ID")
+    ),
+    responses(
+        (status = 200, description = "조회 성공", body = BacktestSignalsResponse),
+        (status = 404, description = "백테스트를 찾을 수 없음", body = ApiErrorResponse),
+        (status = 500, description = "서버 오류", body = ApiErrorResponse)
+    ),
+    tag = "signals"
+)]
+pub async fn get_backtest_signals(
+    State(state): State<Arc<AppState>>,
+    Path(backtest_id): Path<Uuid>,
+) -> Result<Json<BacktestSignalsResponse>, (StatusCode, Json<ApiErrorResponse>)> {
+    let db_pool = match &state.db_pool {
+        Some(pool) => pool,
+        None => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiErrorResponse::new("DATABASE_ERROR", "Database not available")),
+            ))
+        }
+    };
+
+    // 백테스트 결과 조회
+    let result = BacktestResultsRepository::get_by_id(db_pool, backtest_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiErrorResponse::new("DATABASE_ERROR", &e.to_string())),
+            )
+        })?;
+
+    let result = match result {
+        Some(r) => r,
+        None => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(ApiErrorResponse::new("NOT_FOUND", "백테스트 결과를 찾을 수 없습니다")),
+            ))
+        }
+    };
+
+    // trades 배열의 길이 계산
+    let total_trades = result.trades.as_array().map(|arr| arr.len()).unwrap_or(0);
+
+    Ok(Json(BacktestSignalsResponse {
+        backtest_id: result.id,
+        strategy_id: result.strategy_id,
+        strategy_type: result.strategy_type,
+        symbol: result.symbol,
+        total_trades,
+        trades: result.trades,
+    }))
+}
+
 // ==================== 라우터 ====================
 
 /// SignalMarker API 라우터
@@ -306,4 +392,5 @@ pub fn signals_router() -> Router<Arc<AppState>> {
         .route("/search", post(search_signals))
         .route("/by-symbol", get(get_signals_by_symbol))
         .route("/by-strategy", get(get_signals_by_strategy))
+        .route("/markers/backtest/{id}", get(get_backtest_signals))
 }

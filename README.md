@@ -37,6 +37,27 @@ ZeroQuant는 암호화폐와 주식 시장에서 **24/7 자동화된 거래**를
 - **ML 모델 훈련**: XGBoost, LightGBM, RandomForest, 앙상블 지원
 - **성과 지표**: Sharpe Ratio, MDD, Win Rate, CAGR 등
 
+### 🎯 고급 스코어링 시스템
+- **Global Score Ranking**: 7개 팩터 기반 종합 종목 평가
+  - VolumeQuality, Momentum, ValueFactor, RouteState 등
+  - 페널티 시스템 (LiquidityGate, MarketRegime 필터)
+- **RouteState Calculator**: 진입 타이밍 자동 판단
+  - ATTACK (진입 적기), ARMED (대기), WAIT (관찰), OVERHEAT (과열)
+  - TTM Squeeze, 모멘텀, RSI, Range 종합 분석
+- **Market Regime**: 5단계 추세 분류 (STRONG_UPTREND → DOWNTREND)
+- **Reality Check**: 추천 종목 실제 성과 자동 검증
+  - 전일 추천 → 익일 성과 자동 계산
+  - 일별/소스별/랭크별 승률 통계
+
+### 🤖 알림 & 모니터링
+- **Telegram Bot**: 실시간 알림 및 모니터링
+  - 포지션 현황 및 손익 업데이트
+  - 거래 체결 알림
+  - 전략 신호 알림
+- **Signal System**: 백테스트/실거래 신호 저장
+  - 신호 마커 (차트 표시용)
+  - 알림 규칙 관리 (JSONB 필터)
+
 ### 🛡️ 리스크 관리
 - 자동 스톱로스 / 테이크프로핏
 - 포지션 크기 및 일일 손실 한도

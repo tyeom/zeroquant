@@ -102,7 +102,7 @@ impl ExchangeProvider for KisUsProvider {
             }
 
             // 심볼 생성 (US 주식)
-            let symbol = Symbol::new(&holding.symbol, "USD", MarketType::UsStock);
+            let symbol = Symbol::new(&holding.symbol, "USD", MarketType::Stock);
 
             // 포지션 생성 (현물은 매수만 가능)
             let mut position =
@@ -136,7 +136,7 @@ impl ExchangeProvider for KisUsProvider {
             };
 
             // 심볼 생성
-            let symbol = Symbol::new(&order.symbol, "USD", MarketType::UsStock);
+            let symbol = Symbol::new(&order.symbol, "USD", MarketType::Stock);
 
             // 주문 상태 결정
             let status = if order.filled_qty > Decimal::ZERO {

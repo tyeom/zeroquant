@@ -32,7 +32,10 @@ use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use tracing::{debug, info};
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use tracing::{debug, info, warn};
+use trader_core::domain::{RouteState, StrategyContext};
 
 use crate::strategies::common::rebalance::{
     PortfolioPosition, RebalanceCalculator, RebalanceConfig, RebalanceOrderSide, TargetAllocation,
@@ -77,6 +80,15 @@ pub struct SimplePowerConfig {
 
     /// 리밸런싱 임계값 (비중 편차)
     pub rebalance_threshold: Decimal,
+
+    /// 최소 GlobalScore (기본값: 60)
+    #[serde(default = "default_min_global_score")]
+    pub min_global_score: Decimal,
+}
+
+/// 기본 최소 GlobalScore.
+fn default_min_global_score() -> Decimal {
+    dec!(60)
 }
 
 /// 시장 타입.
@@ -111,6 +123,7 @@ impl SimplePowerConfig {
             rebalance_interval_months: 1,
             invest_rate: dec!(1.0),
             rebalance_threshold: dec!(0.03),
+            min_global_score: dec!(60),
         }
     }
 
@@ -136,6 +149,7 @@ impl SimplePowerConfig {
             rebalance_interval_months: 1,
             invest_rate: dec!(1.0),
             rebalance_threshold: dec!(0.03),
+            min_global_score: dec!(60),
         }
     }
 
@@ -193,6 +207,8 @@ impl Default for AssetMomentumState {
 /// Simple Power 전략.
 pub struct SimplePowerStrategy {
     config: Option<SimplePowerConfig>,
+    /// StrategyContext (RouteState, GlobalScore 조회용)
+    context: Option<Arc<RwLock<StrategyContext>>>,
     /// 자산별 가격 히스토리 (최신 가격이 앞에)
     price_history: HashMap<String, Vec<Decimal>>,
     /// 자산별 모멘텀 상태
@@ -212,6 +228,7 @@ impl SimplePowerStrategy {
     pub fn new() -> Self {
         Self {
             config: None,
+            context: None,
             price_history: HashMap::new(),
             momentum_states: HashMap::new(),
             positions: HashMap::new(),
@@ -230,6 +247,7 @@ impl SimplePowerStrategy {
 
         Self {
             config: Some(config),
+            context: None,
             price_history: HashMap::new(),
             momentum_states: HashMap::new(),
             positions: HashMap::new(),
@@ -394,6 +412,71 @@ impl SimplePowerStrategy {
             .collect()
     }
 
+    /// RouteState와 GlobalScore를 체크하여 특정 자산에 대한 진입 가능 여부 반환.
+    ///
+    /// # 진입 조건
+    ///
+    /// - RouteState::Attack: 적극 진입 가능
+    /// - RouteState::Armed: 조건부 허용
+    /// - RouteState::Overheat/Wait/Neutral: 진입 금지
+    /// - GlobalScore >= min_global_score: 진입 허용
+    fn can_enter(&self, ticker: &str) -> bool {
+        let Some(config) = self.config.as_ref() else {
+            return false;
+        };
+
+        let Some(ctx) = self.context.as_ref() else {
+            // Context가 없으면 진입 허용 (하위 호환성)
+            debug!("StrategyContext not available - allowing entry by default");
+            return true;
+        };
+
+        let Ok(ctx_lock) = ctx.try_read() else {
+            warn!("Failed to acquire context lock - entry blocked");
+            return false;
+        };
+
+        // RouteState 체크
+        if let Some(route_state) = ctx_lock.get_route_state(ticker) {
+            match route_state {
+                RouteState::Overheat | RouteState::Wait | RouteState::Neutral => {
+                    debug!(
+                        ticker = %ticker,
+                        route_state = ?route_state,
+                        "RouteState blocks entry"
+                    );
+                    return false;
+                }
+                RouteState::Armed => {
+                    debug!(ticker = %ticker, "RouteState::Armed - conditional entry");
+                }
+                RouteState::Attack => {
+                    debug!(ticker = %ticker, "RouteState::Attack - aggressive entry");
+                }
+            }
+        }
+
+        // GlobalScore 체크
+        if let Some(score) = ctx_lock.get_global_score(ticker) {
+            if score.overall_score < config.min_global_score {
+                debug!(
+                    ticker = %ticker,
+                    score = %score.overall_score,
+                    min_required = %config.min_global_score,
+                    "Low GlobalScore - skip entry"
+                );
+                return false;
+            }
+            debug!(
+                ticker = %ticker,
+                score = %score.overall_score,
+                "GlobalScore pass"
+            );
+        }
+
+        true
+    }
+
     /// 리밸런싱 필요 여부 확인.
     fn should_rebalance(&self, current_time: DateTime<Utc>) -> bool {
         let current_ym = format!("{}_{}", current_time.year(), current_time.month());
@@ -452,6 +535,15 @@ impl SimplePowerStrategy {
                 RebalanceOrderSide::Buy => Side::Buy,
                 RebalanceOrderSide::Sell => Side::Sell,
             };
+
+            // BUY 신호의 경우 can_enter() 체크
+            if side == Side::Buy && !self.can_enter(&order.symbol) {
+                debug!(
+                    symbol = %order.symbol,
+                    "Skipping BUY signal due to RouteState/GlobalScore filter"
+                );
+                continue;
+            }
 
             // USD를 quote로 사용 (미국 시장)
             let quote_currency = match config.market {
@@ -634,6 +726,11 @@ impl Strategy for SimplePowerStrategy {
             "cash_balance": self.cash_balance.to_string(),
         })
     }
+
+    fn set_context(&mut self, context: Arc<RwLock<StrategyContext>>) {
+        self.context = Some(context);
+        info!("StrategyContext injected into Simple Power strategy");
+    }
 }
 
 #[cfg(test)]
@@ -779,6 +876,6 @@ register_strategy! {
     timeframe: "1d",
     symbols: ["TQQQ", "SCHD", "PFIX", "TMF"],
     category: Monthly,
-    markets: [UsStock],
+    markets: [Stock],
     type: SimplePowerStrategy
 }

@@ -16,6 +16,9 @@
 //! # 권장 타임프레임
 //! - 일봉 (1D)
 
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use trader_core::domain::StrategyContext;
 use crate::strategies::common::deserialize_symbol;
 use crate::Strategy;
 use async_trait::async_trait;
@@ -110,6 +113,7 @@ struct DailyData {
 pub struct StockGuganStrategy {
     config: Option<StockGuganConfig>,
     symbol: Option<Symbol>,
+    context: Option<Arc<RwLock<StrategyContext>>>,
 
     /// 과거 일봉 데이터
     daily_history: VecDeque<DailyData>,
@@ -147,6 +151,7 @@ impl StockGuganStrategy {
         Self {
             config: None,
             symbol: None,
+            context: None,
             daily_history: VecDeque::new(),
             current_day: None,
             current_zone: None,
@@ -458,12 +463,12 @@ impl Strategy for StockGuganStrategy {
             .map(|c| c.is_numeric())
             .unwrap_or(false)
         {
-            MarketType::KrStock
+            MarketType::Stock
         } else {
-            MarketType::UsStock
+            MarketType::Stock
         };
 
-        let quote = if market_type == MarketType::KrStock {
+        let quote = if market_type == MarketType::Stock {
             "KRW"
         } else {
             "USD"
@@ -583,6 +588,12 @@ impl Strategy for StockGuganStrategy {
             "daily_history_len": self.daily_history.len(),
         })
     }
+    fn set_context(&mut self, context: Arc<RwLock<StrategyContext>>) {
+        self.context = Some(context);
+        info!("StrategyContext injected into StockGugan strategy");
+    }
+
+
 }
 
 #[cfg(test)]
@@ -693,6 +704,6 @@ register_strategy! {
     timeframe: "1m",
     symbols: [],
     category: Realtime,
-    markets: [KrStock, UsStock],
+    markets: [Stock, Stock],
     type: StockGuganStrategy
 }

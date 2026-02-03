@@ -36,7 +36,10 @@ use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use tracing::{debug, info};
+use trader_core::domain::{RouteState, StrategyContext};
 
 use crate::strategies::common::rebalance::{
     PortfolioPosition, RebalanceCalculator, RebalanceConfig, RebalanceOrderSide, TargetAllocation,
@@ -129,6 +132,10 @@ pub struct SectorMomentumConfig {
 
     /// 커스텀 섹터 목록
     pub custom_sectors: Option<Vec<SectorInfo>>,
+
+    /// 최소 GlobalScore (기본값: 60)
+    #[serde(default = "default_min_global_score")]
+    pub min_global_score: Decimal,
 }
 
 fn default_total_amount() -> Decimal {
@@ -158,6 +165,9 @@ fn default_long_weight() -> f64 {
 fn default_rebalance_threshold() -> Decimal {
     dec!(5)
 }
+fn default_min_global_score() -> Decimal {
+    dec!(60)
+}
 
 impl Default for SectorMomentumConfig {
     fn default() -> Self {
@@ -174,6 +184,7 @@ impl Default for SectorMomentumConfig {
             long_weight: default_long_weight(),
             rebalance_threshold: default_rebalance_threshold(),
             custom_sectors: None,
+            min_global_score: default_min_global_score(),
         }
     }
 }
@@ -320,6 +331,9 @@ pub struct SectorMomentumStrategy {
     total_pnl: Decimal,
 
     initialized: bool,
+
+    /// StrategyContext (RouteState, GlobalScore 접근용)
+    context: Option<Arc<RwLock<StrategyContext>>>,
 }
 
 impl SectorMomentumStrategy {
@@ -332,7 +346,52 @@ impl SectorMomentumStrategy {
             trades_count: 0,
             total_pnl: Decimal::ZERO,
             initialized: false,
+            context: None,
         }
+    }
+
+    /// StrategyContext 기반 진입 가능 여부 체크.
+    ///
+    /// RouteState와 GlobalScore를 확인하여 진입 가능 여부를 결정합니다.
+    fn can_enter(&self, ticker: &str) -> bool {
+        let Some(ctx) = self.context.as_ref() else {
+            // Context 없으면 진입 허용 (기존 동작 유지)
+            return true;
+        };
+
+        let Ok(ctx_lock) = ctx.try_read() else {
+            return true;
+        };
+
+        // 1. RouteState 확인 - Attack/Armed만 진입 허용
+        if let Some(state) = ctx_lock.get_route_state(ticker) {
+            match state {
+                RouteState::Attack | RouteState::Armed => {
+                    // 진입 가능
+                }
+                RouteState::Overheat | RouteState::Wait | RouteState::Neutral => {
+                    debug!(ticker = ticker, route_state = ?state, "RouteState not favorable for entry");
+                    return false;
+                }
+            }
+        }
+
+        // 2. GlobalScore 확인
+        if let Some(config) = self.config.as_ref() {
+            if let Some(score) = ctx_lock.get_global_score(ticker) {
+                if score.overall_score < config.min_global_score {
+                    debug!(
+                        ticker = ticker,
+                        score = %score.overall_score,
+                        min_required = %config.min_global_score,
+                        "GlobalScore too low for entry"
+                    );
+                    return false;
+                }
+            }
+        }
+
+        true
     }
 
     /// 상위 N개 섹터 선택.
@@ -463,6 +522,15 @@ impl SectorMomentumStrategy {
             } else {
                 Decimal::ZERO
             };
+
+            // BUY 신호는 StrategyContext 조건 확인 (매도는 항상 허용)
+            if order.side == RebalanceOrderSide::Buy && !self.can_enter(&order.symbol) {
+                debug!(
+                    symbol = %order.symbol,
+                    "BUY 신호 스킵: StrategyContext 조건 미충족"
+                );
+                continue;
+            }
 
             let signal = if order.side == RebalanceOrderSide::Buy {
                 Signal::entry("sector_momentum", symbol, side)
@@ -624,6 +692,11 @@ impl Strategy for SectorMomentumStrategy {
             "last_rebalance_month": self.last_rebalance_month,
         })
     }
+
+    fn set_context(&mut self, context: Arc<RwLock<StrategyContext>>) {
+        self.context = Some(context);
+        info!("StrategyContext injected into Sector Momentum strategy");
+    }
 }
 
 #[cfg(test)]
@@ -668,6 +741,6 @@ register_strategy! {
     timeframe: "1d",
     symbols: ["XLK", "XLF", "XLV", "XLE", "XLI", "XLY", "XLP", "XLU", "XLB", "XLRE"],
     category: Daily,
-    markets: [KrStock, UsStock],
+    markets: [Stock, Stock],
     type: SectorMomentumStrategy
 }

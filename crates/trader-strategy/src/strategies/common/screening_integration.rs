@@ -1,9 +1,13 @@
 //! 스크리닝 결과 및 GlobalScore 전략 연동.
 //!
 //! 전략이 StrategyContext에서 스크리닝 결과와 GlobalScore를 활용할 수 있도록 지원합니다.
+//!
+//! 모든 공개 API는 ticker 문자열을 사용합니다. Symbol 정보가 필요한 경우
+//! SymbolResolver를 통해 조회합니다.
 
+use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 use trader_core::domain::{RouteState, ScreeningResult, StrategyContext};
-use trader_core::types::Symbol;
 
 /// 스크리닝 결과 활용 trait.
 ///
@@ -31,13 +35,13 @@ pub trait ScreeningAware {
     ///
     /// # 인자
     ///
-    /// * `min_score` - 최소 점수
+    /// * `min_score` - 최소 점수 (Decimal)
     /// * `limit` - 최대 반환 개수
     ///
     /// # 반환
     ///
     /// 점수 높은 순으로 정렬된 종목 목록
-    fn filter_by_global_score(&self, min_score: f32, limit: Option<usize>) -> Vec<&ScreeningResult>;
+    fn filter_by_global_score(&self, min_score: Decimal, limit: Option<usize>) -> Vec<&ScreeningResult>;
 }
 
 /// StrategyContext에서 특정 RouteState 종목 추출.
@@ -50,19 +54,19 @@ pub trait ScreeningAware {
 ///
 /// # 반환
 ///
-/// (Symbol, ScreeningResult) 쌍의 벡터
+/// (ticker, ScreeningResult) 쌍의 벡터
 ///
 /// # 예시
 ///
 /// ```rust,ignore
 /// // ATTACK 상태 종목만 선택
-/// let attack_symbols = get_symbols_by_route_state(&context, "kosdaq_momentum", RouteState::Attack);
+/// let attack_tickers = get_symbols_by_route_state(&context, "kosdaq_momentum", RouteState::Attack);
 /// ```
 pub fn get_symbols_by_route_state<'a>(
     context: &'a StrategyContext,
     preset: &str,
     state: RouteState,
-) -> Vec<(Symbol, &'a ScreeningResult)> {
+) -> Vec<(String, &'a ScreeningResult)> {
     context
         .screening_results
         .get(preset)
@@ -70,7 +74,7 @@ pub fn get_symbols_by_route_state<'a>(
             results
                 .iter()
                 .filter(|r| r.route_state == state)
-                .map(|r| (r.symbol.clone(), r))
+                .map(|r| (r.ticker.clone(), r))
                 .collect()
         })
         .unwrap_or_default()
@@ -87,20 +91,20 @@ pub fn get_symbols_by_route_state<'a>(
 ///
 /// # 반환
 ///
-/// (Symbol, ScreeningResult) 쌍의 벡터 (점수 높은 순)
+/// (ticker, ScreeningResult) 쌍의 벡터 (점수 높은 순)
 ///
 /// # 예시
 ///
 /// ```rust,ignore
 /// // 80점 이상 상위 5개
-/// let top_symbols = get_symbols_by_global_score(&context, "growth", 80.0, Some(5));
+/// let top_tickers = get_symbols_by_global_score(&context, "growth", dec!(80), Some(5));
 /// ```
 pub fn get_symbols_by_global_score<'a>(
     context: &'a StrategyContext,
     preset: &str,
-    min_score: f32,
+    min_score: Decimal,
     limit: Option<usize>,
-) -> Vec<(Symbol, &'a ScreeningResult)> {
+) -> Vec<(String, &'a ScreeningResult)> {
     context
         .screening_results
         .get(preset)
@@ -108,7 +112,7 @@ pub fn get_symbols_by_global_score<'a>(
             let mut filtered: Vec<_> = results
                 .iter()
                 .filter(|r| r.overall_score >= min_score)
-                .map(|r| (r.symbol.clone(), r))
+                .map(|r| (r.ticker.clone(), r))
                 .collect();
 
             // overall_score 내림차순 정렬
@@ -138,7 +142,7 @@ pub fn get_symbols_by_global_score<'a>(
 ///
 /// # 반환
 ///
-/// (Symbol, ScreeningResult) 쌍의 벡터
+/// (ticker, ScreeningResult) 쌍의 벡터
 ///
 /// # 예시
 ///
@@ -150,7 +154,7 @@ pub fn get_top_symbols_per_sector<'a>(
     context: &'a StrategyContext,
     preset: &str,
     top_n_per_sector: usize,
-) -> Vec<(Symbol, &'a ScreeningResult)> {
+) -> Vec<(String, &'a ScreeningResult)> {
     use std::collections::HashMap;
 
     context
@@ -163,13 +167,14 @@ pub fn get_top_symbols_per_sector<'a>(
             for result in results.iter() {
                 // 섹터 정보가 있으면 그룹화
                 if let Some(sector_rs) = result.sector_rs {
-                    let sector_key = format!("sector_{}", sector_rs as i32); // 간단한 섹터 키
+                    // Decimal → i32 변환 (ToPrimitive trait 사용)
+                    let sector_key = format!("sector_{}", sector_rs.to_i32().unwrap_or(0));
                     by_sector.entry(sector_key).or_default().push(result);
                 }
             }
 
             // 각 섹터에서 상위 N개 선택 (overall_score 기준)
-            let mut top_symbols = Vec::new();
+            let mut top_tickers = Vec::new();
 
             for (_sector, mut sector_results) in by_sector {
                 // 점수 기준 정렬
@@ -181,11 +186,11 @@ pub fn get_top_symbols_per_sector<'a>(
 
                 // 상위 N개 선택
                 for result in sector_results.iter().take(top_n_per_sector) {
-                    top_symbols.push((result.symbol.clone(), *result));
+                    top_tickers.push((result.ticker.clone(), *result));
                 }
             }
 
-            top_symbols
+            top_tickers
         })
         .unwrap_or_default()
 }
@@ -199,19 +204,19 @@ pub fn get_top_symbols_per_sector<'a>(
 /// * `context` - 전략 실행 컨텍스트
 /// * `preset` - 스크리닝 프리셋 이름
 /// * `state` - RouteState
-/// * `min_score` - 최소 GlobalScore
+/// * `min_score` - 최소 GlobalScore (Decimal)
 /// * `limit` - 최대 반환 개수
 ///
 /// # 반환
 ///
-/// (Symbol, ScreeningResult) 쌍의 벡터
+/// (ticker, ScreeningResult) 쌍의 벡터
 pub fn get_symbols_by_state_and_score<'a>(
     context: &'a StrategyContext,
     preset: &str,
     state: RouteState,
-    min_score: f32,
+    min_score: Decimal,
     limit: Option<usize>,
-) -> Vec<(Symbol, &'a ScreeningResult)> {
+) -> Vec<(String, &'a ScreeningResult)> {
     context
         .screening_results
         .get(preset)
@@ -219,7 +224,7 @@ pub fn get_symbols_by_state_and_score<'a>(
             let mut filtered: Vec<_> = results
                 .iter()
                 .filter(|r| r.route_state == state && r.overall_score >= min_score)
-                .map(|r| (r.symbol.clone(), r))
+                .map(|r| (r.ticker.clone(), r))
                 .collect();
 
             // GlobalScore 내림차순 정렬
@@ -242,17 +247,17 @@ pub fn get_symbols_by_state_and_score<'a>(
 mod tests {
     use super::*;
     use chrono::Utc;
+    use rust_decimal_macros::dec;
     use std::collections::HashMap;
-    use trader_core::types::MarketType;
 
     fn create_test_screening_result(
         ticker: &str,
         route_state: RouteState,
-        overall_score: f32,
-        sector_rs: Option<f32>,
+        overall_score: Decimal,
+        sector_rs: Option<Decimal>,
     ) -> ScreeningResult {
         ScreeningResult {
-            symbol: Symbol::new(ticker, "", MarketType::KrStock),
+            ticker: ticker.to_string(),
             preset_name: "test".to_string(),
             passed: true,
             overall_score,
@@ -270,9 +275,9 @@ mod tests {
         screening_results.insert(
             "test_preset".to_string(),
             vec![
-                create_test_screening_result("005930", RouteState::Attack, 85.0, None),
-                create_test_screening_result("000660", RouteState::Wait, 65.0, None),
-                create_test_screening_result("035420", RouteState::Attack, 90.0, None),
+                create_test_screening_result("005930", RouteState::Attack, dec!(85), None),
+                create_test_screening_result("000660", RouteState::Wait, dec!(65), None),
+                create_test_screening_result("035420", RouteState::Attack, dec!(90), None),
             ],
         );
 
@@ -282,8 +287,8 @@ mod tests {
             ..context
         };
 
-        let attack_symbols = get_symbols_by_route_state(&context, "test_preset", RouteState::Attack);
-        assert_eq!(attack_symbols.len(), 2);
+        let attack_tickers = get_symbols_by_route_state(&context, "test_preset", RouteState::Attack);
+        assert_eq!(attack_tickers.len(), 2);
     }
 
     #[test]
@@ -292,9 +297,9 @@ mod tests {
         screening_results.insert(
             "test_preset".to_string(),
             vec![
-                create_test_screening_result("005930", RouteState::Neutral, 85.5, None),
-                create_test_screening_result("000660", RouteState::Neutral, 65.0, None),
-                create_test_screening_result("035420", RouteState::Neutral, 90.2, None),
+                create_test_screening_result("005930", RouteState::Neutral, dec!(85.5), None),
+                create_test_screening_result("000660", RouteState::Neutral, dec!(65), None),
+                create_test_screening_result("035420", RouteState::Neutral, dec!(90.2), None),
             ],
         );
 
@@ -304,11 +309,11 @@ mod tests {
             ..context
         };
 
-        let top_symbols = get_symbols_by_global_score(&context, "test_preset", 80.0, Some(2));
-        assert_eq!(top_symbols.len(), 2);
-        // 점수 순 정렬 확인
-        assert_eq!(top_symbols[0].0.base, "035420"); // 90.2점
-        assert_eq!(top_symbols[1].0.base, "005930"); // 85.5점
+        let top_tickers = get_symbols_by_global_score(&context, "test_preset", dec!(80), Some(2));
+        assert_eq!(top_tickers.len(), 2);
+        // 점수 순 정렬 확인 (ticker 문자열 비교)
+        assert_eq!(top_tickers[0].0, "035420"); // 90.2점
+        assert_eq!(top_tickers[1].0, "005930"); // 85.5점
     }
 
     #[test]
@@ -317,9 +322,9 @@ mod tests {
         screening_results.insert(
             "test_preset".to_string(),
             vec![
-                create_test_screening_result("005930", RouteState::Attack, 85.5, None),
-                create_test_screening_result("000660", RouteState::Attack, 65.0, None),
-                create_test_screening_result("035420", RouteState::Overheat, 90.2, None),
+                create_test_screening_result("005930", RouteState::Attack, dec!(85.5), None),
+                create_test_screening_result("000660", RouteState::Attack, dec!(65), None),
+                create_test_screening_result("035420", RouteState::Overheat, dec!(90.2), None),
             ],
         );
 
@@ -334,10 +339,10 @@ mod tests {
             &context,
             "test_preset",
             RouteState::Attack,
-            80.0,
+            dec!(80),
             None,
         );
         assert_eq!(filtered.len(), 1); // 005930만 해당
-        assert_eq!(filtered[0].0.base, "005930");
+        assert_eq!(filtered[0].0, "005930"); // ticker 문자열 비교
     }
 }

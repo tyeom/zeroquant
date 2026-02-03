@@ -7,13 +7,12 @@ use rust_decimal_macros::dec;
 use std::collections::HashMap;
 
 use trader_core::domain::{GlobalScoreResult, StrategyContext};
-use trader_core::types::Symbol;
 
 /// GlobalScore 기반 종목 필터링 옵션.
 #[derive(Debug, Clone)]
 pub struct ScoreFilterOptions {
     /// 최소 점수 (0~100)
-    pub min_score: Option<f32>,
+    pub min_score: Option<Decimal>,
     /// 필수 등급 (BUY, WATCH, HOLD, AVOID)
     pub required_grade: Option<String>,
     /// 최소 신뢰도 (HIGH, MEDIUM, LOW)
@@ -25,7 +24,7 @@ pub struct ScoreFilterOptions {
 impl Default for ScoreFilterOptions {
     fn default() -> Self {
         Self {
-            min_score: Some(70.0), // 기본 70점 이상
+            min_score: Some(dec!(70)), // 기본 70점 이상
             required_grade: None,
             min_confidence: None,
             limit: Some(10), // 기본 상위 10개
@@ -42,7 +41,7 @@ impl Default for ScoreFilterOptions {
 ///
 /// # 반환
 ///
-/// (Symbol, GlobalScoreResult) 쌍의 벡터 (overall_score DESC 정렬)
+/// (ticker, GlobalScoreResult) 쌍의 벡터 (overall_score DESC 정렬)
 ///
 /// # 예시
 ///
@@ -54,15 +53,15 @@ impl Default for ScoreFilterOptions {
 ///     ..Default::default()
 /// };
 ///
-/// let top_symbols = select_top_symbols(&context, options);
-/// for (symbol, score) in top_symbols {
-///     println!("{}: {}", symbol, score.overall_score);
+/// let top_tickers = select_top_symbols(&context, options);
+/// for (ticker, score) in top_tickers {
+///     println!("{}: {}", ticker, score.overall_score);
 /// }
 /// ```
 pub fn select_top_symbols(
     context: &StrategyContext,
     options: ScoreFilterOptions,
-) -> Vec<(Symbol, GlobalScoreResult)> {
+) -> Vec<(String, GlobalScoreResult)> {
     let mut results: Vec<_> = context
         .global_scores
         .iter()
@@ -83,9 +82,9 @@ pub fn select_top_symbols(
 
             // 신뢰도 필터
             if let Some(ref min_conf) = options.min_confidence {
-                let conf_level = if score.confidence >= 0.8 {
+                let conf_level = if score.confidence >= dec!(0.8) {
                     "HIGH"
-                } else if score.confidence >= 0.6 {
+                } else if score.confidence >= dec!(0.6) {
                     "MEDIUM"
                 } else {
                     "LOW"
@@ -134,13 +133,13 @@ pub fn select_top_symbols(
 /// # 인자
 ///
 /// * `context` - 전략 실행 컨텍스트
-/// * `symbol` - 조회할 종목
+/// * `ticker` - 조회할 종목 티커
 ///
 /// # 반환
 ///
 /// GlobalScoreResult (없으면 None)
-pub fn get_score<'a>(context: &'a StrategyContext, symbol: &Symbol) -> Option<&'a GlobalScoreResult> {
-    context.global_scores.get(symbol)
+pub fn get_score<'a>(context: &'a StrategyContext, ticker: &str) -> Option<&'a GlobalScoreResult> {
+    context.global_scores.get(ticker)
 }
 
 /// GlobalScore를 포지션 사이징 가중치로 변환.
@@ -160,14 +159,14 @@ pub fn get_score<'a>(context: &'a StrategyContext, symbol: &Symbol) -> Option<&'
 /// # 반환
 ///
 /// 가중치 (0.5 ~ 1.5)
-pub fn calculate_score_weight(score: f32) -> Decimal {
-    if score >= 90.0 {
+pub fn calculate_score_weight(score: Decimal) -> Decimal {
+    if score >= dec!(90) {
         dec!(1.5)
-    } else if score >= 80.0 {
+    } else if score >= dec!(80) {
         dec!(1.2)
-    } else if score >= 70.0 {
+    } else if score >= dec!(70) {
         dec!(1.0)
-    } else if score >= 60.0 {
+    } else if score >= dec!(60) {
         dec!(0.8)
     } else {
         dec!(0.5)
@@ -193,14 +192,14 @@ pub fn calculate_score_weight(score: f32) -> Decimal {
 /// # 반환
 ///
 /// 리스크 조정 계수 (0.2 ~ 1.0)
-pub fn calculate_risk_adjustment(score: f32) -> Decimal {
-    if score >= 90.0 {
+pub fn calculate_risk_adjustment(score: Decimal) -> Decimal {
+    if score >= dec!(90) {
         dec!(1.0)
-    } else if score >= 80.0 {
+    } else if score >= dec!(80) {
         dec!(0.8)
-    } else if score >= 70.0 {
+    } else if score >= dec!(70) {
         dec!(0.6)
-    } else if score >= 60.0 {
+    } else if score >= dec!(60) {
         dec!(0.4)
     } else {
         dec!(0.2)
@@ -213,18 +212,18 @@ pub fn calculate_risk_adjustment(score: f32) -> Decimal {
 ///
 /// # 인자
 ///
-/// * `scores` - 종목별 GlobalScore
+/// * `scores` - 종목별 GlobalScore (ticker → result)
 ///
 /// # 반환
 ///
 /// 가중 평균 점수
-pub fn calculate_weighted_average(scores: &HashMap<Symbol, GlobalScoreResult>) -> f32 {
+pub fn calculate_weighted_average(scores: &HashMap<String, GlobalScoreResult>) -> Decimal {
     if scores.is_empty() {
-        return 0.0;
+        return Decimal::ZERO;
     }
 
-    let total_score: f32 = scores.values().map(|s| s.overall_score).sum();
-    total_score / scores.len() as f32
+    let total_score: Decimal = scores.values().map(|s| s.overall_score).sum();
+    total_score / Decimal::from(scores.len())
 }
 
 #[cfg(test)]
@@ -233,64 +232,56 @@ mod tests {
     use chrono::Utc;
     use trader_core::types::MarketType;
 
-    fn create_test_score(symbol: &str, score: f32, grade: &str, confidence: f32) -> (Symbol, GlobalScoreResult) {
-        let sym = Symbol::new(symbol, "", MarketType::KrStock);
+    fn create_test_score(ticker: &str, score: Decimal, grade: &str, confidence: Decimal) -> (String, GlobalScoreResult) {
         let result = GlobalScoreResult {
-            symbol: Some(sym.clone()),
-            market_type: Some(MarketType::KrStock),
+            ticker: Some(ticker.to_string()),
+            market_type: Some(MarketType::Stock),
             overall_score: score,
             component_scores: Default::default(),
             recommendation: grade.to_string(),
             confidence,
             timestamp: Utc::now(),
         };
-        (sym, result)
+        (ticker.to_string(), result)
     }
 
     #[test]
     fn test_calculate_score_weight() {
-        assert_eq!(calculate_score_weight(95.0), dec!(1.5));
-        assert_eq!(calculate_score_weight(85.0), dec!(1.2));
-        assert_eq!(calculate_score_weight(75.0), dec!(1.0));
-        assert_eq!(calculate_score_weight(65.0), dec!(0.8));
-        assert_eq!(calculate_score_weight(50.0), dec!(0.5));
+        assert_eq!(calculate_score_weight(dec!(95)), dec!(1.5));
+        assert_eq!(calculate_score_weight(dec!(85)), dec!(1.2));
+        assert_eq!(calculate_score_weight(dec!(75)), dec!(1.0));
+        assert_eq!(calculate_score_weight(dec!(65)), dec!(0.8));
+        assert_eq!(calculate_score_weight(dec!(50)), dec!(0.5));
     }
 
     #[test]
     fn test_calculate_risk_adjustment() {
-        assert_eq!(calculate_risk_adjustment(95.0), dec!(1.0));
-        assert_eq!(calculate_risk_adjustment(85.0), dec!(0.8));
-        assert_eq!(calculate_risk_adjustment(75.0), dec!(0.6));
-        assert_eq!(calculate_risk_adjustment(65.0), dec!(0.4));
-        assert_eq!(calculate_risk_adjustment(50.0), dec!(0.2));
+        assert_eq!(calculate_risk_adjustment(dec!(95)), dec!(1.0));
+        assert_eq!(calculate_risk_adjustment(dec!(85)), dec!(0.8));
+        assert_eq!(calculate_risk_adjustment(dec!(75)), dec!(0.6));
+        assert_eq!(calculate_risk_adjustment(dec!(65)), dec!(0.4));
+        assert_eq!(calculate_risk_adjustment(dec!(50)), dec!(0.2));
     }
 
     #[test]
     fn test_select_top_symbols_with_min_score() {
-        use trader_core::domain::{StrategyAccountInfo, ExchangeConstraints};
         use std::collections::HashMap;
 
         let mut scores = HashMap::new();
-        scores.insert(create_test_score("A", 90.0, "BUY", 0.9).0, create_test_score("A", 90.0, "BUY", 0.9).1);
-        scores.insert(create_test_score("B", 75.0, "BUY", 0.8).0, create_test_score("B", 75.0, "BUY", 0.8).1);
-        scores.insert(create_test_score("C", 60.0, "WATCH", 0.7).0, create_test_score("C", 60.0, "WATCH", 0.7).1);
+        let (t1, s1) = create_test_score("A", dec!(90), "BUY", dec!(0.9));
+        let (t2, s2) = create_test_score("B", dec!(75), "BUY", dec!(0.8));
+        let (t3, s3) = create_test_score("C", dec!(60), "WATCH", dec!(0.7));
+        scores.insert(t1, s1);
+        scores.insert(t2, s2);
+        scores.insert(t3, s3);
 
         let context = StrategyContext {
-            account: StrategyAccountInfo::default(),
-            positions: HashMap::new(),
-            pending_orders: Vec::new(),
-            exchange_constraints: ExchangeConstraints::default(),
             global_scores: scores,
-            route_states: HashMap::new(),
-            screening_results: HashMap::new(),
-            structural_features: HashMap::new(),
-            last_exchange_sync: Utc::now(),
-            last_analytics_sync: Utc::now(),
-            created_at: Utc::now(),
+            ..Default::default()
         };
 
         let options = ScoreFilterOptions {
-            min_score: Some(70.0),
+            min_score: Some(dec!(70)),
             required_grade: None,
             min_confidence: None,
             limit: None,
@@ -301,32 +292,25 @@ mod tests {
         // 70점 이상만 선택됨
         assert_eq!(results.len(), 2);
         // 점수 순 정렬 확인
-        assert_eq!(results[0].1.overall_score, 90.0);
-        assert_eq!(results[1].1.overall_score, 75.0);
+        assert_eq!(results[0].1.overall_score, dec!(90));
+        assert_eq!(results[1].1.overall_score, dec!(75));
     }
 
     #[test]
     fn test_select_top_symbols_with_grade_filter() {
-        use trader_core::domain::{StrategyAccountInfo, ExchangeConstraints};
         use std::collections::HashMap;
 
         let mut scores = HashMap::new();
-        scores.insert(create_test_score("A", 90.0, "BUY", 0.9).0, create_test_score("A", 90.0, "BUY", 0.9).1);
-        scores.insert(create_test_score("B", 75.0, "BUY", 0.8).0, create_test_score("B", 75.0, "BUY", 0.8).1);
-        scores.insert(create_test_score("C", 85.0, "WATCH", 0.7).0, create_test_score("C", 85.0, "WATCH", 0.7).1);
+        let (t1, s1) = create_test_score("A", dec!(90), "BUY", dec!(0.9));
+        let (t2, s2) = create_test_score("B", dec!(75), "BUY", dec!(0.8));
+        let (t3, s3) = create_test_score("C", dec!(85), "WATCH", dec!(0.7));
+        scores.insert(t1, s1);
+        scores.insert(t2, s2);
+        scores.insert(t3, s3);
 
         let context = StrategyContext {
-            account: StrategyAccountInfo::default(),
-            positions: HashMap::new(),
-            pending_orders: Vec::new(),
-            exchange_constraints: ExchangeConstraints::default(),
             global_scores: scores,
-            route_states: HashMap::new(),
-            screening_results: HashMap::new(),
-            structural_features: HashMap::new(),
-            last_exchange_sync: Utc::now(),
-            last_analytics_sync: Utc::now(),
-            created_at: Utc::now(),
+            ..Default::default()
         };
 
         let options = ScoreFilterOptions {

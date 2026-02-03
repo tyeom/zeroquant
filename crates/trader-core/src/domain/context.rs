@@ -9,10 +9,100 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::analytics_provider::{
-    GlobalScoreResult, RouteState, ScreeningResult, StructuralFeatures,
+    GlobalScoreResult, MacroEnvironment, MarketBreadth, MarketRegime, RouteState,
+    ScreeningResult, StructuralFeatures,
 };
+use super::market_data::Kline;
 use super::order::{OrderStatusType, Side};
 use crate::types::Symbol;
+use crate::Timeframe;
+
+// =============================================================================
+// 다중 타임프레임 설정 (Phase 1.4.2)
+// =============================================================================
+
+/// 다중 타임프레임 설정.
+///
+/// 전략이 필요로 하는 타임프레임들과 각각의 캔들 개수를 명시합니다.
+///
+/// # 예시
+///
+/// ```rust,ignore
+/// use trader_core::{Timeframe, domain::MultiTimeframeConfig};
+///
+/// let config = MultiTimeframeConfig::new()
+///     .with_timeframe(Timeframe::D1, 60)   // 일봉 60개
+///     .with_timeframe(Timeframe::H4, 120)  // 4시간봉 120개
+///     .with_timeframe(Timeframe::H1, 240); // 1시간봉 240개
+/// ```
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MultiTimeframeConfig {
+    /// 타임프레임별 캔들 개수 설정
+    pub timeframes: HashMap<Timeframe, usize>,
+
+    /// 기본 타임프레임 (분석의 기준이 되는 타임프레임)
+    pub primary_timeframe: Option<Timeframe>,
+
+    /// 자동 동기화 여부
+    pub auto_sync: bool,
+}
+
+impl MultiTimeframeConfig {
+    /// 빈 설정 생성.
+    pub fn new() -> Self {
+        Self {
+            timeframes: HashMap::new(),
+            primary_timeframe: None,
+            auto_sync: true,
+        }
+    }
+
+    /// 단일 타임프레임 설정 생성.
+    pub fn single(timeframe: Timeframe, candle_count: usize) -> Self {
+        let mut config = Self::new();
+        config.timeframes.insert(timeframe, candle_count);
+        config.primary_timeframe = Some(timeframe);
+        config
+    }
+
+    /// 타임프레임 추가.
+    pub fn with_timeframe(mut self, timeframe: Timeframe, candle_count: usize) -> Self {
+        self.timeframes.insert(timeframe, candle_count);
+        self
+    }
+
+    /// 기본 타임프레임 설정.
+    pub fn with_primary(mut self, timeframe: Timeframe) -> Self {
+        self.primary_timeframe = Some(timeframe);
+        self
+    }
+
+    /// 자동 동기화 비활성화.
+    pub fn without_auto_sync(mut self) -> Self {
+        self.auto_sync = false;
+        self
+    }
+
+    /// 설정된 타임프레임 목록 반환.
+    pub fn get_timeframes(&self) -> Vec<Timeframe> {
+        self.timeframes.keys().copied().collect()
+    }
+
+    /// 특정 타임프레임의 캔들 개수 반환.
+    pub fn get_candle_count(&self, timeframe: Timeframe) -> usize {
+        self.timeframes.get(&timeframe).copied().unwrap_or(60)
+    }
+
+    /// 기본 타임프레임 반환 (설정되지 않은 경우 첫 번째 타임프레임).
+    pub fn get_primary_timeframe(&self) -> Option<Timeframe> {
+        self.primary_timeframe.or_else(|| self.timeframes.keys().next().copied())
+    }
+
+    /// 설정이 비어있는지 확인.
+    pub fn is_empty(&self) -> bool {
+        self.timeframes.is_empty()
+    }
+}
 
 // =============================================================================
 // 계좌 정보
@@ -204,17 +294,42 @@ pub struct StrategyContext {
     pub exchange_constraints: ExchangeConstraints,
 
     // ===== 분석 결과 (1~10분 갱신) =====
-    /// Global Score 결과 (종목별)
-    pub global_scores: HashMap<Symbol, GlobalScoreResult>,
+    /// Global Score 결과 (ticker → 결과)
+    pub global_scores: HashMap<String, GlobalScoreResult>,
 
-    /// RouteState 결과 (종목별)
-    pub route_states: HashMap<Symbol, RouteState>,
+    /// RouteState 결과 (ticker → 상태)
+    pub route_states: HashMap<String, RouteState>,
 
     /// 스크리닝 결과 (프리셋명 → 결과 목록)
     pub screening_results: HashMap<String, Vec<ScreeningResult>>,
 
-    /// 구조적 피처 (종목별)
-    pub structural_features: HashMap<Symbol, StructuralFeatures>,
+    /// 구조적 피처 (ticker → 피처)
+    pub structural_features: HashMap<String, StructuralFeatures>,
+
+    /// MarketRegime 결과 (ticker → 레짐)
+    pub market_regime: HashMap<String, MarketRegime>,
+
+    /// 매크로 환경 (환율, 나스닥 등)
+    pub macro_environment: Option<MacroEnvironment>,
+
+    /// 시장 폭 (20일선 상회 비율 등)
+    pub market_breadth: Option<MarketBreadth>,
+
+    // ===== 다중 타임프레임 데이터 (Phase 1.4.2) =====
+    /// 타임프레임별 캔들 데이터 (ticker → (timeframe → klines))
+    ///
+    /// # 예시
+    ///
+    /// ```rust,ignore
+    /// // 삼성전자의 일봉 데이터 조회
+    /// let d1_klines = context.klines_by_timeframe
+    ///     .get("005930")
+    ///     .and_then(|tf_map| tf_map.get(&Timeframe::D1));
+    ///
+    /// // 또는 헬퍼 메서드 사용
+    /// let d1_klines = context.get_klines("005930", Timeframe::D1);
+    /// ```
+    pub klines_by_timeframe: HashMap<String, HashMap<Timeframe, Vec<Kline>>>,
 
     // ===== 메타 정보 =====
     /// 마지막 거래소 동기화 시간
@@ -239,6 +354,10 @@ impl Default for StrategyContext {
             route_states: HashMap::new(),
             screening_results: HashMap::new(),
             structural_features: HashMap::new(),
+            market_regime: HashMap::new(),
+            macro_environment: None,
+            market_breadth: None,
+            klines_by_timeframe: HashMap::new(),
             last_exchange_sync: now,
             last_analytics_sync: now,
             created_at: now,
@@ -322,6 +441,118 @@ impl StrategyContext {
     }
 
     // =============================================================================
+    // 다중 타임프레임 메서드 (Phase 1.4.2)
+    // =============================================================================
+
+    /// 특정 심볼의 특정 타임프레임 캔들 데이터 조회.
+    ///
+    /// # 인자
+    ///
+    /// * `ticker` - 종목 심볼
+    /// * `timeframe` - 타임프레임
+    ///
+    /// # 반환
+    ///
+    /// 캔들 데이터 슬라이스 (없으면 빈 슬라이스)
+    pub fn get_klines(&self, ticker: &str, timeframe: Timeframe) -> &[Kline] {
+        self.klines_by_timeframe
+            .get(ticker)
+            .and_then(|tf_map| tf_map.get(&timeframe))
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
+    }
+
+    /// 여러 타임프레임의 캔들 데이터를 한 번에 조회.
+    ///
+    /// # 인자
+    ///
+    /// * `ticker` - 종목 심볼
+    /// * `timeframes` - 조회할 타임프레임 목록
+    ///
+    /// # 반환
+    ///
+    /// (타임프레임, 캔들 데이터) 튜플의 벡터
+    ///
+    /// # 예시
+    ///
+    /// ```rust,ignore
+    /// let data = context.get_multi_timeframe_klines(
+    ///     "005930",
+    ///     &[Timeframe::D1, Timeframe::H4, Timeframe::H1],
+    /// );
+    /// for (tf, klines) in data {
+    ///     println!("{:?}: {} candles", tf, klines.len());
+    /// }
+    /// ```
+    pub fn get_multi_timeframe_klines(
+        &self,
+        ticker: &str,
+        timeframes: &[Timeframe],
+    ) -> Vec<(Timeframe, &[Kline])> {
+        timeframes
+            .iter()
+            .map(|&tf| (tf, self.get_klines(ticker, tf)))
+            .collect()
+    }
+
+    /// 특정 심볼의 모든 타임프레임 데이터 조회.
+    ///
+    /// # 반환
+    ///
+    /// 사용 가능한 타임프레임 목록과 각각의 캔들 수
+    pub fn get_available_timeframes(&self, ticker: &str) -> Vec<(Timeframe, usize)> {
+        self.klines_by_timeframe
+            .get(ticker)
+            .map(|tf_map| {
+                tf_map
+                    .iter()
+                    .map(|(&tf, klines)| (tf, klines.len()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// 캔들 데이터 업데이트.
+    ///
+    /// # 인자
+    ///
+    /// * `ticker` - 종목 심볼
+    /// * `timeframe` - 타임프레임
+    /// * `klines` - 캔들 데이터
+    pub fn update_klines(&mut self, ticker: &str, timeframe: Timeframe, klines: Vec<Kline>) {
+        self.klines_by_timeframe
+            .entry(ticker.to_string())
+            .or_default()
+            .insert(timeframe, klines);
+    }
+
+    /// 여러 타임프레임의 캔들 데이터 일괄 업데이트.
+    ///
+    /// # 인자
+    ///
+    /// * `ticker` - 종목 심볼
+    /// * `data` - (타임프레임, 캔들 데이터) 튜플의 벡터
+    pub fn update_multi_timeframe_klines(
+        &mut self,
+        ticker: &str,
+        data: Vec<(Timeframe, Vec<Kline>)>,
+    ) {
+        let tf_map = self
+            .klines_by_timeframe
+            .entry(ticker.to_string())
+            .or_default();
+
+        for (timeframe, klines) in data {
+            tf_map.insert(timeframe, klines);
+        }
+    }
+
+    /// 특정 심볼의 캔들 데이터 모두 제거.
+    pub fn clear_klines(&mut self, ticker: &str) {
+        self.klines_by_timeframe.remove(ticker);
+    }
+
+    // =============================================================================
     // 분석 결과 업데이트 메서드
     // =============================================================================
 
@@ -331,15 +562,15 @@ impl StrategyContext {
     pub fn update_global_scores(&mut self, scores: Vec<GlobalScoreResult>) {
         self.global_scores.clear();
         for score in scores {
-            if let Some(symbol) = score.symbol.clone() {
-                self.global_scores.insert(symbol, score);
+            if let Some(ticker) = score.ticker.clone() {
+                self.global_scores.insert(ticker, score);
             }
         }
         self.last_analytics_sync = Utc::now();
     }
 
     /// RouteState 결과 업데이트.
-    pub fn update_route_states(&mut self, states: HashMap<Symbol, RouteState>) {
+    pub fn update_route_states(&mut self, states: HashMap<String, RouteState>) {
         self.route_states = states;
         self.last_analytics_sync = Utc::now();
     }
@@ -353,8 +584,26 @@ impl StrategyContext {
     }
 
     /// 구조적 피처 업데이트.
-    pub fn update_features(&mut self, features: HashMap<Symbol, StructuralFeatures>) {
+    pub fn update_features(&mut self, features: HashMap<String, StructuralFeatures>) {
         self.structural_features = features;
+        self.last_analytics_sync = Utc::now();
+    }
+
+    /// MarketRegime 결과 업데이트.
+    pub fn update_market_regime(&mut self, regimes: HashMap<String, MarketRegime>) {
+        self.market_regime = regimes;
+        self.last_analytics_sync = Utc::now();
+    }
+
+    /// 매크로 환경 업데이트.
+    pub fn update_macro_environment(&mut self, env: MacroEnvironment) {
+        self.macro_environment = Some(env);
+        self.last_analytics_sync = Utc::now();
+    }
+
+    /// 시장 폭 업데이트.
+    pub fn update_market_breadth(&mut self, breadth: MarketBreadth) {
+        self.market_breadth = Some(breadth);
         self.last_analytics_sync = Utc::now();
     }
 
@@ -362,19 +611,34 @@ impl StrategyContext {
     // 분석 결과 조회 헬퍼
     // =============================================================================
 
-    /// 특정 심볼의 RouteState 조회.
-    pub fn get_route_state(&self, symbol: &Symbol) -> Option<&RouteState> {
-        self.route_states.get(symbol)
+    /// 특정 종목의 RouteState 조회.
+    pub fn get_route_state(&self, ticker: &str) -> Option<&RouteState> {
+        self.route_states.get(ticker)
     }
 
-    /// 특정 심볼의 Global Score 조회.
-    pub fn get_global_score(&self, symbol: &Symbol) -> Option<&GlobalScoreResult> {
-        self.global_scores.get(symbol)
+    /// 특정 종목의 Global Score 조회.
+    pub fn get_global_score(&self, ticker: &str) -> Option<&GlobalScoreResult> {
+        self.global_scores.get(ticker)
     }
 
-    /// 특정 심볼의 구조적 피처 조회.
-    pub fn get_features(&self, symbol: &Symbol) -> Option<&StructuralFeatures> {
-        self.structural_features.get(symbol)
+    /// 특정 종목의 구조적 피처 조회.
+    pub fn get_features(&self, ticker: &str) -> Option<&StructuralFeatures> {
+        self.structural_features.get(ticker)
+    }
+
+    /// 특정 종목의 MarketRegime 조회.
+    pub fn get_market_regime(&self, ticker: &str) -> Option<&MarketRegime> {
+        self.market_regime.get(ticker)
+    }
+
+    /// 매크로 환경 조회.
+    pub fn get_macro_environment(&self) -> Option<&MacroEnvironment> {
+        self.macro_environment.as_ref()
+    }
+
+    /// 시장 폭 조회.
+    pub fn get_market_breadth(&self) -> Option<&MarketBreadth> {
+        self.market_breadth.as_ref()
     }
 
     /// 분석 결과 동기화 만료 여부 확인.
@@ -406,7 +670,7 @@ mod tests {
 
     #[test]
     fn test_position_info_update_price() {
-        let symbol = Symbol::new("AAPL", "USD", MarketType::UsStock);
+        let symbol = Symbol::new("AAPL", "USD", MarketType::Stock);
         let mut pos = StrategyPositionInfo::new(symbol, Side::Buy, dec!(10), dec!(150));
 
         // 가격 상승 → 수익
@@ -425,7 +689,7 @@ mod tests {
         let mut ctx = StrategyContext::new();
 
         // 포지션 추가
-        let symbol = Symbol::new("AAPL", "USD", MarketType::UsStock);
+        let symbol = Symbol::new("AAPL", "USD", MarketType::Stock);
         let pos = StrategyPositionInfo::new(symbol, Side::Buy, dec!(10), dec!(150));
         ctx.positions.insert("AAPL".to_string(), pos);
 
@@ -441,11 +705,11 @@ mod tests {
         let mut ctx = StrategyContext::new();
 
         // 포지션 2개 추가
-        let sym1 = Symbol::new("AAPL", "USD", MarketType::UsStock);
+        let sym1 = Symbol::new("AAPL", "USD", MarketType::Stock);
         let mut pos1 = StrategyPositionInfo::new(sym1, Side::Buy, dec!(10), dec!(150));
         pos1.update_price(dec!(160)); // 1600
 
-        let sym2 = Symbol::new("MSFT", "USD", MarketType::UsStock);
+        let sym2 = Symbol::new("MSFT", "USD", MarketType::Stock);
         let mut pos2 = StrategyPositionInfo::new(sym2, Side::Buy, dec!(5), dec!(300));
         pos2.update_price(dec!(310)); // 1550
 

@@ -3,27 +3,30 @@
 //! 볼린저 밴드를 사용하여 과매수/과매도 상태를 식별하고
 //! 중간 밴드로의 평균회귀를 거래하는 전략입니다.
 //!
+//! # StrategyContext 활용 (v2.0)
+//!
+//! - `StructuralFeatures.rsi`: RSI 값 (Context 동기화)
+//! - `StructuralFeatures.bb_width`: 볼린저 밴드 스퀴즈 감지
+//! - `RouteState`: 진입 가능 여부 판단
+//! - `GlobalScore`: 종목 품질 필터링
+//!
 //! # 전략 로직
 //! - **매수 신호**: 가격이 하단 밴드에 닿거나 하향 돌파 + RSI < 30
 //! - **매도 신호**: 가격이 상단 밴드에 닿거나 상향 돌파 + RSI > 70
 //! - **청산**: 가격이 중간 밴드(SMA)로 복귀
-//!
-//! # 암호화폐 거래에서의 장점
-//! - 변동성에 동적으로 적응 (변동성 높은 시장에서 밴드 확대)
-//! - 횡보장에서 높은 승률 (60-70%)
-//! - 명확한 진입/청산 규칙
-//! - 고빈도 데이터에서 잘 작동 (1분, 5분)
 
 use crate::strategies::common::deserialize_symbol;
 use crate::Strategy;
 use async_trait::async_trait;
-use rust_decimal::prelude::*;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::VecDeque;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
+use trader_core::domain::{RouteState, StrategyContext};
 use trader_core::{
     MarketData, MarketDataType, MarketType, Order, OrderStatusType, Position, Side, Signal, Symbol,
 };
@@ -41,19 +44,15 @@ pub struct BollingerConfig {
 
     /// 표준편차 승수 (기본값: 2.0)
     #[serde(default = "default_std_multiplier")]
-    pub std_multiplier: f64,
-
-    /// 확인용 RSI 기간 (기본값: 14)
-    #[serde(default = "default_rsi_period")]
-    pub rsi_period: usize,
+    pub std_multiplier: Decimal,
 
     /// RSI 과매도 임계값 (기본값: 30)
     #[serde(default = "default_rsi_oversold")]
-    pub rsi_oversold: f64,
+    pub rsi_oversold: Decimal,
 
     /// RSI 과매수 임계값 (기본값: 70)
     #[serde(default = "default_rsi_overbought")]
-    pub rsi_overbought: f64,
+    pub rsi_overbought: Decimal,
 
     /// RSI 확인 사용 여부 (기본값: true)
     #[serde(default = "default_use_rsi")]
@@ -65,15 +64,19 @@ pub struct BollingerConfig {
 
     /// 진입가 기준 손절 비율 (기본값: 2.0%)
     #[serde(default = "default_stop_loss")]
-    pub stop_loss_pct: f64,
+    pub stop_loss_pct: Decimal,
 
     /// 진입가 기준 익절 비율 (기본값: 4.0%)
     #[serde(default = "default_take_profit")]
-    pub take_profit_pct: f64,
+    pub take_profit_pct: Decimal,
 
     /// 가격 대비 최소 밴드 폭 비율 (저변동성 회피)
     #[serde(default = "default_min_bandwidth")]
-    pub min_bandwidth_pct: f64,
+    pub min_bandwidth_pct: Decimal,
+
+    /// 최소 GlobalScore (기본값: 50)
+    #[serde(default = "default_min_score")]
+    pub min_global_score: Decimal,
 
     /// 최대 포지션 수 (기본값: 1)
     #[serde(default = "default_max_positions")]
@@ -83,17 +86,14 @@ pub struct BollingerConfig {
 fn default_period() -> usize {
     20
 }
-fn default_std_multiplier() -> f64 {
-    2.0
+fn default_std_multiplier() -> Decimal {
+    dec!(2)
 }
-fn default_rsi_period() -> usize {
-    14
+fn default_rsi_oversold() -> Decimal {
+    dec!(30)
 }
-fn default_rsi_oversold() -> f64 {
-    30.0
-}
-fn default_rsi_overbought() -> f64 {
-    70.0
+fn default_rsi_overbought() -> Decimal {
+    dec!(70)
 }
 fn default_use_rsi() -> bool {
     true
@@ -101,14 +101,17 @@ fn default_use_rsi() -> bool {
 fn default_exit_middle() -> bool {
     true
 }
-fn default_stop_loss() -> f64 {
-    2.0
+fn default_stop_loss() -> Decimal {
+    dec!(2)
 }
-fn default_take_profit() -> f64 {
-    4.0
+fn default_take_profit() -> Decimal {
+    dec!(4)
 }
-fn default_min_bandwidth() -> f64 {
-    1.0
+fn default_min_bandwidth() -> Decimal {
+    dec!(1)
+}
+fn default_min_score() -> Decimal {
+    dec!(50)
 }
 fn default_max_positions() -> usize {
     1
@@ -119,15 +122,15 @@ impl Default for BollingerConfig {
         Self {
             symbol: "BTC/USDT".to_string(),
             period: 20,
-            std_multiplier: 2.0,
-            rsi_period: 14,
-            rsi_oversold: 30.0,
-            rsi_overbought: 70.0,
+            std_multiplier: dec!(2),
+            rsi_oversold: dec!(30),
+            rsi_overbought: dec!(70),
             use_rsi_confirmation: true,
             exit_at_middle_band: true,
-            stop_loss_pct: 2.0,
-            take_profit_pct: 4.0,
-            min_bandwidth_pct: 1.0,
+            stop_loss_pct: dec!(2),
+            take_profit_pct: dec!(4),
+            min_bandwidth_pct: dec!(1),
+            min_global_score: dec!(50),
             max_positions: 1,
         }
     }
@@ -143,25 +146,21 @@ struct PositionState {
 }
 
 /// 볼린저 밴드 평균회귀 전략.
+///
+/// StrategyContext를 통해 RSI, RouteState, GlobalScore를 조회합니다.
+/// 볼린저 밴드는 실시간 캔들 기반으로 계산합니다.
 pub struct BollingerStrategy {
     config: Option<BollingerConfig>,
     symbol: Option<Symbol>,
+    context: Option<Arc<RwLock<StrategyContext>>>,
 
-    /// 계산을 위한 가격 히스토리
+    /// 볼린저 밴드 계산을 위한 가격 히스토리
     prices: VecDeque<Decimal>,
 
     /// 현재 볼린저 밴드 값
     upper_band: Option<Decimal>,
     middle_band: Option<Decimal>,
     lower_band: Option<Decimal>,
-
-    /// 현재 RSI 값
-    rsi: Option<Decimal>,
-
-    /// RSI 계산 보조 변수
-    gains: VecDeque<Decimal>,
-    losses: VecDeque<Decimal>,
-    prev_close: Option<Decimal>,
 
     /// 포지션 추적
     position: Option<PositionState>,
@@ -179,14 +178,11 @@ impl BollingerStrategy {
         Self {
             config: None,
             symbol: None,
+            context: None,
             prices: VecDeque::new(),
             upper_band: None,
             middle_band: None,
             lower_band: None,
-            rsi: None,
-            gains: VecDeque::new(),
-            losses: VecDeque::new(),
-            prev_close: None,
             position: None,
             trades_count: 0,
             wins: 0,
@@ -225,56 +221,8 @@ impl BollingerStrategy {
         // 뉴턴 방법을 사용한 제곱근 근사
         let std_dev = self.sqrt_decimal(variance);
 
-        let multiplier = Decimal::from_f64_retain(config.std_multiplier).unwrap_or(dec!(2));
-
-        self.upper_band = Some(sma + std_dev * multiplier);
-        self.lower_band = Some(sma - std_dev * multiplier);
-    }
-
-    /// RSI (Relative Strength Index) 계산.
-    fn calculate_rsi(&mut self, close: Decimal) {
-        let Some(config) = self.config.as_ref() else {
-            self.prev_close = Some(close);
-            return;
-        };
-
-        if let Some(prev) = self.prev_close {
-            let change = close - prev;
-
-            if change > Decimal::ZERO {
-                self.gains.push_front(change);
-                self.losses.push_front(Decimal::ZERO);
-            } else {
-                self.gains.push_front(Decimal::ZERO);
-                self.losses.push_front(change.abs());
-            }
-
-            // RSI 기간에 맞게 자르기
-            while self.gains.len() > config.rsi_period {
-                self.gains.pop_back();
-            }
-            while self.losses.len() > config.rsi_period {
-                self.losses.pop_back();
-            }
-
-            // 충분한 데이터가 있으면 RSI 계산
-            if self.gains.len() >= config.rsi_period {
-                let avg_gain: Decimal =
-                    self.gains.iter().sum::<Decimal>() / Decimal::from(config.rsi_period);
-                let avg_loss: Decimal =
-                    self.losses.iter().sum::<Decimal>() / Decimal::from(config.rsi_period);
-
-                if avg_loss == Decimal::ZERO {
-                    self.rsi = Some(dec!(100));
-                } else {
-                    let rs = avg_gain / avg_loss;
-                    let rsi = dec!(100) - (dec!(100) / (Decimal::ONE + rs));
-                    self.rsi = Some(rsi);
-                }
-            }
-        }
-
-        self.prev_close = Some(close);
+        self.upper_band = Some(sma + std_dev * config.std_multiplier);
+        self.lower_band = Some(sma - std_dev * config.std_multiplier);
     }
 
     /// 뉴턴 방법을 사용한 Decimal 제곱근 근사.
@@ -308,6 +256,17 @@ impl BollingerStrategy {
         }
     }
 
+    /// StrategyContext에서 현재 RSI 조회.
+    fn get_current_rsi(&self) -> Option<Decimal> {
+        let config = self.config.as_ref()?;
+        let ticker = &config.symbol;
+
+        let ctx = self.context.as_ref()?;
+        let ctx_lock = ctx.try_read().ok()?;
+
+        ctx_lock.get_features(ticker).map(|f| f.rsi)
+    }
+
     /// RSI가 신호를 확인하는지 체크.
     fn rsi_confirms(&self, side: Side) -> bool {
         let Some(config) = self.config.as_ref() else {
@@ -318,14 +277,12 @@ impl BollingerStrategy {
             return true;
         }
 
-        match self.rsi {
-            Some(rsi) => {
-                let rsi_f64 = rsi.to_f64().unwrap_or(50.0);
-                match side {
-                    Side::Buy => rsi_f64 < config.rsi_oversold,
-                    Side::Sell => rsi_f64 > config.rsi_overbought,
-                }
-            }
+        // Context에서 RSI 조회
+        match self.get_current_rsi() {
+            Some(rsi) => match side {
+                Side::Buy => rsi < config.rsi_oversold,
+                Side::Sell => rsi > config.rsi_overbought,
+            },
             None => false,
         }
     }
@@ -345,7 +302,7 @@ impl BollingerStrategy {
 
         // 최소 밴드 폭 확인
         if let Some(bandwidth) = self.get_bandwidth_pct() {
-            if bandwidth.to_f64().unwrap_or(0.0) < config.min_bandwidth_pct {
+            if bandwidth < config.min_bandwidth_pct {
                 debug!(bandwidth = %bandwidth, "Bandwidth too low, skipping");
                 return signals;
             }
@@ -420,20 +377,56 @@ impl BollingerStrategy {
 
         // 포지션 없음 - 진입 신호 탐색
 
+        // StrategyContext 기반 필터링
+        // 참고: HashMap 키는 ticker 문자열 (historical.rs의 패턴 참조)
+        let ticker = &symbol.base;
+        if let Some(ctx) = self.context.as_ref() {
+            if let Ok(ctx_lock) = ctx.try_read() {
+                // 1️⃣ StructuralFeatures로 스퀴즈 확인
+                if let Some(feat) = ctx_lock.get_features(ticker) {
+                    // bb_width < 8: 볼린저 밴드 스퀴즈, 대기
+                    if feat.bb_width < dec!(8) {
+                        debug!(bb_width = %feat.bb_width, "Bollinger Squeeze detected, waiting");
+                        return signals;
+                    }
+                }
+
+                // 2️⃣ RouteState 확인 - Overheat/Wait 시 진입 제한
+                if let Some(state) = ctx_lock.get_route_state(ticker) {
+                    match state {
+                        RouteState::Overheat | RouteState::Wait | RouteState::Neutral => {
+                            debug!(route_state = ?state, "RouteState not favorable for entry");
+                            return signals;
+                        }
+                        RouteState::Attack | RouteState::Armed => {
+                            // 진입 가능
+                        }
+                    }
+                }
+
+                // 3️⃣ GlobalScore 확인 - 저품질 종목 제외
+                if let Some(score) = ctx_lock.get_global_score(ticker) {
+                    if score.overall_score < config.min_global_score {
+                        debug!(score = %score.overall_score, "GlobalScore too low, skipping");
+                        return signals;
+                    }
+                }
+            }
+        }
+
         // 매수 신호: 가격이 하단 밴드 이하
         if current_price <= lower && self.rsi_confirms(Side::Buy) {
-            let stop_loss_pct =
-                Decimal::from_f64_retain(config.stop_loss_pct / 100.0).unwrap_or(dec!(0.02));
-            let take_profit_pct =
-                Decimal::from_f64_retain(config.take_profit_pct / 100.0).unwrap_or(dec!(0.04));
+            let stop_loss_pct = config.stop_loss_pct / dec!(100);
+            let take_profit_pct = config.take_profit_pct / dec!(100);
             let stop_loss = current_price * (Decimal::ONE - stop_loss_pct);
             let take_profit = current_price * (Decimal::ONE + take_profit_pct);
 
+            let current_rsi = self.get_current_rsi();
             signals.push(
                 Signal::entry("bollinger_bands", symbol.clone(), Side::Buy)
                     .with_strength(0.5)
                     .with_prices(Some(current_price), Some(stop_loss), Some(take_profit))
-                    .with_metadata("rsi", json!(self.rsi.map(|r| r.to_string())))
+                    .with_metadata("rsi", json!(current_rsi.map(|r| r.to_string())))
                     .with_metadata("lower_band", json!(lower.to_string())),
             );
 
@@ -449,25 +442,24 @@ impl BollingerStrategy {
             debug!(
                 price = %current_price,
                 lower_band = %lower,
-                rsi = ?self.rsi,
+                rsi = ?current_rsi,
                 "매수 신호 생성: 가격이 하단 밴드 이하"
             );
         }
 
         // 매도 신호: 가격이 상단 밴드 이상
         if current_price >= upper && self.rsi_confirms(Side::Sell) {
-            let stop_loss_pct =
-                Decimal::from_f64_retain(config.stop_loss_pct / 100.0).unwrap_or(dec!(0.02));
-            let take_profit_pct =
-                Decimal::from_f64_retain(config.take_profit_pct / 100.0).unwrap_or(dec!(0.04));
+            let stop_loss_pct = config.stop_loss_pct / dec!(100);
+            let take_profit_pct = config.take_profit_pct / dec!(100);
             let stop_loss = current_price * (Decimal::ONE + stop_loss_pct);
             let take_profit = current_price * (Decimal::ONE - take_profit_pct);
 
+            let current_rsi = self.get_current_rsi();
             signals.push(
                 Signal::entry("bollinger_bands", symbol.clone(), Side::Sell)
                     .with_strength(0.5)
                     .with_prices(Some(current_price), Some(stop_loss), Some(take_profit))
-                    .with_metadata("rsi", json!(self.rsi.map(|r| r.to_string())))
+                    .with_metadata("rsi", json!(current_rsi.map(|r| r.to_string())))
                     .with_metadata("upper_band", json!(upper.to_string())),
             );
 
@@ -482,7 +474,7 @@ impl BollingerStrategy {
             debug!(
                 price = %current_price,
                 upper_band = %upper,
-                rsi = ?self.rsi,
+                rsi = ?current_rsi,
                 "매도 신호 생성: 가격이 상단 밴드 이상"
             );
         }
@@ -504,13 +496,11 @@ impl Strategy for BollingerStrategy {
     }
 
     fn version(&self) -> &str {
-        "1.0.0"
+        "2.0.0"
     }
 
     fn description(&self) -> &str {
-        "Mean reversion strategy using Bollinger Bands with RSI confirmation. \
-         Buys at lower band (oversold), sells at upper band (overbought), \
-         exits at middle band."
+        "StrategyContext 기반 볼린저 밴드 평균회귀 전략 (RSI, RouteState, GlobalScore 동기화)"
     }
 
     async fn initialize(
@@ -522,9 +512,9 @@ impl Strategy for BollingerStrategy {
         info!(
             symbol = %bb_config.symbol,
             period = bb_config.period,
-            std_multiplier = bb_config.std_multiplier,
+            std_multiplier = %bb_config.std_multiplier,
             use_rsi = bb_config.use_rsi_confirmation,
-            "Initializing Bollinger Bands strategy"
+            "Initializing Bollinger Bands strategy v2.0"
         );
 
         self.symbol = Symbol::from_string(&bb_config.symbol, MarketType::Crypto);
@@ -565,9 +555,8 @@ impl Strategy for BollingerStrategy {
             self.prices.pop_back();
         }
 
-        // 지표 계산
+        // 볼린저 밴드 계산 (RSI는 Context에서 조회)
         self.calculate_bollinger_bands();
-        self.calculate_rsi(close);
 
         // 신호 생성
         let signals = self.generate_signals(close);
@@ -615,10 +604,8 @@ impl Strategy for BollingerStrategy {
         match (&self.position, order.side) {
             // 포지션 없는 상태에서 매수 → 롱 포지션 진입
             (None, Side::Buy) => {
-                let stop_loss_pct =
-                    Decimal::from_f64(config.stop_loss_pct / 100.0).unwrap_or(dec!(0.02));
-                let take_profit_pct =
-                    Decimal::from_f64(config.take_profit_pct / 100.0).unwrap_or(dec!(0.04));
+                let stop_loss_pct = config.stop_loss_pct / dec!(100);
+                let take_profit_pct = config.take_profit_pct / dec!(100);
 
                 let stop_loss = fill_price * (Decimal::ONE - stop_loss_pct);
                 let take_profit = fill_price * (Decimal::ONE + take_profit_pct);
@@ -641,10 +628,8 @@ impl Strategy for BollingerStrategy {
 
             // 포지션 없는 상태에서 매도 → 숏 포지션 진입
             (None, Side::Sell) => {
-                let stop_loss_pct =
-                    Decimal::from_f64(config.stop_loss_pct / 100.0).unwrap_or(dec!(0.02));
-                let take_profit_pct =
-                    Decimal::from_f64(config.take_profit_pct / 100.0).unwrap_or(dec!(0.04));
+                let stop_loss_pct = config.stop_loss_pct / dec!(100);
+                let take_profit_pct = config.take_profit_pct / dec!(100);
 
                 let stop_loss = fill_price * (Decimal::ONE + stop_loss_pct);
                 let take_profit = fill_price * (Decimal::ONE - take_profit_pct);
@@ -766,12 +751,8 @@ impl Strategy for BollingerStrategy {
 
                 let config = self.config.as_ref();
                 let (stop_loss_pct, take_profit_pct) = config
-                    .map(|c| (c.stop_loss_pct, c.take_profit_pct))
-                    .unwrap_or((2.0, 4.0));
-
-                let stop_loss_pct = Decimal::from_f64(stop_loss_pct / 100.0).unwrap_or(dec!(0.02));
-                let take_profit_pct =
-                    Decimal::from_f64(take_profit_pct / 100.0).unwrap_or(dec!(0.04));
+                    .map(|c| (c.stop_loss_pct / dec!(100), c.take_profit_pct / dec!(100)))
+                    .unwrap_or((dec!(0.02), dec!(0.04)));
 
                 let (stop_loss, take_profit) = match position.side {
                     Side::Buy => (
@@ -822,12 +803,17 @@ impl Strategy for BollingerStrategy {
             "upper_band": self.upper_band.map(|v| v.to_string()),
             "middle_band": self.middle_band.map(|v| v.to_string()),
             "lower_band": self.lower_band.map(|v| v.to_string()),
-            "rsi": self.rsi.map(|v| v.to_string()),
+            "rsi": self.get_current_rsi().map(|v| v.to_string()),
             "bandwidth_pct": self.get_bandwidth_pct().map(|v| v.to_string()),
             "trades_count": self.trades_count,
             "wins": self.wins,
             "losses": self.losses_count,
         })
+    }
+
+    fn set_context(&mut self, context: Arc<RwLock<StrategyContext>>) {
+        self.context = Some(context);
+        info!("StrategyContext injected into Bollinger Bands strategy");
     }
 }
 
@@ -954,6 +940,6 @@ register_strategy! {
     timeframe: "15m",
     symbols: [],
     category: Intraday,
-    markets: [Crypto, KrStock, UsStock],
+    markets: [Crypto, Stock, Stock],
     type: BollingerStrategy
 }

@@ -18,6 +18,9 @@
 //! - 암호화폐: 1H, 4H, 1D
 //! - K 계수 조정으로 더 짧은 타임프레임에도 적용 가능
 
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use trader_core::domain::{RouteState, StrategyContext};
 use crate::strategies::common::deserialize_symbol;
 use crate::Strategy;
 use async_trait::async_trait;
@@ -86,6 +89,10 @@ pub struct VolatilityBreakoutConfig {
     /// 거래량 배수 임계값 (기본값: 평균의 1.5배)
     #[serde(default = "default_volume_multiplier")]
     pub volume_multiplier: f64,
+
+    /// 최소 GlobalScore (기본값: 50)
+    #[serde(default = "default_min_global_score")]
+    pub min_global_score: Decimal,
 }
 
 fn default_k_factor() -> f64 {
@@ -118,6 +125,9 @@ fn default_max_range() -> f64 {
 fn default_volume_multiplier() -> f64 {
     1.5
 }
+fn default_min_global_score() -> Decimal {
+    dec!(50)
+}
 
 impl Default for VolatilityBreakoutConfig {
     fn default() -> Self {
@@ -135,6 +145,7 @@ impl Default for VolatilityBreakoutConfig {
             max_range_pct: 10.0,
             use_volume_filter: false,
             volume_multiplier: 1.5,
+            min_global_score: dec!(50),
         }
     }
 }
@@ -165,6 +176,7 @@ struct PositionState {
 pub struct VolatilityBreakoutStrategy {
     config: Option<VolatilityBreakoutConfig>,
     symbol: Option<Symbol>,
+    context: Option<Arc<RwLock<StrategyContext>>>,
 
     /// 과거 기간 데이터
     period_history: VecDeque<PeriodData>,
@@ -209,6 +221,7 @@ impl VolatilityBreakoutStrategy {
         Self {
             config: None,
             symbol: None,
+            context: None,
             period_history: VecDeque::new(),
             current_period: None,
             prev_range: None,
@@ -335,6 +348,48 @@ impl VolatilityBreakoutStrategy {
         }
     }
 
+    /// RouteState와 GlobalScore를 체크하여 진입 가능 여부 반환.
+    ///
+    /// # 진입 조건
+    ///
+    /// - RouteState::Attack: 적극 진입 가능
+    /// - RouteState::Armed: 조건부 허용
+    /// - RouteState::Overheat/Wait/Neutral: 진입 금지
+    /// - GlobalScore >= min_global_score: 진입 허용
+    fn can_enter(&self) -> bool {
+        let Some(config) = self.config.as_ref() else {
+            return false;
+        };
+        let ticker = &config.symbol;
+
+        let Some(ctx) = self.context.as_ref() else {
+            return true;
+        };
+
+        let Ok(ctx_lock) = ctx.try_read() else {
+            return true;
+        };
+
+        // RouteState 체크
+        if let Some(route_state) = ctx_lock.get_route_state(ticker) {
+            match route_state {
+                RouteState::Overheat | RouteState::Wait | RouteState::Neutral => {
+                    return false;
+                }
+                RouteState::Armed | RouteState::Attack => {}
+            }
+        }
+
+        // GlobalScore 체크
+        if let Some(score) = ctx_lock.get_global_score(ticker) {
+            if score.overall_score < config.min_global_score {
+                return false;
+            }
+        }
+
+        true
+    }
+
     /// 새 기간 처리 (기간 변경 시 호출).
     fn on_period_close(&mut self) {
         if let Some(period) = self.current_period.take() {
@@ -456,6 +511,12 @@ impl VolatilityBreakoutStrategy {
 
         // 포지션 없음 - 돌파 진입 확인
         if self.triggered_this_period {
+            return signals;
+        }
+
+        // StrategyContext 기반 필터링 (RouteState, GlobalScore)
+        if !self.can_enter() {
+            debug!("can_enter() returned false - skipping entry");
             return signals;
         }
 
@@ -726,6 +787,12 @@ impl Strategy for VolatilityBreakoutStrategy {
             "total_pnl": self.total_pnl.to_string(),
         })
     }
+    fn set_context(&mut self, context: Arc<RwLock<StrategyContext>>) {
+        self.context = Some(context);
+        info!("StrategyContext injected into VolatilityBreakout strategy");
+    }
+
+
 }
 
 #[cfg(test)]
@@ -856,6 +923,6 @@ register_strategy! {
     timeframe: "1d",
     symbols: [],
     category: Daily,
-    markets: [Crypto, KrStock, UsStock],
+    markets: [Crypto, Stock, Stock],
     type: VolatilityBreakoutStrategy
 }

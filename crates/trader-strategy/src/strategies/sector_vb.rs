@@ -23,6 +23,9 @@
 //! # 권장 타임프레임
 //! - 분봉 (5m, 15m) - 장중 돌파 감지
 
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use trader_core::domain::StrategyContext;
 use crate::strategies::common::deserialize_symbols;
 use crate::Strategy;
 use async_trait::async_trait;
@@ -183,6 +186,7 @@ enum StrategyState {
 pub struct SectorVbStrategy {
     config: Option<SectorVbConfig>,
     symbols: Vec<Symbol>,
+    context: Option<Arc<RwLock<StrategyContext>>>,
 
     /// 섹터별 데이터
     sector_data: HashMap<String, SectorData>,
@@ -212,6 +216,7 @@ impl SectorVbStrategy {
         Self {
             config: None,
             symbols: Vec::new(),
+            context: None,
             sector_data: HashMap::new(),
             selected_sector: None,
             state: StrategyState::Rest,
@@ -647,6 +652,12 @@ impl Strategy for SectorVbStrategy {
             "total_pnl": self.total_pnl.to_string(),
         })
     }
+    fn set_context(&mut self, context: Arc<RwLock<StrategyContext>>) {
+        self.context = Some(context);
+        info!("StrategyContext injected into SectorVb strategy");
+    }
+
+
 }
 
 #[cfg(test)]
@@ -687,6 +698,6 @@ register_strategy! {
     timeframe: "1d",
     symbols: ["091160", "091170", "091180", "091220", "091230"],
     category: Daily,
-    markets: [KrStock],
+    markets: [Stock],
     type: SectorVbStrategy
 }

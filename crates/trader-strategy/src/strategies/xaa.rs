@@ -41,7 +41,10 @@ use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
+use trader_core::domain::{RouteState, StrategyContext};
 
 use crate::strategies::common::rebalance::{
     PortfolioPosition, RebalanceCalculator, RebalanceConfig, RebalanceOrderSide, TargetAllocation,
@@ -147,6 +150,15 @@ pub struct XaaConfig {
 
     /// 리밸런싱 임계값
     pub rebalance_threshold: Decimal,
+
+    /// 최소 GlobalScore (기본값: 60)
+    #[serde(default = "default_min_global_score")]
+    pub min_global_score: Decimal,
+}
+
+/// 기본 최소 GlobalScore 값.
+fn default_min_global_score() -> Decimal {
+    dec!(60)
 }
 
 /// 시장 타입.
@@ -194,6 +206,7 @@ impl XaaConfig {
             cash_symbol: "BIL".to_string(),
             invest_rate: dec!(1.0),
             rebalance_threshold: dec!(0.03),
+            min_global_score: default_min_global_score(),
         }
     }
 
@@ -225,6 +238,7 @@ impl XaaConfig {
             cash_symbol: "BIL".to_string(),
             invest_rate: dec!(1.0),
             rebalance_threshold: dec!(0.03),
+            min_global_score: default_min_global_score(),
         }
     }
 
@@ -306,6 +320,8 @@ pub struct XaaStrategy {
     cash_balance: Decimal,
     /// 현재 포트폴리오 모드
     current_mode: PortfolioMode,
+    /// 전략 컨텍스트 (RouteState, GlobalScore 조회용)
+    context: Option<Arc<RwLock<StrategyContext>>>,
 }
 
 impl XaaStrategy {
@@ -319,6 +335,7 @@ impl XaaStrategy {
             rebalance_calculator: RebalanceCalculator::new(RebalanceConfig::us_market()),
             cash_balance: Decimal::ZERO,
             current_mode: PortfolioMode::Offensive,
+            context: None,
         }
     }
 
@@ -337,7 +354,54 @@ impl XaaStrategy {
             rebalance_calculator: RebalanceCalculator::new(rebalance_config),
             cash_balance: Decimal::ZERO,
             current_mode: PortfolioMode::Offensive,
+            context: None,
         }
+    }
+
+    /// 특정 종목의 진입 가능 여부 확인.
+    ///
+    /// RouteState와 GlobalScore를 기반으로 매수 신호 생성 가능 여부 판단.
+    fn can_enter(&self, ticker: &str) -> bool {
+        let Some(config) = self.config.as_ref() else {
+            return true; // 설정 없으면 기본 허용
+        };
+
+        let Some(ctx) = self.context.as_ref() else {
+            return true; // 컨텍스트 없으면 기본 허용
+        };
+
+        let Ok(ctx_lock) = ctx.try_read() else {
+            return true; // 락 획득 실패 시 기본 허용
+        };
+
+        // RouteState 확인 - Attack/Armed만 진입 허용
+        if let Some(state) = ctx_lock.get_route_state(ticker) {
+            match state {
+                RouteState::Attack | RouteState::Armed => {
+                    // 진입 가능
+                }
+                RouteState::Overheat | RouteState::Wait | RouteState::Neutral => {
+                    debug!(
+                        "[XAA] {} RouteState {:?} - 진입 불가",
+                        ticker, state
+                    );
+                    return false;
+                }
+            }
+        }
+
+        // GlobalScore 확인
+        if let Some(score) = ctx_lock.get_global_score(ticker) {
+            if score.overall_score < config.min_global_score {
+                debug!(
+                    "[XAA] {} GlobalScore {:.1} < {:.1} - 진입 불가",
+                    ticker, score.overall_score, config.min_global_score
+                );
+                return false;
+            }
+        }
+
+        true
     }
 
     /// 가격 히스토리 업데이트.
@@ -728,6 +792,15 @@ impl XaaStrategy {
                 RebalanceOrderSide::Sell => Side::Sell,
             };
 
+            // 매수 신호인 경우 RouteState/GlobalScore 확인
+            if side == Side::Buy && !self.can_enter(&order.symbol) {
+                debug!(
+                    "[XAA] {} 매수 신호 스킵 - RouteState/GlobalScore 조건 미충족",
+                    order.symbol
+                );
+                continue;
+            }
+
             let quote_currency = match config.market {
                 XaaMarketType::US => "USD",
                 XaaMarketType::KR => "KRW",
@@ -895,6 +968,11 @@ impl Strategy for XaaStrategy {
                 .collect::<HashMap<_, _>>(),
             "cash_balance": self.cash_balance.to_string(),
         })
+    }
+
+    fn set_context(&mut self, context: Arc<RwLock<StrategyContext>>) {
+        self.context = Some(context);
+        info!("[XAA] StrategyContext 주입 완료");
     }
 }
 
@@ -1148,6 +1226,6 @@ register_strategy! {
     timeframe: "1d",
     symbols: ["VWO", "BND", "SPY", "EFA", "EEM", "TLT", "IEF", "LQD", "BIL"],
     category: Monthly,
-    markets: [UsStock],
+    markets: [Stock],
     type: XaaStrategy
 }

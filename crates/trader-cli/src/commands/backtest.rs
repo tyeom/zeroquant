@@ -367,17 +367,13 @@ fn load_strategy_config(path: &str) -> Result<StrategyConfigFile> {
 }
 
 /// 심볼 객체 생성
+///
+/// 시장 정보에 따라 적절한 Symbol 생성자를 사용하여
+/// Country 필드가 자동 설정되도록 합니다.
 fn create_symbol(config: &BacktestCliConfig) -> Symbol {
-    let market_type = MarketType::Stock;
-
-    Symbol {
-        base: config.symbol.to_uppercase(),
-        quote: match config.market {
-            Market::KR => "KRW".to_string(),
-            Market::US => "USD".to_string(),
-        },
-        market_type,
-        exchange_symbol: None,
+    match config.market {
+        Market::KR => Symbol::kr_stock(&config.symbol.to_uppercase(), "KRW"),
+        Market::US => Symbol::us_stock(&config.symbol.to_uppercase(), "USD"),
     }
 }
 

@@ -27,7 +27,10 @@ use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use tracing::{debug, info};
+use trader_core::domain::{RouteState, StrategyContext};
 
 use crate::strategies::common::rebalance::{
     PortfolioPosition, RebalanceCalculator, RebalanceConfig, RebalanceOrderSide, TargetAllocation,
@@ -238,6 +241,10 @@ pub struct PensionBotConfig {
     /// 최소 거래 금액
     #[serde(default = "default_min_trade_amount")]
     pub min_trade_amount: Decimal,
+
+    /// 최소 GlobalScore (기본값: 60)
+    #[serde(default = "default_min_global_score")]
+    pub min_global_score: Decimal,
 }
 
 fn default_pension_portfolio() -> Vec<PensionAsset> {
@@ -290,6 +297,9 @@ fn default_rebalance_threshold() -> Decimal {
 fn default_min_trade_amount() -> Decimal {
     dec!(50000)
 }
+fn default_min_global_score() -> Decimal {
+    dec!(60)
+}
 
 impl Default for PensionBotConfig {
     fn default() -> Self {
@@ -302,6 +312,7 @@ impl Default for PensionBotConfig {
             cash_to_bonus_rate: default_cash_to_bonus(),
             rebalance_threshold: default_rebalance_threshold(),
             min_trade_amount: default_min_trade_amount(),
+            min_global_score: default_min_global_score(),
         }
     }
 }
@@ -311,6 +322,7 @@ pub struct PensionBotStrategy {
     config: Option<PensionBotConfig>,
     asset_data: HashMap<String, AssetMomentum>,
     last_rebalance_month: Option<u32>,
+    context: Option<Arc<RwLock<StrategyContext>>>,
 }
 
 impl PensionBotStrategy {
@@ -319,6 +331,7 @@ impl PensionBotStrategy {
             config: None,
             asset_data: HashMap::new(),
             last_rebalance_month: None,
+            context: None,
         }
     }
 
@@ -431,6 +444,65 @@ impl PensionBotStrategy {
         }
     }
 
+    /// 특정 심볼에 대해 진입 가능 여부 확인
+    ///
+    /// StrategyContext를 통해 RouteState와 GlobalScore를 체크합니다.
+    /// - RouteState::Attack/Armed: 진입 허용
+    /// - RouteState::Overheat/Wait/Neutral: 진입 금지
+    /// - GlobalScore >= min_global_score: 진입 허용
+    fn can_enter(&self, ticker: &str) -> bool {
+        let Some(config) = self.config.as_ref() else {
+            return false;
+        };
+
+        let Some(ctx) = self.context.as_ref() else {
+            // Context가 없으면 진입 허용 (기존 동작 유지)
+            debug!("[PensionBot] StrategyContext not available - entry allowed");
+            return true;
+        };
+
+        let Ok(ctx_lock) = ctx.try_read() else {
+            debug!("[PensionBot] Failed to acquire context lock - entry blocked");
+            return false;
+        };
+
+        // RouteState 체크
+        if let Some(route_state) = ctx_lock.get_route_state(ticker) {
+            match route_state {
+                RouteState::Overheat | RouteState::Wait | RouteState::Neutral => {
+                    debug!(
+                        "[PensionBot] RouteState {:?} blocks entry for {}",
+                        route_state, ticker
+                    );
+                    return false;
+                }
+                RouteState::Armed => {
+                    debug!("[PensionBot] RouteState::Armed - conditional entry for {}", ticker);
+                }
+                RouteState::Attack => {
+                    debug!("[PensionBot] RouteState::Attack - aggressive entry for {}", ticker);
+                }
+            }
+        }
+
+        // GlobalScore 체크
+        if let Some(score) = ctx_lock.get_global_score(ticker) {
+            if score.overall_score < config.min_global_score {
+                debug!(
+                    "[PensionBot] Low GlobalScore {} < {} - skip entry for {}",
+                    score.overall_score, config.min_global_score, ticker
+                );
+                return false;
+            }
+            debug!(
+                "[PensionBot] GlobalScore {} pass for {}",
+                score.overall_score, ticker
+            );
+        }
+
+        true
+    }
+
     /// 리밸런싱 시그널 생성
     fn generate_rebalance_signals(&mut self) -> Vec<Signal> {
         let config = match self.config.as_ref() {
@@ -463,6 +535,17 @@ impl PensionBotStrategy {
         let mut signals = Vec::new();
 
         for order in result.orders {
+            // BUY 시그널의 경우 can_enter() 체크
+            if order.side == RebalanceOrderSide::Buy {
+                if !self.can_enter(&order.symbol) {
+                    debug!(
+                        "[PensionBot] Skipping BUY signal for {} - entry not allowed",
+                        order.symbol
+                    );
+                    continue;
+                }
+            }
+
             let symbol = Symbol::stock(&order.symbol, "KRW");
 
             let side = match order.side {
@@ -606,6 +689,11 @@ impl Strategy for PensionBotStrategy {
                 .collect::<Vec<_>>(),
         })
     }
+
+    fn set_context(&mut self, context: Arc<RwLock<StrategyContext>>) {
+        self.context = Some(context);
+        info!("StrategyContext injected into Pension Bot strategy");
+    }
 }
 
 #[cfg(test)]
@@ -724,6 +812,6 @@ register_strategy! {
     timeframe: "1d",
     symbols: ["SPY", "IWM", "VEA", "VWO", "TLT", "IEF", "TIP", "BIL"],
     category: Monthly,
-    markets: [UsStock],
+    markets: [Stock],
     type: PensionBotStrategy
 }

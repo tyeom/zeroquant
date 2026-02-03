@@ -27,7 +27,10 @@ use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use tracing::{debug, info};
+use trader_core::domain::{RouteState, StrategyContext};
 use trader_core::{
     MarketData, MarketDataType, MarketType, Order, Position, Side, Signal, SignalType, Symbol,
 };
@@ -83,6 +86,10 @@ pub struct MarketCapTopConfig {
     /// 모멘텀 기간 (일)
     #[serde(default = "default_momentum_period")]
     pub momentum_period: usize,
+
+    /// 최소 글로벌 스코어 (기본값: 60)
+    #[serde(default = "default_min_global_score")]
+    pub min_global_score: Decimal,
 }
 
 fn default_top_n() -> usize {
@@ -100,6 +107,9 @@ fn default_rebalance_threshold() -> Decimal {
 fn default_momentum_period() -> usize {
     252
 }
+fn default_min_global_score() -> Decimal {
+    dec!(60)
+}
 
 impl Default for MarketCapTopConfig {
     fn default() -> Self {
@@ -112,6 +122,7 @@ impl Default for MarketCapTopConfig {
             symbols: Vec::new(),
             use_momentum_filter: false,
             momentum_period: default_momentum_period(),
+            min_global_score: default_min_global_score(),
         }
     }
 }
@@ -184,6 +195,8 @@ pub struct MarketCapTopStrategy {
     /// 활성 심볼 리스트
     active_symbols: Vec<String>,
     initialized: bool,
+    /// 전략 컨텍스트
+    context: Option<Arc<RwLock<StrategyContext>>>,
 }
 
 impl MarketCapTopStrategy {
@@ -195,7 +208,50 @@ impl MarketCapTopStrategy {
             current_day: 0,
             active_symbols: Vec::new(),
             initialized: false,
+            context: None,
         }
+    }
+
+    /// RouteState와 GlobalScore 기반 진입 조건 체크
+    fn can_enter(&self, symbol: &str) -> bool {
+        let context = match &self.context {
+            Some(ctx) => ctx,
+            None => return true,
+        };
+
+        let config = match &self.config {
+            Some(cfg) => cfg,
+            None => return true,
+        };
+
+        let ctx = match context.try_read() {
+            Ok(ctx) => ctx,
+            Err(_) => return true,
+        };
+
+        // RouteState 체크
+        if let Some(route) = ctx.get_route_state(symbol) {
+            match route {
+                RouteState::Wait | RouteState::Overheat => {
+                    debug!("[MarketCapTop] RouteState가 {:?}이므로 진입 불가", route);
+                    return false;
+                }
+                _ => {}
+            }
+        }
+
+        // GlobalScore 체크
+        if let Some(score) = ctx.get_global_score(symbol) {
+            if score.overall_score < config.min_global_score {
+                debug!(
+                    "[MarketCapTop] {} GlobalScore {} < {} 기준 미달",
+                    symbol, score.overall_score, config.min_global_score
+                );
+                return false;
+            }
+        }
+
+        true
     }
 
     /// 목표 비중 계산
@@ -491,9 +547,13 @@ impl MarketCapTopStrategy {
                     );
 
                     // 심볼 생성
-                    let symbol = Symbol::new(sym, "USD", MarketType::UsStock);
+                    let symbol = Symbol::new(sym, "USD", MarketType::Stock);
 
                     let (side, signal_type) = if diff > Decimal::ZERO {
+                        // BUY 신호 생성 전 can_enter 체크
+                        if !self.can_enter(sym) {
+                            continue;
+                        }
                         (Side::Buy, SignalType::Entry)
                     } else {
                         (Side::Sell, SignalType::Exit)
@@ -665,6 +725,11 @@ impl Strategy for MarketCapTopStrategy {
             "initialized": self.initialized,
         })
     }
+
+    fn set_context(&mut self, context: Arc<RwLock<StrategyContext>>) {
+        self.context = Some(context);
+        info!("StrategyContext injected into MarketCapTop strategy");
+    }
 }
 
 #[cfg(test)]
@@ -741,6 +806,6 @@ register_strategy! {
     timeframe: "1d",
     symbols: ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "BRK.B", "JPM", "V"],
     category: Daily,
-    markets: [KrStock, UsStock],
+    markets: [Stock, Stock],
     type: MarketCapTopStrategy
 }

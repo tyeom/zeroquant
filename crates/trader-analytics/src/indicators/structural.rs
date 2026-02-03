@@ -321,7 +321,7 @@ mod tests {
 
     /// 테스트용 캔들 생성 헬퍼.
     fn create_test_candles(count: usize, trend: &str) -> Vec<Kline> {
-        let symbol = Symbol::new("TEST", "USD", MarketType::KrStock);
+        let symbol = Symbol::new("TEST", "USD", MarketType::Stock);
         let mut candles = Vec::with_capacity(count);
 
         for i in 0..count {

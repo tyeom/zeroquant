@@ -1,5 +1,6 @@
 //! 트레이딩 운영을 위한 도메인 모델.
 
+mod alert;
 mod analytics_provider;
 mod calculations;
 mod context;
@@ -18,6 +19,7 @@ mod tick_size;
 mod trade;
 mod trigger;
 
+pub use alert::*;
 pub use analytics_provider::*;
 pub use calculations::*;
 pub use context::*;

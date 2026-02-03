@@ -334,8 +334,8 @@ impl SignalMarkerRow {
         use trader_core::MarketType;
         let market_type = match self.market.as_str() {
             "CRYPTO" | "Crypto" => MarketType::Crypto,
-            "KR" => MarketType::KrStock,
-            "US" => MarketType::UsStock,
+            "KR" => MarketType::Stock,
+            "US" => MarketType::Stock,
             "STOCK" | "Stock" => MarketType::Stock,
             "FOREX" | "Forex" => MarketType::Forex,
             _ => MarketType::Stock, // 기본값

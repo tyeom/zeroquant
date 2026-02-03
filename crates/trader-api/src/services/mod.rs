@@ -4,6 +4,8 @@
 
 pub mod context_sync;
 pub mod signal_alert;
+pub mod telegram_bot;
 
 pub use context_sync::start_context_sync_service;
 pub use signal_alert::{SignalAlertFilter, SignalAlertService};
+pub use telegram_bot::ApiBotHandler;

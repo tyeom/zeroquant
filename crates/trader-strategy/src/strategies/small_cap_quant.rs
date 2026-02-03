@@ -31,9 +31,12 @@ use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use tracing::{debug, info};
 
 use crate::traits::Strategy;
+use trader_core::domain::{RouteState, StrategyContext};
 use trader_core::{MarketData, MarketDataType, Order, Position, Side, Signal, Symbol};
 
 /// 소형주 퀀트 전략 설정.
@@ -70,6 +73,10 @@ pub struct SmallCapQuantConfig {
     /// 기준 지수 심볼 (기본: 코스닥150 ETF)
     #[serde(default = "default_index_symbol")]
     pub index_symbol: String,
+
+    /// 최소 글로벌 스코어 (기본값: 60)
+    #[serde(default = "default_min_global_score")]
+    pub min_global_score: Decimal,
 }
 
 fn default_target_count() -> usize {
@@ -96,6 +103,9 @@ fn default_min_per() -> f64 {
 fn default_index_symbol() -> String {
     "229200".to_string()
 } // 코스닥150 ETF
+fn default_min_global_score() -> Decimal {
+    dec!(60)
+}
 
 impl Default for SmallCapQuantConfig {
     fn default() -> Self {
@@ -108,6 +118,7 @@ impl Default for SmallCapQuantConfig {
             min_pbr: default_min_pbr(),
             min_per: default_min_per(),
             index_symbol: default_index_symbol(),
+            min_global_score: default_min_global_score(),
         }
     }
 }
@@ -249,6 +260,9 @@ pub struct SmallCapQuantStrategy {
     total_pnl: Decimal,
 
     initialized: bool,
+
+    /// 전략 컨텍스트 (RouteState, GlobalScore 등)
+    context: Option<Arc<RwLock<StrategyContext>>>,
 }
 
 impl SmallCapQuantStrategy {
@@ -265,6 +279,7 @@ impl SmallCapQuantStrategy {
             trades_count: 0,
             total_pnl: Decimal::ZERO,
             initialized: false,
+            context: None,
         }
     }
 
@@ -311,6 +326,48 @@ impl SmallCapQuantStrategy {
         false
     }
 
+    /// RouteState와 GlobalScore 기반 진입 조건 체크
+    fn can_enter(&self, symbol: &str) -> bool {
+        let context = match &self.context {
+            Some(ctx) => ctx,
+            None => return true,
+        };
+
+        let config = match &self.config {
+            Some(cfg) => cfg,
+            None => return true,
+        };
+
+        let ctx = match context.try_read() {
+            Ok(ctx) => ctx,
+            Err(_) => return true,
+        };
+
+        // RouteState 체크
+        if let Some(route) = ctx.get_route_state(symbol) {
+            match route {
+                RouteState::Wait | RouteState::Overheat => {
+                    debug!("[SmallCapQuant] RouteState가 {:?}이므로 진입 불가", route);
+                    return false;
+                }
+                _ => {}
+            }
+        }
+
+        // GlobalScore 체크
+        if let Some(score) = ctx.get_global_score(symbol) {
+            if score.overall_score < config.min_global_score {
+                debug!(
+                    "[SmallCapQuant] {} GlobalScore {} < {} 기준 미달",
+                    symbol, score.overall_score, config.min_global_score
+                );
+                return false;
+            }
+        }
+
+        true
+    }
+
     /// 매도 시그널 생성 (모든 보유 종목).
     fn generate_sell_all_signals(&mut self) -> Vec<Signal> {
         let mut signals = Vec::new();
@@ -352,6 +409,11 @@ impl SmallCapQuantStrategy {
         let amount_per_stock = config.total_amount * weight_per_stock;
 
         for symbol_str in target_stocks {
+            // can_enter 체크 (RouteState, GlobalScore)
+            if !self.can_enter(symbol_str) {
+                continue;
+            }
+
             if let Some(data) = self.stock_data.get(symbol_str) {
                 // 이미 보유 중이면 스킵
                 if data.current_holdings > Decimal::ZERO {
@@ -556,6 +618,11 @@ impl Strategy for SmallCapQuantStrategy {
             "last_rebalance_month": self.last_rebalance_month,
         })
     }
+
+    fn set_context(&mut self, context: Arc<RwLock<StrategyContext>>) {
+        self.context = Some(context);
+        info!("StrategyContext injected into SmallCapQuant strategy");
+    }
 }
 
 #[cfg(test)]
@@ -650,6 +717,6 @@ register_strategy! {
     timeframe: "1d",
     symbols: [],
     category: Daily,
-    markets: [KrStock],
+    markets: [Stock],
     type: SmallCapQuantStrategy
 }

@@ -30,7 +30,10 @@ use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
+use trader_core::domain::{RouteState, StrategyContext};
 use trader_core::{MarketData, MarketDataType, Order, Position, Side, Signal, Symbol};
 
 /// 개별 ETF 배분 설정.
@@ -93,6 +96,10 @@ pub struct Us3xLeverageConfig {
     /// 레버리지 최대 손실 시 전량 매도 (기본값: 30%)
     #[serde(default = "default_max_drawdown")]
     pub max_drawdown_pct: f64,
+
+    /// 최소 글로벌 스코어 (기본값: 60)
+    #[serde(default = "default_min_global_score")]
+    pub min_global_score: Decimal,
 }
 
 fn default_allocations() -> Vec<EtfAllocation> {
@@ -141,6 +148,9 @@ fn default_max_inverse_ratio() -> f64 {
 fn default_max_drawdown() -> f64 {
     30.0
 }
+fn default_min_global_score() -> Decimal {
+    dec!(60)
+}
 
 impl Default for Us3xLeverageConfig {
     fn default() -> Self {
@@ -153,6 +163,7 @@ impl Default for Us3xLeverageConfig {
             dynamic_allocation: true,
             max_inverse_ratio: 0.5,
             max_drawdown_pct: 30.0,
+            min_global_score: default_min_global_score(),
         }
     }
 }
@@ -241,6 +252,9 @@ pub struct Us3xLeverageStrategy {
     total_pnl: Decimal,
 
     initialized: bool,
+
+    /// 전략 컨텍스트
+    context: Option<Arc<RwLock<StrategyContext>>>,
 }
 
 impl Us3xLeverageStrategy {
@@ -258,7 +272,44 @@ impl Us3xLeverageStrategy {
             rebalance_count: 0,
             total_pnl: Decimal::ZERO,
             initialized: false,
+            context: None,
         }
+    }
+
+    /// StrategyContext 기반 진입 가능 여부 확인.
+    fn can_enter(&self, ticker: &str) -> bool {
+        let context = match &self.context {
+            Some(ctx) => ctx,
+            None => return true,
+        };
+        let config = match &self.config {
+            Some(cfg) => cfg,
+            None => return true,
+        };
+        let ctx = match context.try_read() {
+            Ok(ctx) => ctx,
+            Err(_) => return true,
+        };
+        if let Some(route) = ctx.get_route_state(ticker) {
+            match route {
+                RouteState::Wait | RouteState::Overheat => {
+                    debug!("[Us3xLeverage] RouteState {:?} for {} - 진입 불가", route, ticker);
+                    return false;
+                }
+                _ => {}
+            }
+        }
+        // GlobalScore 확인
+        if let Some(score) = ctx.get_global_score(ticker) {
+            if score.overall_score < config.min_global_score {
+                debug!(
+                    "[Us3xLeverage] GlobalScore {} < {} for {} - 진입 불가",
+                    score.overall_score, config.min_global_score, ticker
+                );
+                return false;
+            }
+        }
+        true
     }
 
     /// 새로운 날인지 확인.
@@ -408,7 +459,15 @@ impl Us3xLeverageStrategy {
             };
 
             if diff > 0.0 {
-                // 매수 필요
+                // 매수 필요 - StrategyContext 기반 진입 체크 (종목별)
+                if !self.can_enter(ticker) {
+                    debug!(
+                        ticker = %ticker,
+                        "[Us3xLeverage] 리밸런싱 매수 스킵 - can_enter() false"
+                    );
+                    continue;
+                }
+
                 signals.push(
                     Signal::entry("us_3x_leverage", symbol, Side::Buy)
                         .with_strength(diff.abs())
@@ -458,6 +517,15 @@ impl Us3xLeverageStrategy {
 
         for (ticker, data) in &self.etf_data {
             if data.target_ratio <= 0.0 {
+                continue;
+            }
+
+            // StrategyContext 기반 진입 체크 (종목별)
+            if !self.can_enter(ticker) {
+                debug!(
+                    ticker = %ticker,
+                    "[Us3xLeverage] 초기 진입 스킵 - can_enter() false"
+                );
                 continue;
             }
 
@@ -759,6 +827,11 @@ impl Strategy for Us3xLeverageStrategy {
             "holdings": holdings,
         })
     }
+
+    fn set_context(&mut self, context: Arc<RwLock<StrategyContext>>) {
+        self.context = Some(context);
+        info!("StrategyContext injected into Us3xLeverage strategy");
+    }
 }
 
 #[cfg(test)]
@@ -803,6 +876,6 @@ register_strategy! {
     timeframe: "1d",
     symbols: ["TQQQ", "SQQQ", "UPRO", "SPXU", "TMF", "TMV"],
     category: Daily,
-    markets: [UsStock],
+    markets: [Stock],
     type: Us3xLeverageStrategy
 }

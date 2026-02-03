@@ -212,6 +212,19 @@ impl MarketBreadth {
     }
 }
 
+impl Default for MarketBreadth {
+    /// 기본값 생성 (50% 중립 상태).
+    fn default() -> Self {
+        Self {
+            all: Decimal::from_f32_retain(0.5).unwrap(),
+            kospi: Decimal::from_f32_retain(0.5).unwrap(),
+            kosdaq: Decimal::from_f32_retain(0.5).unwrap(),
+            temperature: MarketTemperature::default(),
+            calculated_at: chrono::Utc::now(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

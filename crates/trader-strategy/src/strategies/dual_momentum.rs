@@ -28,7 +28,10 @@ use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use tracing::{debug, info};
+use trader_core::domain::{RouteState, StrategyContext};
 
 use crate::strategies::common::rebalance::{
     PortfolioPosition, RebalanceCalculator, RebalanceConfig, RebalanceOrderSide, TargetAllocation,
@@ -40,7 +43,7 @@ use trader_core::{MarketData, MarketDataType, Order, Position, Side, Signal, Sym
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DualAssetClass {
     /// 한국 주식
-    KrStock,
+    Stock,
     /// 미국 채권
     UsBond,
     /// 안전 자산 (현금 대용)
@@ -61,7 +64,7 @@ impl DualAsset {
         Self {
             symbol: symbol.into(),
             name: name.into(),
-            asset_class: DualAssetClass::KrStock,
+            asset_class: DualAssetClass::Stock,
             market: "KR".to_string(),
         }
     }
@@ -113,6 +116,10 @@ pub struct DualMomentumConfig {
 
     /// 커스텀 미국 채권
     pub us_bonds: Option<Vec<DualAsset>>,
+
+    /// 최소 글로벌 스코어 (기본값: 60)
+    #[serde(default = "default_min_global_score")]
+    pub min_global_score: Decimal,
 }
 
 fn default_total_amount() -> Decimal {
@@ -130,6 +137,9 @@ fn default_kr_allocation() -> f64 {
 fn default_use_absolute() -> bool {
     true
 }
+fn default_min_global_score() -> Decimal {
+    dec!(60)
+}
 
 impl Default for DualMomentumConfig {
     fn default() -> Self {
@@ -141,6 +151,7 @@ impl Default for DualMomentumConfig {
             use_absolute_momentum: true,
             kr_stocks: None,
             us_bonds: None,
+            min_global_score: default_min_global_score(),
         }
     }
 }
@@ -241,6 +252,9 @@ pub struct DualMomentumStrategy {
     trades_count: u32,
     total_pnl: Decimal,
 
+    /// StrategyContext 참조
+    context: Option<Arc<RwLock<StrategyContext>>>,
+
     initialized: bool,
 }
 
@@ -254,8 +268,52 @@ impl DualMomentumStrategy {
             last_rebalance_month: None,
             trades_count: 0,
             total_pnl: Decimal::ZERO,
+            context: None,
             initialized: false,
         }
+    }
+
+    /// StrategyContext를 기반으로 진입 가능 여부를 확인합니다.
+    /// RouteState가 Wait 또는 Overheat인 경우 진입을 제한합니다.
+    fn can_enter(&self, ticker: &str) -> bool {
+        let Some(ctx) = self.context.as_ref() else {
+            // Context가 없으면 기본적으로 진입 허용
+            return true;
+        };
+
+        let Ok(ctx_lock) = ctx.try_read() else {
+            return true;
+        };
+
+        // RouteState 확인 - Overheat/Wait 시 진입 제한
+        if let Some(state) = ctx_lock.get_route_state(ticker) {
+            match state {
+                RouteState::Overheat | RouteState::Wait => {
+                    debug!(route_state = ?state, ticker = ticker, "RouteState not favorable for entry");
+                    return false;
+                }
+                RouteState::Attack | RouteState::Armed | RouteState::Neutral => {
+                    // 진입 가능
+                }
+            }
+        }
+
+        // GlobalScore 확인
+        if let Some(config) = self.config.as_ref() {
+            if let Some(score) = ctx_lock.get_global_score(ticker) {
+                if score.overall_score < config.min_global_score {
+                    debug!(
+                        score = %score.overall_score,
+                        min = %config.min_global_score,
+                        ticker = ticker,
+                        "GlobalScore too low, skipping"
+                    );
+                    return false;
+                }
+            }
+        }
+
+        true
     }
 
     /// 클래스별 평균 모멘텀 계산.
@@ -290,7 +348,7 @@ impl DualMomentumStrategy {
             None => return,
         };
 
-        let kr_momentum = self.get_class_momentum(DualAssetClass::KrStock);
+        let kr_momentum = self.get_class_momentum(DualAssetClass::Stock);
         let us_momentum = self.get_class_momentum(DualAssetClass::UsBond);
 
         debug!(
@@ -301,7 +359,7 @@ impl DualMomentumStrategy {
 
         // 상대 모멘텀: 높은 쪽 선택
         let selected = if kr_momentum > us_momentum {
-            DualAssetClass::KrStock
+            DualAssetClass::Stock
         } else {
             DualAssetClass::UsBond
         };
@@ -309,7 +367,7 @@ impl DualMomentumStrategy {
         // 절대 모멘텀 체크
         if config.use_absolute_momentum {
             let selected_momentum = match selected {
-                DualAssetClass::KrStock => kr_momentum,
+                DualAssetClass::Stock => kr_momentum,
                 DualAssetClass::UsBond => us_momentum,
                 DualAssetClass::Safe => Decimal::ZERO,
             };
@@ -425,6 +483,11 @@ impl DualMomentumStrategy {
             };
 
             let signal = if order.side == RebalanceOrderSide::Buy {
+                // BUY 신호 전에 RouteState/GlobalScore 확인
+                if !self.can_enter(&order.symbol) {
+                    debug!(symbol = %order.symbol, "Skipping BUY due to RouteState/GlobalScore");
+                    continue;
+                }
                 Signal::entry("dual_momentum", symbol, side)
                     .with_strength(0.5)
                     .with_prices(Some(price), None, None)
@@ -585,6 +648,11 @@ impl Strategy for DualMomentumStrategy {
             "last_rebalance_month": self.last_rebalance_month,
         })
     }
+
+    fn set_context(&mut self, context: Arc<RwLock<StrategyContext>>) {
+        self.context = Some(context);
+        info!("StrategyContext injected into Dual Momentum strategy");
+    }
 }
 
 #[cfg(test)]
@@ -628,6 +696,6 @@ register_strategy! {
     timeframe: "1d",
     symbols: ["069500", "122630", "IEF", "TLT"],
     category: Daily,
-    markets: [KrStock, UsStock],
+    markets: [Stock, Stock],
     type: DualMomentumStrategy
 }

@@ -221,13 +221,22 @@ impl GlobalScorer {
         // 신뢰도 계산 (데이터 완전성 기준)
         let confidence = self.calculate_confidence(&params);
 
+        // f32 → Decimal 변환하여 결과 생성
+        let overall_score_dec = Decimal::from_f32_retain(overall_score).unwrap_or(Decimal::ZERO);
+        let confidence_dec = Decimal::from_f32_retain(confidence).unwrap_or(Decimal::ZERO);
+        let component_scores_dec: HashMap<String, Decimal> = component_scores
+            .into_iter()
+            .map(|(k, v)| (k, Decimal::from_f32_retain(v).unwrap_or(Decimal::ZERO)))
+            .collect();
+
         Ok(GlobalScoreResult {
-            symbol: params.symbol,
+            // Symbol을 ticker 문자열로 변환
+            ticker: params.symbol.map(|s| s.to_standard_string()),
             market_type: params.market_type,
-            overall_score,
-            component_scores,
+            overall_score: overall_score_dec,
+            component_scores: component_scores_dec,
             recommendation,
-            confidence,
+            confidence: confidence_dec,
             timestamp: Utc::now(),
         })
     }
@@ -786,7 +795,7 @@ mod tests {
                 let price = dec!(100) + Decimal::from(i);
                 let timestamp = chrono::Utc::now() - chrono::Duration::days((count - i) as i64);
                 Kline {
-                    symbol: Symbol::new("TEST", "KRW", MarketType::KrStock),
+                    symbol: Symbol::new("TEST", "KRW", MarketType::Stock),
                     timeframe: Timeframe::D1,
                     open_time: timestamp,
                     open: price,
@@ -808,8 +817,8 @@ mod tests {
         let candles = create_test_candles(60);
 
         let params = GlobalScorerParams {
-            symbol: Some(Symbol::new("TEST", "KRW", MarketType::KrStock)),
-            market_type: Some(MarketType::KrStock),
+            symbol: Some(Symbol::new("TEST", "KRW", MarketType::Stock)),
+            market_type: Some(MarketType::Stock),
             entry_price: Some(dec!(150)),
             target_price: Some(dec!(180)),
             stop_price: Some(dec!(140)),
@@ -819,10 +828,10 @@ mod tests {
 
         let result = scorer.calculate(&candles, params).unwrap();
 
-        assert!(result.overall_score >= 0.0 && result.overall_score <= 100.0);
+        assert!(result.overall_score >= Decimal::ZERO && result.overall_score <= dec!(100));
         // ERS 없이는 점수가 낮아져서 HOLD
         assert_eq!(result.recommendation, "HOLD");
-        assert!(result.confidence > 0.8);
+        assert!(result.confidence > dec!(0.8));
     }
 
     #[test]
@@ -951,8 +960,8 @@ mod tests {
         };
 
         let params = GlobalScorerParams {
-            symbol: Some(Symbol::new("TEST", "KRW", MarketType::KrStock)),
-            market_type: Some(MarketType::KrStock),
+            symbol: Some(Symbol::new("TEST", "KRW", MarketType::Stock)),
+            market_type: Some(MarketType::Stock),
             structural_features: Some(structural),
             volume_percentile: Some(0.8),
             ..Default::default()
@@ -962,10 +971,10 @@ mod tests {
 
         // Momentum 스코어 확인 (단순 증가 패턴이라 RSI가 높아서 0일 수 있음)
         let mom_score = result.component_scores.get("momentum").unwrap();
-        assert!(mom_score >= &0.0);
+        assert!(mom_score >= &Decimal::ZERO);
         // GlobalScore 전체 검증
-        assert!(result.overall_score >= 0.0 && result.overall_score <= 100.0);
+        assert!(result.overall_score >= Decimal::ZERO && result.overall_score <= dec!(100));
         // StructuralFeatures가 반영되었는지 확인 (confidence 증가)
-        assert!(result.confidence > 0.0);
+        assert!(result.confidence > Decimal::ZERO);
     }
 }

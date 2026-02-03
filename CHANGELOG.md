@@ -5,6 +5,23 @@
 
 ### Added
 
+#### 🤖 Telegram Bot Integration
+- **telegram_bot.rs** - 실시간 알림 봇 서비스
+  - 포지션 모니터링 및 알림
+  - 실시간 손익 업데이트
+  - 거래 체결 알림
+
+#### 🎨 Frontend UI Components
+- **GlobalScoreBadge** - 글로벌 스코어 시각화 배지
+- **RouteStateBadge** - 진입 상태 인디케이터 (ATTACK/ARMED/WAIT/OVERHEAT/NEUTRAL)
+- UI 컴포넌트 export 구조 개선
+
+#### 🗃️ Ranking System
+- **12_ranking_system.sql** - 글로벌 스코어 랭킹 스키마
+  - global_score 테이블 (복합 스코어링)
+  - 효율적인 랭킹 쿼리를 위한 인덱스
+  - 다중 타임프레임 지원 (1d, 1w, 1M)
+
 #### 🎯 Phase 1.1.2 Implementation (Strategy Scoring System)
 - **Global Scorer** - 7개 팩터 기반 종합 점수 시스템
   - `global_scorer.rs` - VolumeQuality, Momentum, ValueFactor, RouteState 등
@@ -35,6 +52,25 @@
   - PowerShell/Bash 모니터링 스크립트
 
 ### Changed
+
+#### 🚀 Strategy Enhancements
+- **전체 26개 전략 업데이트**
+  - 새로운 컨텍스트 통합
+  - 개선된 포지션 사이징 로직
+  - 글로벌 스코어 통합
+  - 향상된 스크리닝 기능
+
+#### 🔧 Core Infrastructure
+- **analytics_provider.rs** - 확장된 분석 인터페이스
+- **context.rs** - 글로벌 스코어가 포함된 풍부한 컨텍스트
+- **alert.rs** - 새로운 알림 도메인 모델
+- Symbol 타입 개선
+
+#### 📡 Exchange & Data
+- KIS 커넥터 개선 (한국/미국)
+- 향상된 히스토리컬 데이터 캐싱
+- 개선된 OHLCV 스토리지
+- 펀더멘털 데이터 캐시 업데이트
 
 #### 🔄 Migration Consolidation (33 → 11 files)
 - 기능별 그룹화로 관리 복잡도 67% 감소

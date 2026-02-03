@@ -1004,12 +1004,8 @@ pub fn generate_multi_sample_klines(
 
     for symbol_str in symbols {
         let (base, quote) = parse_symbol(symbol_str);
-        let symbol = Symbol {
-            base: base.clone(),
-            quote: quote.clone(),
-            market_type: MarketType::Stock,
-            exchange_symbol: None,
-        };
+        // Symbol 생성자를 통해 country 필드 자동 추론
+        let symbol = Symbol::new(&base, &quote, MarketType::Stock);
 
         let base_price = *base_prices.get(base.as_str()).unwrap_or(&50.0);
 

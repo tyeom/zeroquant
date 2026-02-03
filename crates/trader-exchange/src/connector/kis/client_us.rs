@@ -135,7 +135,7 @@ impl KisUsClient {
         &self,
         symbol: &str,
         exchange_code: Option<&str>,
-    ) -> Result<UsStockPrice, ExchangeError> {
+    ) -> Result<StockPrice, ExchangeError> {
         let tr_id = self.get_tr_id(tr_id::US_PRICE_DETAIL_REAL, tr_id::US_PRICE_DETAIL_PAPER);
         let url = format!(
             "{}/uapi/overseas-price/v1/quotations/price-detail",
@@ -717,7 +717,7 @@ impl KisUsClient {
 
 /// 미국 주식 시세 데이터.
 #[derive(Debug, Clone, Deserialize)]
-pub struct UsStockPrice {
+pub struct StockPrice {
     /// 현재가
     #[serde(rename = "last", deserialize_with = "deserialize_decimal")]
     pub current_price: Decimal,
@@ -953,7 +953,7 @@ struct KisUsPriceResponse {
     rt_cd: String,
     msg_cd: String,
     msg1: String,
-    output: UsStockPrice,
+    output: StockPrice,
 }
 
 #[derive(Debug, Deserialize)]

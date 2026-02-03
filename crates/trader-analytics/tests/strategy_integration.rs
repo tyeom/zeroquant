@@ -354,52 +354,7 @@ async fn test_magic_split_strategy() {
     verify_backtest_result!(report, "Magic Split");
 }
 
-/// Trailing Stop 전략 - 실시간
-#[tokio::test]
-async fn test_trailing_stop_strategy() {
-    let pool = match get_test_pool().await {
-        Some(p) => p,
-        None => {
-            eprintln!("Skipping test: DATABASE_URL not set");
-            return;
-        }
-    };
-
-    let provider = CachedHistoricalDataProvider::new(pool);
-    let klines = match provider.get_klines("005930", Timeframe::D1, 100).await {
-        Ok(k) if !k.is_empty() => k,
-        _ => {
-            eprintln!("Skipping test: No data available");
-            return;
-        }
-    };
-
-    println!("Trailing Stop 테스트 데이터 로드: {} 캔들", klines.len());
-
-    let mut strategy = TrailingStopStrategy::new();
-    let config = json!({
-        "symbol": "005930",
-        "trailing_stop_pct": "5.0",
-        "max_trailing_stop_pct": "10.0",
-        "profit_rate_adjustment": "2.0",
-        "amount": "1000000"
-    });
-
-    strategy.initialize(config).await.expect("초기화 실패");
-
-    let backtest_config = BacktestConfig::new(dec!(100_000_000))
-        .with_commission_rate(dec!(0.00015))
-        .with_slippage_rate(dec!(0.001));
-
-    let mut engine = BacktestEngine::new(backtest_config);
-    let sorted_klines = sort_klines_ascending(klines);
-    let report = engine
-        .run(&mut strategy, &sorted_klines)
-        .await
-        .expect("백테스트 실행 실패");
-
-    verify_backtest_result!(report, "Trailing Stop");
-}
+// TrailingStopStrategy는 리스크 관리로 이동됨 (전략 테스트에서 제외)
 
 /// Candle Pattern 전략 - 분봉/일봉, 35개 패턴
 #[tokio::test]
@@ -1570,12 +1525,8 @@ fn create_multi_symbol_test_klines() -> Vec<Kline> {
     let mut all_klines = Vec::new();
 
     for (base, quote, base_price) in &symbols_with_prices {
-        let symbol = Symbol {
-            base: base.to_string(),
-            quote: quote.to_string(),
-            market_type: MarketType::UsStock,
-            exchange_symbol: None,
-        };
+        // Symbol 생성자를 통해 country 필드 자동 추론
+        let symbol = Symbol::new(*base, *quote, MarketType::Stock);
 
         for day in 0..days {
             let open_time = base_time + Duration::days(day);

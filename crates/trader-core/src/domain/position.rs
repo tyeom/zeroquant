@@ -200,6 +200,160 @@ impl PositionSummary {
     }
 }
 
+/// 포지션 조정 유형.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AdjustmentType {
+    /// 추가 매수/매도 (포지션 확대)
+    Add,
+    /// 부분 청산 (포지션 축소)
+    Reduce,
+    /// 전량 청산
+    Close,
+    /// 손절 (Stop Loss)
+    StopLoss,
+    /// 익절 (Take Profit)
+    TakeProfit,
+    /// 리밸런싱 (목표 비중 조정)
+    Rebalance,
+    /// 조정 필요 없음
+    None,
+}
+
+/// 포지션 조정 권장 사항.
+///
+/// 전략이 현재 포지션에 대해 권장하는 조정 사항을 나타냅니다.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PositionAdjustment {
+    /// 대상 포지션 ID
+    pub position_id: Uuid,
+
+    /// 조정 유형
+    pub adjustment_type: AdjustmentType,
+
+    /// 조정 수량 (비율 또는 절대값)
+    pub quantity: Option<Decimal>,
+
+    /// 조정 비율 (0.0 ~ 1.0)
+    pub ratio: Option<Decimal>,
+
+    /// 목표 가격 (지정가 주문용)
+    pub target_price: Option<Decimal>,
+
+    /// 조정 이유
+    pub reason: String,
+
+    /// 우선순위 (0 = 낮음, 10 = 높음)
+    pub priority: u8,
+
+    /// 권장 시간 (즉시 실행 여부)
+    pub urgent: bool,
+
+    /// 예상 손익 영향
+    pub expected_pnl_impact: Option<Decimal>,
+
+    /// 생성 시각
+    pub created_at: DateTime<Utc>,
+
+    /// 관련 지표 (참고용)
+    #[serde(default)]
+    pub indicators: serde_json::Value,
+}
+
+impl PositionAdjustment {
+    /// 새 포지션 조정 권장 사항 생성.
+    pub fn new(position_id: Uuid, adjustment_type: AdjustmentType, reason: impl Into<String>) -> Self {
+        Self {
+            position_id,
+            adjustment_type,
+            quantity: None,
+            ratio: None,
+            target_price: None,
+            reason: reason.into(),
+            priority: 5,
+            urgent: false,
+            expected_pnl_impact: None,
+            created_at: Utc::now(),
+            indicators: serde_json::Value::Null,
+        }
+    }
+
+    /// 조정 수량 설정.
+    pub fn with_quantity(mut self, quantity: Decimal) -> Self {
+        self.quantity = Some(quantity);
+        self
+    }
+
+    /// 조정 비율 설정.
+    pub fn with_ratio(mut self, ratio: Decimal) -> Self {
+        self.ratio = Some(ratio);
+        self
+    }
+
+    /// 목표 가격 설정.
+    pub fn with_target_price(mut self, price: Decimal) -> Self {
+        self.target_price = Some(price);
+        self
+    }
+
+    /// 우선순위 설정.
+    pub fn with_priority(mut self, priority: u8) -> Self {
+        self.priority = priority.min(10);
+        self
+    }
+
+    /// 긴급 여부 설정.
+    pub fn as_urgent(mut self) -> Self {
+        self.urgent = true;
+        self.priority = 10;
+        self
+    }
+
+    /// 예상 손익 영향 설정.
+    pub fn with_expected_pnl(mut self, pnl: Decimal) -> Self {
+        self.expected_pnl_impact = Some(pnl);
+        self
+    }
+
+    /// 조정 필요 없음 생성.
+    pub fn no_adjustment(position_id: Uuid) -> Self {
+        Self::new(position_id, AdjustmentType::None, "조정 필요 없음")
+    }
+
+    /// 손절 조정 생성.
+    pub fn stop_loss(position_id: Uuid, reason: impl Into<String>) -> Self {
+        Self::new(position_id, AdjustmentType::StopLoss, reason)
+            .as_urgent()
+    }
+
+    /// 익절 조정 생성.
+    pub fn take_profit(position_id: Uuid, ratio: Decimal, reason: impl Into<String>) -> Self {
+        Self::new(position_id, AdjustmentType::TakeProfit, reason)
+            .with_ratio(ratio)
+    }
+
+    /// 조정이 필요한지 확인.
+    pub fn needs_action(&self) -> bool {
+        self.adjustment_type != AdjustmentType::None
+    }
+}
+
+/// 포지션 조정 여부 판단 trait.
+///
+/// 전략이 현재 포지션에 대해 조정이 필요한지 판단합니다.
+pub trait PositionAdjustable {
+    /// 포지션 조정 필요 여부 판단.
+    ///
+    /// # 인자
+    ///
+    /// * `position` - 검토할 포지션
+    ///
+    /// # 반환
+    ///
+    /// 조정 권장 사항 (조정 불필요 시 AdjustmentType::None)
+    fn should_adjust_position(&self, position: &Position) -> PositionAdjustment;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

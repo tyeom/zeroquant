@@ -32,7 +32,10 @@ use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
+use trader_core::domain::{RouteState, StrategyContext};
 
 use crate::strategies::common::rebalance::{
     PortfolioPosition, RebalanceCalculator, RebalanceConfig, RebalanceOrderSide, TargetAllocation,
@@ -91,6 +94,14 @@ pub struct StockRotationConfig {
 
     /// 현금 보유 비율 (0.0 ~ 1.0)
     pub cash_reserve_rate: Decimal,
+
+    /// 최소 GlobalScore (기본값: 60)
+    #[serde(default = "default_min_global_score")]
+    pub min_global_score: Decimal,
+}
+
+fn default_min_global_score() -> Decimal {
+    dec!(60)
 }
 
 /// 시장 타입.
@@ -130,6 +141,7 @@ impl StockRotationConfig {
             rebalance_threshold: dec!(0.03),
             min_momentum: None,
             cash_reserve_rate: dec!(0.0),
+            min_global_score: default_min_global_score(),
         }
     }
 
@@ -154,6 +166,7 @@ impl StockRotationConfig {
             rebalance_threshold: dec!(0.03),
             min_momentum: None,
             cash_reserve_rate: dec!(0.0),
+            min_global_score: default_min_global_score(),
         }
     }
 
@@ -177,6 +190,8 @@ struct StockMomentum {
 /// Stock Rotation 전략.
 pub struct StockRotationStrategy {
     config: Option<StockRotationConfig>,
+    /// StrategyContext (RouteState, GlobalScore 조회용)
+    context: Option<Arc<RwLock<StrategyContext>>>,
     /// 자산별 가격 히스토리 (최신 가격이 앞에)
     price_history: HashMap<String, Vec<Decimal>>,
     /// 현재 포지션
@@ -196,6 +211,7 @@ impl StockRotationStrategy {
     pub fn new() -> Self {
         Self {
             config: None,
+            context: None,
             price_history: HashMap::new(),
             positions: HashMap::new(),
             current_holdings: HashSet::new(),
@@ -214,6 +230,7 @@ impl StockRotationStrategy {
 
         Self {
             config: Some(config),
+            context: None,
             price_history: HashMap::new(),
             positions: HashMap::new(),
             current_holdings: HashSet::new(),
@@ -221,6 +238,54 @@ impl StockRotationStrategy {
             rebalance_calculator: RebalanceCalculator::new(rebalance_config),
             cash_balance: Decimal::ZERO,
         }
+    }
+
+    /// 진입 가능 여부 확인 (RouteState, GlobalScore 기반).
+    fn can_enter(&self, ticker: &str) -> bool {
+        let Some(config) = self.config.as_ref() else {
+            return false;
+        };
+
+        let Some(ctx) = self.context.as_ref() else {
+            // Context 없으면 진입 허용 (하위 호환성)
+            return true;
+        };
+
+        let Ok(ctx_lock) = ctx.try_read() else {
+            return true;
+        };
+
+        // RouteState 체크
+        if let Some(route_state) = ctx_lock.get_route_state(ticker) {
+            match route_state {
+                RouteState::Overheat | RouteState::Wait | RouteState::Neutral => {
+                    debug!(
+                        ticker = %ticker,
+                        route_state = ?route_state,
+                        "[StockRotation] RouteState 진입 제한"
+                    );
+                    return false;
+                }
+                RouteState::Armed | RouteState::Attack => {
+                    // 진입 가능
+                }
+            }
+        }
+
+        // GlobalScore 체크
+        if let Some(score) = ctx_lock.get_global_score(ticker) {
+            if score.overall_score < config.min_global_score {
+                debug!(
+                    ticker = %ticker,
+                    score = %score.overall_score,
+                    min_score = %config.min_global_score,
+                    "[StockRotation] GlobalScore 미달로 진입 제한"
+                );
+                return false;
+            }
+        }
+
+        true
     }
 
     /// 가격 히스토리 업데이트.
@@ -469,6 +534,15 @@ impl StockRotationStrategy {
                 RebalanceOrderSide::Sell => Side::Sell,
             };
 
+            // 매수 신호의 경우 can_enter() 체크
+            if side == Side::Buy && !self.can_enter(&order.symbol) {
+                debug!(
+                    symbol = %order.symbol,
+                    "[StockRotation] RouteState/GlobalScore 조건 미충족, 매수 신호 스킵"
+                );
+                continue;
+            }
+
             let quote_currency = match config.market {
                 RotationMarketType::US => "USD",
                 RotationMarketType::KR => "KRW",
@@ -664,6 +738,11 @@ impl Strategy for StockRotationStrategy {
             "cash_balance": self.cash_balance.to_string(),
         })
     }
+
+    fn set_context(&mut self, context: Arc<RwLock<StrategyContext>>) {
+        self.context = Some(context);
+        info!("StrategyContext injected into StockRotation strategy");
+    }
 }
 
 #[cfg(test)]
@@ -780,6 +859,7 @@ mod tests {
             rebalance_threshold: dec!(0.03),
             min_momentum: None,
             cash_reserve_rate: dec!(0.0),
+            min_global_score: dec!(60),
         });
 
         // AAPL: 높은 모멘텀, MSFT: 중간, GOOGL: 낮음
@@ -838,6 +918,7 @@ mod tests {
             rebalance_threshold: dec!(0.03),
             min_momentum: None,
             cash_reserve_rate: dec!(0.0),
+            min_global_score: dec!(60),
         };
 
         // 새 순위: AAPL, GOOGL (MSFT 탈락)
@@ -878,6 +959,7 @@ mod tests {
             rebalance_threshold: dec!(0.03),
             min_momentum: Some(dec!(0.05)), // 최소 5% 모멘텀
             cash_reserve_rate: dec!(0.0),
+            min_global_score: dec!(60),
         });
 
         // AAPL: 높은 모멘텀 (통과), MSFT: 낮은 모멘텀 (필터)
@@ -930,6 +1012,6 @@ register_strategy! {
     timeframe: "1d",
     symbols: ["005930", "000660", "035420", "051910", "006400"],
     category: Daily,
-    markets: [KrStock, UsStock],
+    markets: [Stock, Stock],
     type: StockRotationStrategy
 }

@@ -13,6 +13,7 @@
 //! - [`portfolio`]: 포트폴리오 분석 (EquityCurve, PortfolioCharts 등)
 //! - [`ml`]: ML/AI 기능 (패턴 인식, 피처 추출, 예측) - `ml` feature 필요
 
+pub mod analytics_provider_impl;
 pub mod backtest;
 pub mod global_scorer;
 pub mod indicators;
@@ -24,6 +25,7 @@ pub mod ml;
 pub mod performance;
 pub mod portfolio;
 pub mod route_state_calculator;
+pub mod structural_features;
 pub mod trigger_calculator;
 
 // Performance 모듈 re-exports
@@ -73,6 +75,9 @@ pub use indicators::{
 // RouteState 계산기 re-export
 pub use route_state_calculator::RouteStateCalculator;
 
+// StructuralFeatures 계산기 re-export
+pub use structural_features::StructuralFeaturesCalculator;
+
 // MarketRegime 계산기 re-export
 pub use market_regime_calculator::{MarketRegimeCalculator, MarketRegimeResult};
 
@@ -84,6 +89,9 @@ pub use global_scorer::{GlobalScorer, GlobalScorerError, GlobalScorerParams, Glo
 
 // Liquidity Gate re-export
 pub use liquidity_gate::{LiquidityGate, LiquidityLevel};
+
+// AnalyticsProvider 구현체 re-export
+pub use analytics_provider_impl::AnalyticsProviderImpl;
 
 // ML 모듈 re-exports (ml feature 필요)
 #[cfg(feature = "ml")]

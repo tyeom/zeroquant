@@ -3,6 +3,12 @@
 //! 기준 가격을 중심으로 일정 간격으로 매수/매도 주문을 배치하여
 //! 시장 변동에서 수익을 얻는 전략입니다.
 //!
+//! # StrategyContext 활용 (v2.0)
+//!
+//! - `RouteState`: 새 그리드 진입 가능 여부 판단
+//! - `GlobalScore`: 종목 품질 필터링
+//! - `MarketRegime`: 추세 방향에 따른 그리드 활성화
+//!
 //! # 그리드 유형
 //! - 단순 그리드: 레벨 간 고정 간격
 //! - 동적 그리드: ATR 기반 간격 조정
@@ -16,8 +22,11 @@ use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::VecDeque;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use tracing::{debug, info};
 use trader_core::{
+    domain::{RouteState, StrategyContext},
     MarketData, MarketDataType, MarketType, Order, Position, Side, Signal, SignalType, Symbol,
 };
 
@@ -32,9 +41,9 @@ pub struct GridConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub center_price: Option<Decimal>,
 
-    /// 그리드 간격 비율 (예: 1.0 = 1%)
+    /// 그리드 간격 비율 (예: 1 = 1%)
     #[serde(default = "default_spacing")]
-    pub grid_spacing_pct: f64,
+    pub grid_spacing_pct: Decimal,
 
     /// 기준 가격 위아래 그리드 레벨 수
     #[serde(default = "default_levels")]
@@ -61,7 +70,7 @@ pub struct GridConfig {
 
     /// 동적 간격을 위한 ATR 승수
     #[serde(default = "default_atr_multiplier")]
-    pub atr_multiplier: f64,
+    pub atr_multiplier: Decimal,
 
     /// 추세 필터 활성화 (추세 방향으로만 거래)
     #[serde(default)]
@@ -73,15 +82,19 @@ pub struct GridConfig {
 
     /// 그리드 재설정을 트리거하는 최소 가격 변동 (백분율)
     #[serde(default = "default_reset_threshold")]
-    pub reset_threshold_pct: f64,
+    pub reset_threshold_pct: Decimal,
 
     /// 최대 포지션 크기 (호가 통화 기준)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_position_size: Option<Decimal>,
+
+    /// 최소 GlobalScore (기본값: 50)
+    #[serde(default = "default_min_score")]
+    pub min_global_score: Decimal,
 }
 
-fn default_spacing() -> f64 {
-    1.0
+fn default_spacing() -> Decimal {
+    dec!(1)
 }
 fn default_levels() -> usize {
     10
@@ -89,14 +102,17 @@ fn default_levels() -> usize {
 fn default_atr_period() -> usize {
     14
 }
-fn default_atr_multiplier() -> f64 {
-    1.0
+fn default_atr_multiplier() -> Decimal {
+    dec!(1)
 }
 fn default_ma_period() -> usize {
     20
 }
-fn default_reset_threshold() -> f64 {
-    5.0
+fn default_reset_threshold() -> Decimal {
+    dec!(5)
+}
+fn default_min_score() -> Decimal {
+    dec!(50)
 }
 
 impl Default for GridConfig {
@@ -104,18 +120,19 @@ impl Default for GridConfig {
         Self {
             symbol: "BTC/USDT".to_string(),
             center_price: None,
-            grid_spacing_pct: 1.0,
+            grid_spacing_pct: dec!(1),
             grid_levels: 10,
             amount_per_level: dec!(100),
             upper_limit: None,
             lower_limit: None,
             dynamic_spacing: false,
             atr_period: 14,
-            atr_multiplier: 1.0,
+            atr_multiplier: dec!(1),
             trend_filter: false,
             ma_period: 20,
-            reset_threshold_pct: 5.0,
+            reset_threshold_pct: dec!(5),
             max_position_size: None,
+            min_global_score: dec!(50),
         }
     }
 }
@@ -160,6 +177,9 @@ pub struct GridStrategy {
     /// 거래 중인 심볼
     symbol: Option<Symbol>,
 
+    /// 전략 실행 컨텍스트
+    context: Option<Arc<RwLock<StrategyContext>>>,
+
     /// ATR을 위한 고가/저가 히스토리
     high_history: VecDeque<Decimal>,
     low_history: VecDeque<Decimal>,
@@ -193,6 +213,7 @@ impl GridStrategy {
             current_price: None,
             center_price: None,
             symbol: None,
+            context: None,
             high_history: VecDeque::new(),
             low_history: VecDeque::new(),
             close_history: VecDeque::new(),
@@ -205,6 +226,57 @@ impl GridStrategy {
         }
     }
 
+    /// StrategyContext 기반 진입 가능 여부 체크.
+    ///
+    /// RouteState가 Attack/Armed이고 GlobalScore가 최소 점수 이상일 때만 새 그리드 진입 허용.
+    fn can_enter(&self) -> bool {
+        let Some(config) = self.config.as_ref() else {
+            return false;
+        };
+        let ticker = &config.symbol;
+
+        let Some(ctx) = self.context.as_ref() else {
+            // Context 없으면 진입 허용 (하위 호환성)
+            return true;
+        };
+
+        let Ok(ctx_lock) = ctx.try_read() else {
+            return true;
+        };
+
+        // RouteState 체크
+        if let Some(route_state) = ctx_lock.get_route_state(ticker) {
+            match route_state {
+                RouteState::Overheat | RouteState::Wait | RouteState::Neutral => {
+                    debug!(
+                        ticker = %ticker,
+                        route_state = ?route_state,
+                        "RouteState 진입 제한"
+                    );
+                    return false;
+                }
+                RouteState::Armed | RouteState::Attack => {
+                    // 진입 가능
+                }
+            }
+        }
+
+        // GlobalScore 체크
+        if let Some(score) = ctx_lock.get_global_score(ticker) {
+            if score.overall_score < config.min_global_score {
+                debug!(
+                    ticker = %ticker,
+                    score = %score.overall_score,
+                    min_required = %config.min_global_score,
+                    "GlobalScore 미달"
+                );
+                return false;
+            }
+        }
+
+        true
+    }
+
     /// 현재 가격을 기준으로 그리드 레벨 초기화.
     fn initialize_grid(&mut self, center: Decimal) {
         let Some(config) = self.config.as_ref() else {
@@ -214,11 +286,11 @@ impl GridStrategy {
         self.grid_levels.clear();
         self.center_price = Some(center);
 
-        // 간격 계산
+        // 간격 계산 (grid_spacing_pct가 백분율이므로 100으로 나눔)
         let spacing = if config.dynamic_spacing {
             self.calculate_dynamic_spacing(center)
         } else {
-            center * Decimal::from_f64_retain(config.grid_spacing_pct / 100.0).unwrap_or(dec!(0.01))
+            center * config.grid_spacing_pct / dec!(100)
         };
 
         // 매수 레벨 생성 (기준 아래)
@@ -285,13 +357,11 @@ impl GridStrategy {
         };
 
         if let Some(atr) = self.current_atr {
-            let atr_multiplier =
-                Decimal::from_f64_retain(config.atr_multiplier).unwrap_or(dec!(1.0));
-            atr * atr_multiplier
+            // ATR에 승수 적용
+            atr * config.atr_multiplier
         } else {
             // 백분율 기반 간격으로 폴백
-            current_price
-                * Decimal::from_f64_retain(config.grid_spacing_pct / 100.0).unwrap_or(dec!(0.01))
+            current_price * config.grid_spacing_pct / dec!(100)
         }
     }
 
@@ -351,6 +421,8 @@ impl GridStrategy {
     }
 
     /// 현재 가격을 기반으로 신호 생성.
+    ///
+    /// StrategyContext의 RouteState와 GlobalScore를 활용하여 진입을 필터링합니다.
     fn generate_grid_signals(&mut self, current_price: Decimal) -> Vec<Signal> {
         let (Some(config), Some(symbol)) = (self.config.as_ref(), self.symbol.as_ref()) else {
             debug!("Cannot generate signals: config or symbol not set");
@@ -364,9 +436,17 @@ impl GridStrategy {
         let position_size = self.position_size;
         let mut signals = Vec::new();
 
+        // StrategyContext 기반 진입 가능 여부 (매수 신호에만 적용)
+        let entry_allowed = self.can_enter();
+
         for level in &mut self.grid_levels {
             // 실행된 레벨 건너뛰기
             if level.executed {
+                continue;
+            }
+
+            // 매수 신호는 StrategyContext 조건 확인
+            if level.side == Side::Buy && !entry_allowed {
                 continue;
             }
 
@@ -431,8 +511,8 @@ impl GridStrategy {
         let Some(config) = self.config.as_ref() else {
             return;
         };
-        let reset_pct =
-            Decimal::from_f64_retain(config.reset_threshold_pct / 100.0).unwrap_or(dec!(0.05));
+        // reset_threshold_pct가 백분율이므로 100으로 나눔
+        let reset_pct = config.reset_threshold_pct / dec!(100);
 
         for level in &mut self.grid_levels {
             if !level.executed {
@@ -491,8 +571,8 @@ impl GridStrategy {
 
         if let (Some(center), Some(current)) = (self.center_price, self.current_price) {
             let deviation = ((current - center) / center).abs();
-            let threshold =
-                Decimal::from_f64_retain(config.reset_threshold_pct / 100.0).unwrap_or(dec!(0.05));
+            // reset_threshold_pct가 백분율이므로 100으로 나눔
+            let threshold = config.reset_threshold_pct / dec!(100);
             deviation > threshold
         } else {
             false
@@ -565,7 +645,7 @@ impl Strategy for GridStrategy {
         info!(
             symbol = %grid_config.symbol,
             levels = grid_config.grid_levels,
-            spacing = grid_config.grid_spacing_pct,
+            spacing = %grid_config.grid_spacing_pct,
             dynamic = grid_config.dynamic_spacing,
             trend_filter = grid_config.trend_filter,
             "Initializing Grid Trading strategy"
@@ -703,6 +783,11 @@ impl Strategy for GridStrategy {
         self.initialized = false;
 
         Ok(())
+    }
+
+    fn set_context(&mut self, context: Arc<RwLock<StrategyContext>>) {
+        self.context = Some(context);
+        info!("StrategyContext injected into Grid strategy");
     }
 
     fn get_state(&self) -> Value {
@@ -935,10 +1020,11 @@ mod tests {
     fn test_grid_config_defaults() {
         let config = GridConfig::default();
 
-        assert_eq!(config.grid_spacing_pct, 1.0);
+        assert_eq!(config.grid_spacing_pct, dec!(1));
         assert_eq!(config.grid_levels, 10);
         assert!(!config.dynamic_spacing);
         assert!(!config.trend_filter);
+        assert_eq!(config.min_global_score, dec!(50));
     }
 }
 
@@ -953,6 +1039,6 @@ register_strategy! {
     timeframe: "1m",
     symbols: [],
     category: Realtime,
-    markets: [Crypto, KrStock, UsStock],
+    markets: [Crypto, Stock, Stock],
     type: GridStrategy
 }

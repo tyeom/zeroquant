@@ -27,8 +27,11 @@ use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use tracing::{debug, info};
 use trader_core::{
+    domain::StrategyContext,
     MarketData, MarketDataType, MarketType, Order, Position, Side, Signal, SignalType, Symbol,
 };
 
@@ -186,6 +189,8 @@ pub struct SnowStrategy {
     config: Option<SnowConfig>,
     assets: Option<SnowAssets>,
     state: SnowState,
+    /// 전략 실행 컨텍스트 (MacroEnvironment, MarketRegime)
+    context: Option<Arc<RwLock<StrategyContext>>>,
     /// 심볼별 가격 히스토리
     price_history: HashMap<String, VecDeque<Decimal>>,
     initialized: bool,
@@ -198,6 +203,7 @@ impl SnowStrategy {
             config: None,
             assets: None,
             state: SnowState::default(),
+            context: None,
             price_history: HashMap::new(),
             initialized: false,
         }
@@ -213,7 +219,9 @@ impl SnowStrategy {
         Some(sum / Decimal::from(period))
     }
 
-    /// 시장 상태 판단 (TIP 기반)
+    /// 시장 상태 판단 (TIP 기반).
+    ///
+    /// StrategyContext가 주입되면 추가 필터링 로직 수행 (향후 확장).
     fn is_market_safe(&self) -> bool {
         let assets = match &self.assets {
             Some(a) => a,
@@ -224,9 +232,20 @@ impl SnowStrategy {
             None => return false,
         };
 
+        // TIP 기반 기본 체크
         if let Some(prices) = self.price_history.get(&assets.tip) {
             if let Some(ma) = Self::calculate_ma(prices, config.tip_ma_period) {
                 if let Some(current) = prices.front() {
+                    // StrategyContext 활용 확장 포인트
+                    if let Some(ctx) = self.context.as_ref() {
+                        if let Ok(_ctx_lock) = ctx.try_read() {
+                            // TODO: MacroEnvironment 필드 추가 시 활용
+                            // - VIX 체크
+                            // - Nasdaq Regime 체크
+                            debug!(context_available = true, "StrategyContext available for future macro checks");
+                        }
+                    }
+                    
                     return *current > ma;
                 }
             }
@@ -423,8 +442,8 @@ impl Strategy for SnowStrategy {
             self.state.last_rebalance = Some(now);
 
             let (market_type, quote_currency) = match config.market {
-                SnowMarket::KR => (MarketType::KrStock, "KRW"),
-                SnowMarket::US => (MarketType::UsStock, "USD"),
+                SnowMarket::KR => (MarketType::Stock, "KRW"),
+                SnowMarket::US => (MarketType::Stock, "USD"),
             };
 
             let sym = Symbol::new(&target_asset, quote_currency, market_type);
@@ -503,6 +522,11 @@ impl Strategy for SnowStrategy {
         Ok(())
     }
 
+    fn set_context(&mut self, context: Arc<RwLock<StrategyContext>>) {
+        self.context = Some(context);
+        info!("StrategyContext injected into Snow strategy");
+    }
+
     fn get_state(&self) -> Value {
         json!({
             "config": self.config,
@@ -571,6 +595,6 @@ register_strategy! {
     timeframe: "1d",
     symbols: ["TIP", "UPRO", "TLT", "BIL"],
     category: Monthly,
-    markets: [UsStock, KrStock],
+    markets: [Stock, Stock],
     type: SnowStrategy
 }

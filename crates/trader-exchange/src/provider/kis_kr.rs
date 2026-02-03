@@ -100,7 +100,7 @@ impl ExchangeProvider for KisKrProvider {
             }
 
             // 심볼 생성 (KRX 국내 주식)
-            let symbol = Symbol::new(&holding.stock_code, "KRW", MarketType::KrStock);
+            let symbol = Symbol::new(&holding.stock_code, "KRW", MarketType::Stock);
 
             // 포지션 생성 (현물은 매수만 가능)
             let mut position =
@@ -134,7 +134,7 @@ impl ExchangeProvider for KisKrProvider {
             };
 
             // 심볼 생성
-            let symbol = Symbol::new(&order.stock_code, "KRW", MarketType::KrStock);
+            let symbol = Symbol::new(&order.stock_code, "KRW", MarketType::Stock);
 
             // 주문 상태 결정
             let status = if order.filled_qty > Decimal::ZERO {

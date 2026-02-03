@@ -69,12 +69,8 @@ pub fn generate_sample_klines(
 
     let (base, quote) = parse_symbol(symbol_str);
 
-    let symbol = Symbol {
-        base,
-        quote,
-        market_type: MarketType::Stock,
-        exchange_symbol: None,
-    };
+    // Symbol 생성자를 통해 country 필드 자동 추론
+    let symbol = Symbol::new(base, quote, MarketType::Stock);
 
     let days = (end_date - start_date).num_days() as usize;
     let base_price = 50000.0_f64; // 기본 가격

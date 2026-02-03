@@ -20,6 +20,9 @@
 //! 3. 장 마감 전 강제 청산
 //! 4. 모멘텀 약화
 
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use trader_core::domain::StrategyContext;
 use crate::strategies::common::deserialize_symbol;
 use crate::Strategy;
 use async_trait::async_trait;
@@ -196,6 +199,7 @@ impl Default for MarketInterestDayState {
 pub struct MarketInterestDayStrategy {
     config: Option<MarketInterestDayConfig>,
     symbol: Option<Symbol>,
+    context: Option<Arc<RwLock<StrategyContext>>>,
     state: MarketInterestDayState,
     /// 캔들 히스토리
     candles: VecDeque<CandleData>,
@@ -213,6 +217,7 @@ impl MarketInterestDayStrategy {
         Self {
             config: None,
             symbol: None,
+            context: None,
             state: MarketInterestDayState::default(),
             candles: VecDeque::new(),
             volumes: VecDeque::new(),
@@ -545,7 +550,7 @@ impl Strategy for MarketInterestDayStrategy {
             "Initializing Market Interest Day strategy"
         );
 
-        self.symbol = Symbol::from_string(&mid_config.symbol, MarketType::KrStock);
+        self.symbol = Symbol::from_string(&mid_config.symbol, MarketType::Stock);
         self.config = Some(mid_config);
         self.state = MarketInterestDayState::default();
         self.candles.clear();
@@ -662,6 +667,12 @@ impl Strategy for MarketInterestDayStrategy {
             "initialized": self.initialized,
         })
     }
+    fn set_context(&mut self, context: Arc<RwLock<StrategyContext>>) {
+        self.context = Some(context);
+        info!("StrategyContext injected into MarketInterestDay strategy");
+    }
+
+
 }
 
 #[cfg(test)]
@@ -713,6 +724,6 @@ register_strategy! {
     timeframe: "1d",
     symbols: [],
     category: Daily,
-    markets: [KrStock],
+    markets: [Stock],
     type: MarketInterestDayStrategy
 }

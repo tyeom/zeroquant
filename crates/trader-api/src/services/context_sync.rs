@@ -2,14 +2,18 @@
 //!
 //! ExchangeProvider와 AnalyticsProvider를 주기적으로 호출하여
 //! StrategyContext를 실시간으로 업데이트합니다.
+//!
+//! # 설계 원칙
+//!
+//! - 모든 종목 식별은 ticker 문자열을 사용합니다 (Symbol 객체가 아님)
+//! - 내부적으로 AnalyticsProvider는 ticker를 받아 CachedHistoricalDataProvider를 통해 데이터 조회
+//! - SymbolResolver가 단일 원천(single source of truth)으로 Symbol 정보 관리
 
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
-use trader_core::{
-    AnalyticsProvider, ExchangeProvider, MarketType, ScreeningPreset, StrategyContext, Symbol,
-};
+use trader_core::{AnalyticsProvider, ExchangeProvider, MarketType, ScreeningPreset, StrategyContext};
 
 /// 전략 컨텍스트 동기화 서비스.
 ///
@@ -116,31 +120,38 @@ impl ContextSyncService {
 
     /// 분석 결과 동기화.
     ///
-    /// Global Score, RouteState, 스크리닝 결과, 구조적 피처를 조회하여 컨텍스트를 업데이트합니다.
+    /// 모든 분석 결과를 조회하여 컨텍스트를 업데이트합니다:
+    /// - Global Score (시장별)
+    /// - RouteState (종목별)
+    /// - 스크리닝 결과 (프리셋별)
+    /// - 구조적 피처 (종목별)
+    /// - MarketRegime (종목별)
+    /// - MacroEnvironment (글로벌)
+    /// - MarketBreadth (글로벌)
     async fn sync_analytics(&self) -> Result<(), String> {
         // 1. Global Score 조회 (시장별 - 예: KR Stock)
         let scores = self
             .analytics_provider
-            .fetch_global_scores(MarketType::KrStock)
+            .fetch_global_scores(MarketType::Stock)
             .await
             .map_err(|e| format!("Global Score 조회 실패: {}", e))?;
 
-        // 2. RouteState 조회 (현재 보유 종목 + 스크리닝 종목)
+        // 2. 현재 보유 종목의 ticker 목록 추출
         let ctx_read = self.context.read().await;
-        let symbols: Vec<_> = ctx_read
-            .positions
-            .keys()
-            .filter_map(|s| Symbol::from_string(s, MarketType::KrStock))
-            .collect();
+        let tickers: Vec<String> = ctx_read.positions.keys().cloned().collect();
         drop(ctx_read);
 
+        // ticker 참조 슬라이스 생성 (API는 &[&str]을 받음)
+        let ticker_refs: Vec<&str> = tickers.iter().map(|s| s.as_str()).collect();
+
+        // 3. RouteState 조회 (현재 보유 종목)
         let states = self
             .analytics_provider
-            .fetch_route_states(&symbols)
+            .fetch_route_states(&ticker_refs)
             .await
             .map_err(|e| format!("RouteState 조회 실패: {}", e))?;
 
-        // 3. 스크리닝 결과 조회 (프리셋 예: "default")
+        // 4. 스크리닝 결과 조회 (프리셋 예: "default")
         let preset = ScreeningPreset::default_preset();
         let preset_name = preset.name.clone();
         let screening = self
@@ -149,19 +160,48 @@ impl ContextSyncService {
             .await
             .map_err(|e| format!("스크리닝 조회 실패: {}", e))?;
 
-        // 4. 구조적 피처 조회
+        // 5. 구조적 피처 조회
         let features = self
             .analytics_provider
-            .fetch_features(&symbols)
+            .fetch_features(&ticker_refs)
             .await
             .map_err(|e| format!("Features 조회 실패: {}", e))?;
 
-        // 5. 컨텍스트 업데이트
+        // 6. MarketRegime 조회
+        let regimes = self
+            .analytics_provider
+            .fetch_market_regimes(&ticker_refs)
+            .await
+            .map_err(|e| format!("MarketRegime 조회 실패: {}", e))?;
+
+        // 7. MacroEnvironment 조회 (글로벌)
+        let macro_env = self
+            .analytics_provider
+            .fetch_macro_environment()
+            .await
+            .map_err(|e| format!("MacroEnvironment 조회 실패: {}", e))?;
+
+        // 8. MarketBreadth 조회 (글로벌)
+        let breadth = self
+            .analytics_provider
+            .fetch_market_breadth()
+            .await
+            .map_err(|e| format!("MarketBreadth 조회 실패: {}", e))?;
+
+        // 9. 컨텍스트 업데이트
         let mut ctx = self.context.write().await;
         ctx.update_global_scores(scores);
         ctx.update_route_states(states);
         ctx.update_screening(preset_name, screening);
         ctx.update_features(features);
+        ctx.update_market_regime(regimes);
+        ctx.update_macro_environment(macro_env);
+        ctx.update_market_breadth(breadth);
+
+        tracing::debug!(
+            ticker_count = tickers.len(),
+            "분석 결과 동기화 완료"
+        );
 
         Ok(())
     }

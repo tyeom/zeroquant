@@ -38,7 +38,10 @@ use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use tracing::{debug, info};
+use trader_core::domain::{RouteState, StrategyContext};
 
 use crate::strategies::common::rebalance::{
     PortfolioPosition, RebalanceCalculator, RebalanceConfig, RebalanceOrderSide, TargetAllocation,
@@ -132,6 +135,10 @@ pub struct BaaConfig {
 
     /// 커스텀 방어 자산
     pub defensive_assets: Option<Vec<BaaAsset>>,
+
+    /// 최소 GlobalScore (기본값: 60)
+    #[serde(default = "default_min_global_score")]
+    pub min_global_score: Decimal,
 }
 
 fn default_total_amount() -> Decimal {
@@ -146,6 +153,9 @@ fn default_momentum_periods() -> Vec<usize> {
 fn default_momentum_weights() -> Vec<f64> {
     vec![12.0, 4.0, 2.0, 1.0]
 } // 13612W
+fn default_min_global_score() -> Decimal {
+    dec!(60)
+}
 
 impl Default for BaaConfig {
     fn default() -> Self {
@@ -158,6 +168,7 @@ impl Default for BaaConfig {
             canary_assets: None,
             offensive_assets: None,
             defensive_assets: None,
+            min_global_score: default_min_global_score(),
         }
     }
 }
@@ -308,6 +319,9 @@ pub struct BaaStrategy {
     trades_count: u32,
     total_pnl: Decimal,
 
+    /// StrategyContext (엔진에서 주입)
+    context: Option<Arc<RwLock<StrategyContext>>>,
+
     initialized: bool,
 }
 
@@ -331,8 +345,61 @@ impl BaaStrategy {
             last_rebalance_month: None,
             trades_count: 0,
             total_pnl: Decimal::ZERO,
+            context: None,
             initialized: false,
         }
+    }
+
+    /// StrategyContext를 통해 진입 가능 여부 확인.
+    ///
+    /// RouteState와 GlobalScore를 확인하여 진입 적합성을 판단합니다.
+    fn can_enter(&self, ticker: &str) -> bool {
+        let config = match self.config.as_ref() {
+            Some(c) => c,
+            None => return true, // 설정 없으면 기본 허용
+        };
+
+        let ctx = match self.context.as_ref() {
+            Some(c) => c,
+            None => return true, // 컨텍스트 없으면 기본 허용
+        };
+
+        let ctx_lock = match ctx.try_read() {
+            Ok(lock) => lock,
+            Err(_) => return true, // 락 실패 시 기본 허용
+        };
+
+        // 1. RouteState 확인 - Overheat/Neutral 시 진입 제한
+        if let Some(state) = ctx_lock.get_route_state(ticker) {
+            match state {
+                RouteState::Overheat | RouteState::Neutral => {
+                    debug!(
+                        ticker = ticker,
+                        route_state = ?state,
+                        "RouteState not favorable for entry"
+                    );
+                    return false;
+                }
+                RouteState::Attack | RouteState::Armed | RouteState::Wait => {
+                    // 진입 가능
+                }
+            }
+        }
+
+        // 2. GlobalScore 확인 - 저품질 종목 제외
+        if let Some(score) = ctx_lock.get_global_score(ticker) {
+            if score.overall_score < config.min_global_score {
+                debug!(
+                    ticker = ticker,
+                    score = %score.overall_score,
+                    min_required = %config.min_global_score,
+                    "GlobalScore too low, skipping"
+                );
+                return false;
+            }
+        }
+
+        true
     }
 
     /// 카나리아 자산 체크.
@@ -506,6 +573,15 @@ impl BaaStrategy {
             } else {
                 Decimal::ZERO
             };
+
+            // BUY 신호 시 can_enter() 체크
+            if order.side == RebalanceOrderSide::Buy && !self.can_enter(&order.symbol) {
+                debug!(
+                    symbol = %order.symbol,
+                    "진입 조건 미충족, BUY 신호 스킵"
+                );
+                continue;
+            }
 
             let signal = if order.side == RebalanceOrderSide::Buy {
                 Signal::entry("baa", symbol, side)
@@ -681,6 +757,11 @@ impl Strategy for BaaStrategy {
             "last_rebalance_month": self.last_rebalance_month,
         })
     }
+
+    fn set_context(&mut self, context: Arc<RwLock<StrategyContext>>) {
+        self.context = Some(context);
+        info!("StrategyContext injected into BAA strategy");
+    }
 }
 
 #[cfg(test)]
@@ -745,6 +826,6 @@ register_strategy! {
     timeframe: "1d",
     symbols: ["SPY", "VEA", "VWO", "BND", "QQQ", "IWM", "TIP", "DBC", "BIL", "IEF", "TLT"],
     category: Monthly,
-    markets: [UsStock],
+    markets: [Stock],
     type: BaaStrategy
 }

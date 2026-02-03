@@ -4,6 +4,7 @@
 
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use sqlx::{FromRow, PgPool, Postgres, QueryBuilder};
@@ -142,8 +143,8 @@ impl GlobalScoreRepository {
     ) -> Result<(), sqlx::Error> {
         // 1. Market 문자열을 MarketType으로 변환
         let market_type = match market {
-            "KR" => MarketType::KrStock,
-            "US" => MarketType::UsStock,
+            "KR" => MarketType::Stock,
+            "US" => MarketType::Stock,
             "CRYPTO" => MarketType::Crypto,
             "FOREX" => MarketType::Forex,
             "FUTURES" => MarketType::Futures,
@@ -177,21 +178,21 @@ impl GlobalScoreRepository {
         // 4. DB 저장 (UPSERT)
         // component_scores를 복사하여 penalties 추출
         let mut component_scores_map = result.component_scores.clone();
-        let penalties_value = component_scores_map.remove("penalties").unwrap_or(0.0);
+        let penalties_value = component_scores_map.remove("penalties").unwrap_or(Decimal::ZERO);
 
         let component_scores = serde_json::to_value(&component_scores_map)
             .map_err(|e| sqlx::Error::Protocol(format!("JSON 변환 실패: {}", e)))?;
 
         // penalties를 JSONB로 변환 (단일 값을 객체로 감싸기)
-        let penalties = serde_json::json!({ "total": penalties_value });
+        let penalties = serde_json::json!({ "total": penalties_value.to_string() });
 
         // grade는 recommendation 필드 사용
         let grade = &result.recommendation;
 
-        // confidence는 f32이므로 HIGH/MEDIUM/LOW 문자열로 변환
-        let confidence_str = if result.confidence >= 0.8 {
+        // confidence는 Decimal이므로 HIGH/MEDIUM/LOW 문자열로 변환
+        let confidence_str = if result.confidence >= dec!(0.8) {
             Some("HIGH".to_string())
-        } else if result.confidence >= 0.6 {
+        } else if result.confidence >= dec!(0.6) {
             Some("MEDIUM".to_string())
         } else {
             Some("LOW".to_string())
@@ -203,7 +204,7 @@ impl GlobalScoreRepository {
             "#
         )
         .bind(symbol_info_id)
-        .bind(Decimal::from_f32_retain(result.overall_score).unwrap_or(Decimal::ZERO))
+        .bind(result.overall_score)
         .bind(grade)
         .bind(confidence_str)
         .bind(component_scores)

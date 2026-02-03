@@ -30,7 +30,10 @@ use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use tracing::{debug, info};
+use trader_core::domain::{RouteState, StrategyContext};
 use trader_core::{MarketData, MarketDataType, Order, Position, Side, Signal, Symbol};
 
 /// 코스닥 피레인 전략 설정.
@@ -91,6 +94,10 @@ pub struct KosdaqFireRainConfig {
     /// 익절 비율 (기본값: 10%)
     #[serde(default = "default_take_profit")]
     pub take_profit_pct: f64,
+
+    /// 최소 글로벌 스코어 (기본값: 60)
+    #[serde(default = "default_min_global_score")]
+    pub min_global_score: Decimal,
 }
 
 fn default_etf_list() -> Vec<String> {
@@ -142,6 +149,10 @@ fn default_take_profit() -> f64 {
     10.0
 }
 
+fn default_min_global_score() -> Decimal {
+    dec!(60)
+}
+
 impl Default for KosdaqFireRainConfig {
     fn default() -> Self {
         Self {
@@ -159,6 +170,7 @@ impl Default for KosdaqFireRainConfig {
             rsi_period: 14,
             stop_loss_pct: 3.0,
             take_profit_pct: 10.0,
+            min_global_score: default_min_global_score(),
         }
     }
 }
@@ -332,6 +344,9 @@ pub struct KosdaqFireRainStrategy {
     total_pnl: Decimal,
 
     initialized: bool,
+
+    /// 전략 컨텍스트
+    context: Option<Arc<RwLock<StrategyContext>>>,
 }
 
 impl KosdaqFireRainStrategy {
@@ -346,7 +361,54 @@ impl KosdaqFireRainStrategy {
             wins: 0,
             total_pnl: Decimal::ZERO,
             initialized: false,
+            context: None,
         }
+    }
+
+    /// RouteState와 GlobalScore 기반 진입 조건 체크
+    fn can_enter(&self) -> bool {
+        let context = match &self.context {
+            Some(ctx) => ctx,
+            None => return true, // context 없으면 기본 허용
+        };
+
+        let config = match &self.config {
+            Some(cfg) => cfg,
+            None => return true,
+        };
+
+        let ctx = match context.try_read() {
+            Ok(ctx) => ctx,
+            Err(_) => return true,
+        };
+
+        // RouteState 체크 (첫 번째 심볼 기준)
+        if let Some(symbol) = self.symbols.first() {
+            if let Some(route) = ctx.get_route_state(&symbol.base) {
+                match route {
+                    RouteState::Wait | RouteState::Overheat => {
+                        debug!("[KosdaqFireRain] RouteState가 {:?}이므로 진입 불가", route);
+                        return false;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // GlobalScore 체크 (첫 번째 심볼 기준)
+        if let Some(symbol) = self.symbols.first() {
+            if let Some(score) = ctx.get_global_score(&symbol.base) {
+                if score.overall_score < config.min_global_score {
+                    debug!(
+                        "[KosdaqFireRain] GlobalScore {} < {} 기준 미달",
+                        score.overall_score, config.min_global_score
+                    );
+                    return false;
+                }
+            }
+        }
+
+        true
     }
 
     /// 새로운 날인지 확인.
@@ -596,6 +658,12 @@ impl KosdaqFireRainStrategy {
             };
 
             if should_buy {
+                // can_enter() 체크 - 진입 조건 미충족 시 스킵
+                if !self.can_enter() {
+                    debug!("[KosdaqFireRain] can_enter() 실패 - 매수 신호 스킵");
+                    continue;
+                }
+
                 signals.push(
                     Signal::entry("kosdaq_fire_rain", symbol, Side::Buy)
                         .with_strength(config.position_ratio)
@@ -804,6 +872,11 @@ impl Strategy for KosdaqFireRainStrategy {
         Ok(())
     }
 
+    fn set_context(&mut self, context: Arc<RwLock<StrategyContext>>) {
+        self.context = Some(context);
+        info!("StrategyContext injected into KosdaqFireRain strategy");
+    }
+
     fn get_state(&self) -> Value {
         let holdings: HashMap<_, _> = self
             .etf_data
@@ -881,6 +954,6 @@ register_strategy! {
     timeframe: "15m",
     symbols: ["122630", "252670", "233740", "251340"],
     category: Intraday,
-    markets: [KrStock],
+    markets: [Stock],
     type: KosdaqFireRainStrategy
 }

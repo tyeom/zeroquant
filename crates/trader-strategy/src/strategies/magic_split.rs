@@ -30,7 +30,11 @@ use tracing::{debug, info};
 use trader_core::{
     cost_basis, CostMethod, MarketData, MarketDataType, MarketType, Order, Position, Side, Signal,
     Symbol, TradeEntry,
+    domain::RouteState,
 };
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use trader_core::domain::StrategyContext;
 
 use crate::strategies::common::deserialize_symbol;
 use crate::traits::Strategy;
@@ -140,6 +144,13 @@ pub struct MagicSplitConfig {
     pub allow_same_day_reentry: bool,
     /// 슬리피지 허용치 (%)
     pub slippage_tolerance: Decimal,
+    /// 최소 GlobalScore (기본값: 50)
+    #[serde(default = "default_min_global_score")]
+    pub min_global_score: Decimal,
+}
+
+fn default_min_global_score() -> Decimal {
+    dec!(50)
 }
 
 impl Default for MagicSplitConfig {
@@ -149,6 +160,7 @@ impl Default for MagicSplitConfig {
             levels: Self::default_levels(),
             allow_same_day_reentry: false,
             slippage_tolerance: dec!(1.0),
+            min_global_score: dec!(50),
         }
     }
 }
@@ -209,6 +221,7 @@ pub struct MagicSplitStrategy {
     stats: MagicSplitStats,
     /// 심볼
     symbol: Option<Symbol>,
+    context: Option<Arc<RwLock<StrategyContext>>>,
 }
 
 impl MagicSplitStrategy {
@@ -221,6 +234,7 @@ impl MagicSplitStrategy {
             last_price: None,
             stats: MagicSplitStats::default(),
             symbol: None,
+            context: None,
         }
     }
 
@@ -339,7 +353,8 @@ impl MagicSplitStrategy {
                 .map(|s| !s.is_bought && self.is_ready)
                 .unwrap_or(false);
 
-            if should_buy {
+            // can_enter() 체크 추가
+            if should_buy && self.can_enter() {
                 // 1차수 매수 신호 생성
                 let signal = self.create_buy_signal(&symbol, level, current_price);
                 signals.push(signal);
@@ -438,8 +453,8 @@ impl MagicSplitStrategy {
                     level.number, prev_rate, trigger_rate
                 );
 
-                // 트리거 조건 충족 (손실률이 트리거 이하)
-                if prev_rate <= trigger_rate {
+                // 트리거 조건 충족 (손실률이 트리거 이하) + can_enter() 체크
+                if prev_rate <= trigger_rate && self.can_enter() {
                     let signal = self.create_buy_signal(&symbol, level, current_price);
                     signals.push(signal);
 
@@ -526,6 +541,68 @@ impl MagicSplitStrategy {
     pub fn total_return_rate(&self, current_price: Decimal) -> Option<Decimal> {
         let avg_price = self.average_entry_price()?;
         Some((current_price - avg_price) / avg_price * dec!(100))
+    }
+
+    /// RouteState와 GlobalScore를 체크하여 진입 가능 여부 반환.
+    ///
+    /// # 진입 조건
+    ///
+    /// - RouteState::Attack: 적극 진입 가능
+    /// - RouteState::Armed: 조건부 허용
+    /// - RouteState::Overheat/Wait/Neutral: 진입 금지
+    /// - GlobalScore >= min_global_score: 진입 허용
+    fn can_enter(&self) -> bool {
+        let Some(config) = self.config.as_ref() else {
+            return false;
+        };
+        let ticker = &config.symbol;
+
+        let Some(ctx) = self.context.as_ref() else {
+            // Context가 없으면 진입 허용 (기존 동작 유지)
+            debug!("[MagicSplit] StrategyContext not available - entry allowed");
+            return true;
+        };
+
+        let Ok(ctx_lock) = ctx.try_read() else {
+            debug!("[MagicSplit] Failed to acquire context lock - entry blocked");
+            return false;
+        };
+
+        // RouteState 체크
+        if let Some(route_state) = ctx_lock.get_route_state(ticker) {
+            match route_state {
+                RouteState::Overheat | RouteState::Wait | RouteState::Neutral => {
+                    debug!(
+                        "[MagicSplit] RouteState {:?} blocks entry for {}",
+                        route_state, ticker
+                    );
+                    return false;
+                }
+                RouteState::Armed => {
+                    debug!("[MagicSplit] RouteState::Armed - conditional entry for {}", ticker);
+                }
+                RouteState::Attack => {
+                    debug!("[MagicSplit] RouteState::Attack - aggressive entry for {}", ticker);
+                }
+            }
+        }
+
+        // GlobalScore 체크
+        if let Some(score) = ctx_lock.get_global_score(ticker) {
+            if score.overall_score < config.min_global_score {
+                debug!(
+                    "[MagicSplit] Low GlobalScore {} < {} - skip entry for {}",
+                    score.overall_score, config.min_global_score, ticker
+                );
+                return false;
+            }
+            debug!(
+                "[MagicSplit] GlobalScore {} pass for {}",
+                score.overall_score, ticker
+            );
+        }
+
+        true
     }
 }
 
@@ -623,6 +700,11 @@ impl Strategy for MagicSplitStrategy {
             "average_entry_price": self.average_entry_price(),
         })
     }
+
+    fn set_context(&mut self, context: Arc<RwLock<StrategyContext>>) {
+        self.context = Some(context);
+        info!("StrategyContext injected into Magic Split strategy");
+    }
 }
 
 #[cfg(test)]
@@ -639,6 +721,7 @@ mod tests {
             ],
             allow_same_day_reentry: false,
             slippage_tolerance: dec!(1.0),
+            min_global_score: dec!(50),
         }
     }
 
@@ -809,6 +892,6 @@ register_strategy! {
     timeframe: "1m",
     symbols: [],
     category: Realtime,
-    markets: [Crypto, KrStock, UsStock],
+    markets: [Crypto, Stock, Stock],
     type: MagicSplitStrategy
 }

@@ -393,8 +393,8 @@ impl AllWeatherStrategy {
             }
 
             let (market_type, quote_currency) = match config.market {
-                AllWeatherMarket::US => (MarketType::UsStock, "USD"),
-                AllWeatherMarket::KR => (MarketType::KrStock, "KRW"),
+                AllWeatherMarket::US => (MarketType::Stock, "USD"),
+                AllWeatherMarket::KR => (MarketType::Stock, "KRW"),
             };
 
             let sym = Symbol::new(symbol, quote_currency, market_type);
@@ -713,6 +713,6 @@ register_strategy! {
     timeframe: "1d",
     symbols: ["SPY", "TLT", "IEF", "GLD", "PDBC", "IYK"],
     category: Monthly,
-    markets: [UsStock, KrStock],
+    markets: [Stock, Stock],
     type: AllWeatherStrategy
 }

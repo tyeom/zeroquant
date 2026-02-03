@@ -54,12 +54,9 @@ impl OhlcvRecord {
             .unwrap_or_else(|| self.open_time + timeframe_to_duration(timeframe));
 
         // DB에 저장된 심볼을 그대로 사용 (exchange_symbol에 원본 저장)
-        let symbol = Symbol {
-            base: self.symbol.clone(),
-            quote: String::new(),
-            market_type: trader_core::MarketType::Stock,
-            exchange_symbol: Some(self.symbol.clone()),
-        };
+        // Symbol 생성자를 통해 country 필드 자동 추론
+        let symbol = Symbol::new(&self.symbol, "", trader_core::MarketType::Stock)
+            .with_exchange_symbol(&self.symbol);
 
         Kline {
             symbol,
@@ -95,12 +92,9 @@ impl OhlcvRecord {
             .close_time
             .unwrap_or_else(|| self.open_time + timeframe_to_duration(timeframe));
 
-        let symbol = Symbol {
-            base: canonical.to_string(),
-            quote: quote.to_string(),
-            market_type,
-            exchange_symbol: Some(self.symbol.clone()),
-        };
+        // Symbol 생성자를 통해 country 필드 자동 추론
+        let symbol = Symbol::new(canonical, quote, market_type)
+            .with_exchange_symbol(&self.symbol);
 
         Kline {
             symbol,

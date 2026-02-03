@@ -550,6 +550,7 @@ impl FundamentalFetcher {
             _ => ("USD", MarketType::Stock),
         };
 
+        // Symbol 생성자를 통해 country 필드 자동 추론
         let klines: Vec<Kline> = quotes
             .iter()
             .filter_map(|q| {
@@ -558,12 +559,8 @@ impl FundamentalFetcher {
                 let close_time = open_time + chrono::Duration::days(1);
 
                 Some(Kline {
-                    symbol: Symbol {
-                        base: canonical_ticker.to_string(),
-                        quote: quote_currency.to_string(),
-                        market_type,
-                        exchange_symbol: Some(yahoo_symbol.to_string()),
-                    },
+                    symbol: Symbol::new(canonical_ticker, quote_currency, market_type)
+                        .with_exchange_symbol(yahoo_symbol),
                     timeframe: Timeframe::D1,
                     open_time,
                     open: round_decimal_from_f64(q.open)?,
