@@ -201,7 +201,7 @@ impl BinanceMarketStream {
             serde_json::to_string(&msg).map_err(|e| ExchangeError::ParseError(e.to_string()))?;
 
         if let Some(ws) = &mut self.ws {
-            ws.send(Message::Text(json.into()))
+            ws.send(Message::Text(json))
                 .await
                 .map_err(|e| ExchangeError::WebSocket(e.to_string()))?;
 
@@ -228,7 +228,7 @@ impl BinanceMarketStream {
             serde_json::to_string(&msg).map_err(|e| ExchangeError::ParseError(e.to_string()))?;
 
         if let Some(ws) = &mut self.ws {
-            ws.send(Message::Text(json.into()))
+            ws.send(Message::Text(json))
                 .await
                 .map_err(|e| ExchangeError::WebSocket(e.to_string()))?;
 
@@ -447,11 +447,7 @@ impl MarketStream for BinanceMarketStream {
         self.send_subscribe(vec![stream]).await
     }
 
-    async fn subscribe_kline(
-        &mut self,
-        symbol: &str,
-        timeframe: Timeframe,
-    ) -> ExchangeResult<()> {
+    async fn subscribe_kline(&mut self, symbol: &str, timeframe: Timeframe) -> ExchangeResult<()> {
         let stream = Self::kline_stream(symbol, timeframe);
         info!("Subscribing to kline: {}", stream);
         self.send_subscribe(vec![stream]).await
@@ -515,10 +511,7 @@ mod tests {
     fn test_stream_names() {
         let ticker = "BTC/USDT";
 
-        assert_eq!(
-            BinanceMarketStream::ticker_stream(ticker),
-            "btcusdt@ticker"
-        );
+        assert_eq!(BinanceMarketStream::ticker_stream(ticker), "btcusdt@ticker");
         assert_eq!(
             BinanceMarketStream::kline_stream(ticker, Timeframe::H1),
             "btcusdt@kline_1h"

@@ -269,7 +269,10 @@ impl TelegramSender {
                 };
 
                 let strength_stars = "⭐".repeat((*strength * 5.0) as usize);
-                let side_text = side.as_ref().map(|s| format!("\n방향: {}", s)).unwrap_or_default();
+                let side_text = side
+                    .as_ref()
+                    .map(|s| format!("\n방향: {}", s))
+                    .unwrap_or_default();
 
                 // 주요 지표 추출 (RSI, MACD 등)
                 let mut indicator_lines = Vec::new();
@@ -597,6 +600,7 @@ impl NotificationManager {
     /// - `reason`: 신호 생성 이유
     /// - `strategy_name`: 전략 이름
     /// - `indicators`: 지표 정보 (JSON)
+    #[allow(clippy::too_many_arguments)]
     pub async fn notify_signal_alert(
         &self,
         signal_type: &str,
@@ -650,10 +654,9 @@ impl NotificationManager {
         macro_risk: Option<&str>,
         macro_summary: Option<&str>,
     ) -> NotificationResult<()> {
-        // ATTACK 상태 진입 시 High 우선순위
-        let priority = if new_state.to_uppercase() == "ATTACK" {
-            NotificationPriority::High
-        } else if new_state.to_uppercase() == "OVERHEAT" {
+        // ATTACK 또는 OVERHEAT 상태 진입 시 High 우선순위
+        let upper_state = new_state.to_uppercase();
+        let priority = if upper_state == "ATTACK" || upper_state == "OVERHEAT" {
             NotificationPriority::High
         } else {
             NotificationPriority::Normal

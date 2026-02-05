@@ -2,12 +2,12 @@
 //!
 //! 백테스트 및 실거래에서 발생한 기술적 신호를 저장하고 조회합니다.
 
-use sqlx::PgPool;
-use trader_core::{SignalIndicators, SignalMarker, SignalType, Side, Symbol};
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde_json::Value as JsonValue;
+use sqlx::PgPool;
 use std::collections::HashMap;
+use trader_core::{Side, SignalIndicators, SignalMarker, SignalType, Symbol};
 use uuid::Uuid;
 
 use crate::error::{ApiErrorResponse, ApiResult};
@@ -37,36 +37,48 @@ impl SignalMarkerRepository {
             SELECT id FROM symbol_info
             WHERE ticker = $1
             LIMIT 1
-            "#
+            "#,
         )
         .bind(&marker.ticker)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiErrorResponse::new("DB_ERROR", e.to_string()))
-        ))?
-        .ok_or_else(|| (
-            StatusCode::NOT_FOUND,
-            Json(ApiErrorResponse::new(
-                "NOT_FOUND",
-                format!("Symbol not found: {}", marker.ticker)
-            ))
-        ))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiErrorResponse::new("DB_ERROR", e.to_string())),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ApiErrorResponse::new(
+                    "NOT_FOUND",
+                    format!("Symbol not found: {}", marker.ticker),
+                )),
+            )
+        })?;
 
         // indicators를 JSONB로 변환
-        let indicators_json = serde_json::to_value(&marker.indicators)
-            .map_err(|e| (
+        let indicators_json = serde_json::to_value(&marker.indicators).map_err(|e| {
+            (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiErrorResponse::new("SERIALIZATION_ERROR", format!("Failed to serialize indicators: {}", e)))
-            ))?;
+                Json(ApiErrorResponse::new(
+                    "SERIALIZATION_ERROR",
+                    format!("Failed to serialize indicators: {}", e),
+                )),
+            )
+        })?;
 
         // metadata를 JSONB로 변환
-        let metadata_json = serde_json::to_value(&marker.metadata)
-            .map_err(|e| (
+        let metadata_json = serde_json::to_value(&marker.metadata).map_err(|e| {
+            (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiErrorResponse::new("SERIALIZATION_ERROR", format!("Failed to serialize metadata: {}", e)))
-            ))?;
+                Json(ApiErrorResponse::new(
+                    "SERIALIZATION_ERROR",
+                    format!("Failed to serialize metadata: {}", e),
+                )),
+            )
+        })?;
 
         // side를 Option<String>으로 변환
         let side_str = marker.side.as_ref().map(|s| s.to_string());
@@ -80,14 +92,14 @@ impl SignalMarkerRepository {
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             RETURNING id
-            "#
+            "#,
         )
-        .bind(&marker.id)
+        .bind(marker.id)
         .bind(symbol_id)
-        .bind(&marker.timestamp)
+        .bind(marker.timestamp)
         .bind(marker.signal_type.to_string())
         .bind(side_str)
-        .bind(&marker.price)
+        .bind(marker.price)
         .bind(marker.strength)
         .bind(&indicators_json)
         .bind(&marker.reason)
@@ -97,10 +109,12 @@ impl SignalMarkerRepository {
         .bind(&metadata_json)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiErrorResponse::new("DB_ERROR", e.to_string()))
-        ))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiErrorResponse::new("DB_ERROR", e.to_string())),
+            )
+        })?;
 
         Ok(id)
     }
@@ -137,7 +151,7 @@ impl SignalMarkerRepository {
                 AND ($4::timestamptz IS NULL OR sm.timestamp <= $4)
             ORDER BY sm.timestamp DESC
             LIMIT $5
-            "#
+            "#,
         )
         .bind(symbol)
         .bind(exchange)
@@ -146,12 +160,15 @@ impl SignalMarkerRepository {
         .bind(limit)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiErrorResponse::new("DB_ERROR", e.to_string()))
-        ))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiErrorResponse::new("DB_ERROR", e.to_string())),
+            )
+        })?;
 
-        markers.into_iter()
+        markers
+            .into_iter()
             .map(|row| row.to_signal_marker())
             .collect::<Result<Vec<_>, _>>()
     }
@@ -186,7 +203,7 @@ impl SignalMarkerRepository {
                 AND ($3::timestamptz IS NULL OR sm.timestamp <= $3)
             ORDER BY sm.timestamp DESC
             LIMIT $4
-            "#
+            "#,
         )
         .bind(strategy_id)
         .bind(start_time)
@@ -194,12 +211,15 @@ impl SignalMarkerRepository {
         .bind(limit)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiErrorResponse::new("DB_ERROR", e.to_string()))
-        ))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiErrorResponse::new("DB_ERROR", e.to_string())),
+            )
+        })?;
 
-        markers.into_iter()
+        markers
+            .into_iter()
             .map(|row| row.to_signal_marker())
             .collect::<Result<Vec<_>, _>>()
     }
@@ -250,13 +270,16 @@ impl SignalMarkerRepository {
             .bind(signal_type)
             .bind(limit)
             .fetch_all(&self.pool)
-        .await
-        .map_err(|e| (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiErrorResponse::new("DB_ERROR", e.to_string()))
-        ))?;
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ApiErrorResponse::new("DB_ERROR", e.to_string())),
+                )
+            })?;
 
-        markers.into_iter()
+        markers
+            .into_iter()
             .map(|row| row.to_signal_marker())
             .collect::<Result<Vec<_>, _>>()
     }
@@ -267,15 +290,17 @@ impl SignalMarkerRepository {
             r#"
             DELETE FROM signal_marker
             WHERE strategy_id = $1
-            "#
+            "#,
         )
         .bind(strategy_id)
         .execute(&self.pool)
         .await
-        .map_err(|e| (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiErrorResponse::new("DB_ERROR", e.to_string()))
-        ))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiErrorResponse::new("DB_ERROR", e.to_string())),
+            )
+        })?;
 
         Ok(result.rows_affected())
     }
@@ -299,12 +324,15 @@ struct SignalMarkerRow {
     executed: bool,
     metadata: JsonValue,
     ticker: String,
+    #[allow(dead_code)]
     exchange: String,
     market: String,
 }
 
 impl SignalMarkerRow {
     /// SignalMarker로 변환
+    #[allow(clippy::wrong_self_convention)]
+    #[allow(clippy::result_large_err)]
     fn to_signal_marker(self) -> ApiResult<SignalMarker> {
         // SignalType 파싱
         let signal_type = match self.signal_type.as_str() {
@@ -314,13 +342,15 @@ impl SignalMarkerRow {
             "ADD_TO_POSITION" | "AddToPosition" => SignalType::AddToPosition,
             "REDUCE_POSITION" | "ReducePosition" => SignalType::ReducePosition,
             "SCALE" | "Scale" => SignalType::Scale,
-            _ => return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiErrorResponse::new(
-                    "PARSE_ERROR",
-                    format!("Unknown signal type: {}", self.signal_type)
+            _ => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ApiErrorResponse::new(
+                        "PARSE_ERROR",
+                        format!("Unknown signal type: {}", self.signal_type),
+                    )),
                 ))
-            )),
+            }
         };
 
         // Side 파싱
@@ -351,18 +381,28 @@ impl SignalMarkerRow {
         let symbol = Symbol::new(&self.ticker, quote, market_type);
 
         // SignalIndicators 역직렬화
-        let indicators: SignalIndicators = serde_json::from_value(self.indicators)
-            .map_err(|e| (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiErrorResponse::new("PARSE_ERROR", format!("Failed to deserialize indicators: {}", e)))
-            ))?;
+        let indicators: SignalIndicators =
+            serde_json::from_value(self.indicators).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ApiErrorResponse::new(
+                        "PARSE_ERROR",
+                        format!("Failed to deserialize indicators: {}", e),
+                    )),
+                )
+            })?;
 
         // Metadata 역직렬화
-        let metadata: HashMap<String, JsonValue> = serde_json::from_value(self.metadata)
-            .map_err(|e| (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiErrorResponse::new("PARSE_ERROR", format!("Failed to deserialize metadata: {}", e)))
-            ))?;
+        let metadata: HashMap<String, JsonValue> =
+            serde_json::from_value(self.metadata).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ApiErrorResponse::new(
+                        "PARSE_ERROR",
+                        format!("Failed to deserialize metadata: {}", e),
+                    )),
+                )
+            })?;
 
         Ok(SignalMarker {
             id: self.id,
@@ -424,10 +464,7 @@ fn build_jsonb_where_clause(filter: &JsonValue) -> String {
                     ""
                 };
 
-                let condition = format!(
-                    "(indicators->>'{}'){} {} {}",
-                    key, cast_type, sql_op, val
-                );
+                let condition = format!("(indicators->>'{}'){} {} {}", key, cast_type, sql_op, val);
                 conditions.push(condition);
             }
         }

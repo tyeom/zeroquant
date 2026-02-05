@@ -1,6 +1,6 @@
 # ZeroQuant Trading Bot - PRD (Product Requirements Document)
 
-> 버전: 6.0 | 마지막 업데이트: 2026-02-04
+> 버전: 6.1 | 마지막 업데이트: 2026-02-04
 
 ---
 
@@ -1502,6 +1502,218 @@ cargo build --features generate-ts
 
 ---
 
+### 2.15 분석 데이터 API ⭐ v0.6.4
+
+> **목적**: 프론트엔드 시각화 컴포넌트에 필요한 백엔드 데이터 API 제공
+
+#### 2.15.1 Volume Profile (매물대 분석)
+
+**목적**: 가격대별 거래량 분포를 계산하여 지지/저항 구간 파악
+
+**계산 방식**:
+- 기간 내 가격 범위를 N개 레벨로 분할 (기본 20레벨)
+- 각 레벨에 해당하는 거래량 집계
+- POC (Point of Control): 최대 거래량 가격대
+- Value Area (70% 거래량 구간): VAH, VAL 계산
+
+**데이터 구조**:
+```rust
+pub struct VolumeProfile {
+    pub price_levels: Vec<PriceLevel>,
+    pub poc: Decimal,              // Point of Control
+    pub value_area_high: Decimal,  // 상단 70% 경계
+    pub value_area_low: Decimal,   // 하단 70% 경계
+}
+
+pub struct PriceLevel {
+    pub price: Decimal,
+    pub volume: u64,
+    pub buy_volume: u64,
+    pub sell_volume: u64,
+}
+```
+
+**API 엔드포인트**:
+| 엔드포인트 | 메서드 | 설명 |
+|-----------|--------|------|
+| `/api/v1/symbols/{ticker}/volume-profile` | GET | 매물대 분석 |
+
+**쿼리 파라미터**:
+- `period`: 분석 기간 일수 (기본 60)
+- `levels`: 가격 레벨 수 (기본 20)
+
+#### 2.15.2 Correlation Matrix (상관관계 행렬)
+
+**목적**: 종목 간 가격 움직임 상관관계를 계산하여 포트폴리오 분산 분석
+
+**계산 방식**:
+- N일 종가 데이터 기준 Pearson 상관계수 계산
+- N×N 대칭 행렬 생성
+- 범위: -1.0 (역상관) ~ +1.0 (정상관)
+
+**데이터 구조**:
+```rust
+pub struct CorrelationMatrix {
+    pub symbols: Vec<String>,
+    pub matrix: Vec<Vec<f64>>,  // N×N 상관계수 행렬
+    pub period_days: u32,
+}
+```
+
+**API 엔드포인트**:
+| 엔드포인트 | 메서드 | 설명 |
+|-----------|--------|------|
+| `/api/v1/analytics/correlation` | GET | 상관관계 행렬 |
+
+**쿼리 파라미터**:
+- `symbols`: 종목 목록 (쉼표 구분)
+- `period`: 분석 기간 일수 (기본 60)
+
+#### 2.15.3 Score History (점수 히스토리)
+
+**목적**: 종목별 Global Score 및 RouteState 변화 추적
+
+**저장 항목**:
+- 일자별 Global Score (0~100)
+- RouteState 상태
+- 순위 (전체 중 등수)
+- 개별 팩터 점수 (7Factor)
+
+**데이터 모델**:
+```sql
+CREATE TABLE score_history (
+    id SERIAL PRIMARY KEY,
+    symbol VARCHAR(20) NOT NULL,
+    score_date DATE NOT NULL,
+    global_score DECIMAL(5,2),
+    route_state VARCHAR(20),
+    rank INTEGER,
+    component_scores JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(symbol, score_date)
+);
+```
+
+**API 엔드포인트**:
+| 엔드포인트 | 메서드 | 설명 |
+|-----------|--------|------|
+| `/api/v1/symbols/{ticker}/score-history` | GET | 점수 히스토리 |
+
+**쿼리 파라미터**:
+- `days`: 조회 기간 (기본 90)
+
+---
+
+### 2.16 주봉 기반 지표 ⭐ v0.6.4
+
+#### 2.16.1 Weekly MA20 (주봉 20선)
+
+**목적**: 중장기 추세 판단을 위한 주봉 이동평균
+
+**계산 방식**:
+1. 일봉 데이터 → 주봉 리샘플링
+   - Open: 주 첫 거래일 시가
+   - High: 주간 최고가
+   - Low: 주간 최저가
+   - Close: 주 마지막 거래일 종가
+   - Volume: 주간 거래량 합계
+2. 주봉 MA20 계산 (20주 단순이동평균)
+3. 일봉에 해당 주의 MA20 값 매핑
+
+**활용**:
+- 중장기 추세 판단 (주봉 MA20 위/아래)
+- 눌림목 매수 시점 판단
+- 자산배분 전략 필터
+
+**데이터 구조**:
+```rust
+pub struct WeeklyIndicator {
+    pub date: NaiveDate,
+    pub weekly_ma20: Option<Decimal>,
+    pub weekly_close: Decimal,
+    pub is_above_ma20: bool,
+}
+```
+
+**API 통합**:
+- ScreeningResult에 `weekly_ma20`, `is_above_weekly_ma20` 필드 추가
+- 스크리닝 필터 조건으로 활용 가능
+
+---
+
+### 2.17 생존일 추적 (Survival Days) ⭐ v0.6.4
+
+**목적**: 연속 상위권 유지 일수를 추적하여 지속 강세 종목 발굴
+
+**계산 방식**:
+- 매일 Global Score 기준 상위 N% 또는 상위 N위 종목 확인
+- 연속으로 상위권에 포함된 일수 카운트
+- 한 번이라도 탈락하면 카운트 리셋
+
+**데이터 구조**:
+```rust
+pub struct SurvivalStats {
+    pub ticker: String,
+    pub consecutive_days: u32,      // 연속 상위권 일수
+    pub longest_streak: u32,        // 최장 연속 기록
+    pub first_entry_date: NaiveDate,
+    pub streak_level: StreakLevel,  // Cold/Warm/Hot/Fire
+}
+
+pub enum StreakLevel {
+    Cold,   // 0-2일
+    Warm,   // 3-5일
+    Hot,    // 6-9일
+    Fire,   // 10일+
+}
+```
+
+**활용**:
+- 스크리닝 결과에 Survival Badge 표시
+- 지속 강세 종목 우선 노출
+- 텔레그램 알림 (10일+ 연속 시)
+
+**API 통합**:
+- ScreeningResult에 `survival_days`, `streak_level` 필드 추가
+
+---
+
+### 2.18 동적 라우트 태깅 (Dynamic Route Tagging) ⭐ v0.6.4
+
+> **보완**: 2.10.2 RouteState 판정 기준에 동적 임계값 적용
+
+**목적**: 고정 임계값 대신 시장 분포 기반 퍼센타일 임계값으로 RouteState 판정
+
+**기존 문제**:
+- 고정 임계값 (예: RSI > 70)은 시장 상황에 따라 적합하지 않음
+- 강세장에서는 대부분 OVERHEAT, 약세장에서는 대부분 NEUTRAL
+
+**동적 임계값 계산**:
+```rust
+pub struct DynamicThresholds {
+    pub r5_q75: f64,      // 5일 수익률 상위 25% 경계
+    pub slope_q60: f64,   // MACD 기울기 상위 40% 경계
+    pub ebs_q60: f64,     // EBS 점수 상위 40% 경계
+    pub now_gap_q25: f64, // 진입 괴리 하위 25% 경계
+}
+
+/// 매일 전체 종목 데이터로 임계값 재계산
+pub fn compute_dynamic_thresholds(data: &[SymbolData]) -> DynamicThresholds;
+```
+
+**RouteState 판정 (동적)**:
+- **ATTACK**: r5 ≥ q75 AND slope ≥ q60 AND ebs ≥ q60 AND now_gap ≤ q25
+- **ARMED**: TTM Squeeze 활성 OR (r5 ≥ q60 AND slope > 0)
+- **OVERHEAT**: r5 > q90 (상위 10%)
+- **WAIT/NEUTRAL**: 기존 로직 유지
+
+**장점**:
+- 시장 상황에 적응하는 상대적 평가
+- 일정 비율의 종목만 ATTACK/ARMED로 분류
+- 백테스트 결과 일관성 향상
+
+---
+
 ## 7. 핵심 워크플로우
 
 ### 7.1 전략 개발 워크플로우
@@ -1555,7 +1767,16 @@ Yahoo Finance / Binance / KIS
 
 ---
 
-*버전 이력: v1.0 → v2.0 → v2.1 → v3.0 → v4.0 → v4.1 → v5.0 → v5.1 → v5.2 → v6.0*
+*버전 이력: v1.0 → v2.0 → v2.1 → v3.0 → v4.0 → v4.1 → v5.0 → v5.1 → v5.2 → v6.0 → v6.1*
+
+**v6.1 변경사항:**
+- 분석 데이터 API 요구사항 추가 (2.15)
+  - Volume Profile API (2.15.1)
+  - Correlation Matrix API (2.15.2)
+  - Score History API (2.15.3)
+- 주봉 기반 지표 요구사항 추가 - Weekly MA20 (2.16)
+- 생존일 추적 요구사항 추가 - Survival Days (2.17)
+- 동적 라우트 태깅 요구사항 추가 - Dynamic Route Tagging (2.18)
 
 **v6.0 변경사항:**
 - 데이터 프로바이더 이중화 (KRX API + Yahoo Finance) 요구사항 추가 (2.5.5)

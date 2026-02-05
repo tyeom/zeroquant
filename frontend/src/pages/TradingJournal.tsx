@@ -36,6 +36,7 @@ import {
   getJournalInsights,
   getJournalStrategyPerformance,
   syncJournalExecutions,
+  clearJournalCache,
 } from '../api/client'
 import type { ExecutionFilter } from '../api/client'
 
@@ -253,10 +254,14 @@ export function TradingJournal() {
   }
 
   /** 동기화 */
-  const handleSync = async () => {
+  const handleSync = async (forceFullSync: boolean = false) => {
     setLoading('isSyncing', true)
     try {
-      const result = await syncJournalExecutions()
+      if (forceFullSync) {
+        // 강제 동기화: 캐시 초기화 후 전체 내역 조회
+        console.log('강제 동기화 시작: 캐시 초기화 포함')
+      }
+      const result = await syncJournalExecutions(undefined, undefined, forceFullSync)
       if (result.success) {
         await handleRefresh()
       }
@@ -267,13 +272,39 @@ export function TradingJournal() {
     }
   }
 
+  /** 캐시 초기화 */
+  const handleClearCache = async () => {
+    if (!confirm('캐시를 초기화하시겠습니까?\n\n초기화 후 다음 동기화 시 전체 체결 내역을 다시 조회합니다.')) {
+      return
+    }
+    try {
+      const result = await clearJournalCache()
+      console.log('캐시 초기화 완료:', result.message)
+      alert(`캐시 초기화 완료: ${result.deleted_count}건 삭제`)
+    } catch (error) {
+      console.error('캐시 초기화 실패:', error)
+      alert('캐시 초기화 실패')
+    }
+  }
+
   // ==================== UI 컴포넌트 ====================
 
   /** 액션 버튼 컴포넌트 */
   const HeaderActions = () => (
     <div class="flex items-center gap-3">
-      <Button variant="primary" onClick={handleSync} disabled={loading.isSyncing} loading={loading.isSyncing}>
+      <Button variant="primary" onClick={() => handleSync(false)} disabled={loading.isSyncing} loading={loading.isSyncing}>
         🔄 동기화
+      </Button>
+      <Button
+        variant="secondary"
+        onClick={() => handleSync(true)}
+        disabled={loading.isSyncing}
+        title="캐시를 초기화하고 전체 체결 내역을 다시 조회합니다 (ISA 계좌 등)"
+      >
+        🔄 강제 동기화
+      </Button>
+      <Button variant="ghost" onClick={handleClearCache} disabled={loading.isSyncing}>
+        🗑️ 캐시 초기화
       </Button>
       <Button variant="secondary" onClick={handleRefresh} disabled={loading.isRefreshing} loading={loading.isRefreshing}>
         🔃 새로고침

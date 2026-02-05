@@ -185,11 +185,7 @@ pub struct SimulatedExchange {
 impl SimulatedExchange {
     /// ticker String에서 quote 통화를 추출합니다 (예: "BTC/USDT" -> "USDT").
     fn parse_quote(ticker: &str) -> String {
-        ticker
-            .split('/')
-            .nth(1)
-            .unwrap_or("USDT")
-            .to_string()
+        ticker.split('/').nth(1).unwrap_or("USDT").to_string()
     }
 
     /// ticker String을 Symbol로 변환합니다 (시뮬레이션용).
@@ -552,11 +548,7 @@ impl Exchange for SimulatedExchange {
             .ok_or_else(|| ExchangeError::SymbolNotFound(symbol.to_string()))
     }
 
-    async fn get_order_book(
-        &self,
-        symbol: &str,
-        _limit: Option<u32>,
-    ) -> ExchangeResult<OrderBook> {
+    async fn get_order_book(&self, symbol: &str, _limit: Option<u32>) -> ExchangeResult<OrderBook> {
         // 현재 가격에서 시뮬레이션된 호가창 생성
         let feed = self.data_feed.read().await;
         let current_price = feed
@@ -659,7 +651,9 @@ impl Exchange for SimulatedExchange {
                     if balance.free < required {
                         return Err(ExchangeError::InsufficientBalance(format!(
                             "Need {} {}, have {}",
-                            required, Self::parse_quote(&request.ticker), balance.free
+                            required,
+                            Self::parse_quote(&request.ticker),
+                            balance.free
                         )));
                     }
                 }
@@ -681,14 +675,14 @@ impl Exchange for SimulatedExchange {
             match request.side {
                 Side::Buy => {
                     let required = request.quantity * request.price.unwrap_or(current_price);
-                    account.update_balance(&Self::parse_quote(&request.ticker), -required, required);
+                    account.update_balance(
+                        &Self::parse_quote(&request.ticker),
+                        -required,
+                        required,
+                    );
                 }
                 Side::Sell => {
-                    account.update_balance(
-                        &request.ticker,
-                        -request.quantity,
-                        request.quantity,
-                    );
+                    account.update_balance(&request.ticker, -request.quantity, request.quantity);
                 }
             }
         }
@@ -741,7 +735,11 @@ impl Exchange for SimulatedExchange {
                 match request.side {
                     Side::Buy => {
                         let required = request.quantity * request.price.unwrap_or(current_price);
-                        account.update_balance(&Self::parse_quote(&request.ticker), required, -required);
+                        account.update_balance(
+                            &Self::parse_quote(&request.ticker),
+                            required,
+                            -required,
+                        );
                     }
                     Side::Sell => {
                         account.update_balance(
@@ -783,7 +781,11 @@ impl Exchange for SimulatedExchange {
                 match request.side {
                     Side::Buy => {
                         let locked = request.quantity * request.price.unwrap_or(dec!(0));
-                        account.update_balance(&Self::parse_quote(&request.ticker), locked, -locked);
+                        account.update_balance(
+                            &Self::parse_quote(&request.ticker),
+                            locked,
+                            -locked,
+                        );
                     }
                     Side::Sell => {
                         account.update_balance(
@@ -815,7 +817,7 @@ impl Exchange for SimulatedExchange {
                 state.status_type == OrderStatusType::Open
                     || state.status_type == OrderStatusType::PartiallyFilled
             })
-            .filter(|state| symbol.map_or(true, |s| &state.request.ticker == s))
+            .filter(|state| symbol.map_or(true, |s| state.request.ticker == s))
             .map(|state| state.to_order_status())
             .collect();
 
@@ -868,8 +870,13 @@ mod tests {
         let ticker = symbol.to_string();
 
         // 샘플 데이터 로드
-        let klines =
-            generate_sample_klines(symbol.to_string(), Timeframe::M1, 100, dec!(50000), dec!(0.02));
+        let klines = generate_sample_klines(
+            symbol.to_string(),
+            Timeframe::M1,
+            100,
+            dec!(50000),
+            dec!(0.02),
+        );
         exchange
             .load_klines(symbol.to_string(), Timeframe::M1, klines)
             .await;
@@ -893,8 +900,13 @@ mod tests {
         let ticker = symbol.to_string();
 
         // 데이터 로드
-        let klines =
-            generate_sample_klines(symbol.to_string(), Timeframe::M1, 10, dec!(50000), dec!(0.02));
+        let klines = generate_sample_klines(
+            symbol.to_string(),
+            Timeframe::M1,
+            10,
+            dec!(50000),
+            dec!(0.02),
+        );
         exchange
             .load_klines(symbol.to_string(), Timeframe::M1, klines)
             .await;
@@ -934,8 +946,13 @@ mod tests {
         let ticker = symbol.to_string();
 
         // 가격이 약 50000인 데이터 로드
-        let klines =
-            generate_sample_klines(symbol.to_string(), Timeframe::M1, 10, dec!(50000), dec!(0.01));
+        let klines = generate_sample_klines(
+            symbol.to_string(),
+            Timeframe::M1,
+            10,
+            dec!(50000),
+            dec!(0.01),
+        );
         exchange
             .load_klines(symbol.to_string(), Timeframe::M1, klines)
             .await;
@@ -975,8 +992,13 @@ mod tests {
         let symbol = create_test_symbol();
         let ticker = symbol.to_string();
 
-        let klines =
-            generate_sample_klines(symbol.to_string(), Timeframe::M1, 10, dec!(50000), dec!(0.01));
+        let klines = generate_sample_klines(
+            symbol.to_string(),
+            Timeframe::M1,
+            10,
+            dec!(50000),
+            dec!(0.01),
+        );
         exchange
             .load_klines(symbol.to_string(), Timeframe::M1, klines)
             .await;

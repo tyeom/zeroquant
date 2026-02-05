@@ -1,9 +1,7 @@
-//! 소형주 퀀트 전략 (Small Cap Quant)
+//! 소형주 퀀트 전략 (Small Cap Quant).
 //!
 //! 코스닥 소형지수의 20일 이동평균선을 기준으로
 //! 소형주 팩터(시가총액, 영업이익, ROE, PBR, PER)를 활용한 퀀트 전략.
-//!
-//! Python 11번 전략 변환.
 //!
 //! # 전략 개요
 //!
@@ -38,45 +36,68 @@ use tracing::{debug, info};
 use crate::traits::Strategy;
 use trader_core::domain::{RouteState, StrategyContext};
 use trader_core::{MarketData, MarketDataType, Order, Position, Side, Signal};
+use trader_strategy_macro::StrategyConfig;
+
+use crate::strategies::common::ExitConfig;
 
 /// 소형주 퀀트 전략 설정.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, StrategyConfig)]
+#[strategy(
+    id = "small_cap_quant",
+    name = "소형주 퀀트",
+    description = "코스닥 소형지수 MA 기반 소형주 팩터 퀀트 전략",
+    category = "Daily"
+)]
 pub struct SmallCapQuantConfig {
     /// 선택할 종목 수
     #[serde(default = "default_target_count")]
+    #[schema(label = "선택 종목 수", min = 5, max = 50)]
     pub target_count: usize,
 
     /// 이동평균 기간
     #[serde(default = "default_ma_period")]
+    #[schema(label = "이동평균 기간", min = 5, max = 200)]
     pub ma_period: usize,
 
     /// 총 투자 금액
     #[serde(default = "default_total_amount")]
+    #[schema(label = "총 투자 금액", min = 1000000, max = 1000000000)]
     pub total_amount: Decimal,
 
     /// 최소 시가총액 (억원)
     #[serde(default = "default_min_market_cap")]
+    #[schema(label = "최소 시가총액 (억원)", min = 10, max = 1000)]
     pub min_market_cap: f64,
 
     /// 최소 ROE (%)
     #[serde(default = "default_min_roe")]
+    #[schema(label = "최소 ROE (%)", min = 0, max = 50)]
     pub min_roe: f64,
 
     /// 최소 PBR
     #[serde(default = "default_min_pbr")]
+    #[schema(label = "최소 PBR", min = 0.1, max = 5)]
     pub min_pbr: f64,
 
     /// 최소 PER
     #[serde(default = "default_min_per")]
+    #[schema(label = "최소 PER", min = 1, max = 50)]
     pub min_per: f64,
 
     /// 기준 지수 티커 (기본: 코스닥150 ETF)
     #[serde(default = "default_index_ticker")]
-    pub index_ticker:  String,
+    #[schema(label = "기준 지수 티커")]
+    pub index_ticker: String,
 
     /// 최소 글로벌 스코어 (기본값: 60)
     #[serde(default = "default_min_global_score")]
+    #[schema(label = "최소 GlobalScore", min = 0, max = 100)]
     pub min_global_score: Decimal,
+
+    /// 청산 설정 (손절/익절/트레일링 스탑).
+    #[serde(default)]
+    #[fragment("risk.exit_config")]
+    pub exit_config: ExitConfig,
 }
 
 fn default_target_count() -> usize {
@@ -119,6 +140,7 @@ impl Default for SmallCapQuantConfig {
             min_per: default_min_per(),
             index_ticker: default_index_ticker(),
             min_global_score: default_min_global_score(),
+            exit_config: ExitConfig::default(),
         }
     }
 }
@@ -126,7 +148,7 @@ impl Default for SmallCapQuantConfig {
 /// 종목 재무 정보.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StockFundamentals {
-    pub ticker:  String,
+    pub ticker: String,
     pub market_cap: f64,       // 시가총액 (억원)
     pub sector: String,        // 섹터
     pub operating_profit: f64, // 영업이익
@@ -181,8 +203,9 @@ impl StockFundamentals {
 
 /// 종목별 데이터.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct StockData {
-    ticker:  String,
+    ticker: String,
     current_price: Decimal,
     current_holdings: Decimal,
 }
@@ -327,6 +350,7 @@ impl SmallCapQuantStrategy {
     }
 
     /// RouteState와 GlobalScore 기반 진입 조건 체크
+    #[allow(dead_code)]
     fn can_enter(&self, ticker: &str) -> bool {
         let context = match &self.context {
             Some(ctx) => ctx,
@@ -392,6 +416,7 @@ impl SmallCapQuantStrategy {
     }
 
     /// 매수 시그널 생성.
+    #[allow(dead_code)]
     fn generate_buy_signals(&self, target_stocks: &[String]) -> Vec<Signal> {
         let config = match self.config.as_ref() {
             Some(c) => c,
@@ -718,5 +743,6 @@ register_strategy! {
     tickers: [],
     category: Daily,
     markets: [Stock],
-    type: SmallCapQuantStrategy
+    type: SmallCapQuantStrategy,
+    config: SmallCapQuantConfig
 }

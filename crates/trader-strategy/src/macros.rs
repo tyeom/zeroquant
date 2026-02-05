@@ -12,7 +12,7 @@
 /// - `description`: 전략 설명
 /// - `timeframe`: 기본 타임프레임 ("1m", "15m", "1h", "1d" 등)
 /// - `category`: 전략 카테고리 (Realtime, Intraday, Daily, Monthly)
-/// - `type`: 전략 구조체 타입
+/// - `type` 또는 `factory`: 전략 타입 또는 커스텀 팩토리 함수
 ///
 /// # 선택 필드
 /// - `aliases`: 별칭 배열 (기본값: 빈 배열)
@@ -20,7 +20,7 @@
 /// - `markets`: 지원 시장 배열 (기본값: [Crypto, Kr, Us])
 /// - `secondary_timeframes`: 보조 타임프레임 (다중 TF 전략용, 기본값: 빈 배열)
 ///
-/// # 예시 (단일 타임프레임 전략)
+/// # 예시 (기본 type 사용)
 /// ```ignore
 /// register_strategy! {
 ///     id: "rsi_mean_reversion",
@@ -30,24 +30,23 @@
 ///     timeframe: "15m",
 ///     tickers: [],
 ///     category: Intraday,
-///     markets: [Crypto, Kr, Us],
+///     markets: [Crypto, Stock],
 ///     type: RsiStrategy
 /// }
 /// ```
 ///
-/// # 예시 (다중 타임프레임 전략)
+/// # 예시 (커스텀 factory 사용 - 파생 전략)
 /// ```ignore
 /// register_strategy! {
-///     id: "rsi_multi_tf",
-///     aliases: ["rsi_mtf"],
-///     name: "RSI 다중 타임프레임",
-///     description: "일봉/1시간/5분 RSI 조합 전략",
-///     timeframe: "5m",
-///     secondary_timeframes: ["1h", "1d"],  // 보조 타임프레임 추가
-///     tickers: [],
-///     category: Intraday,
-///     markets: [Crypto, Kr, Us],
-///     type: RsiMultiTimeframeStrategy
+///     id: "haa",
+///     aliases: ["hierarchical_asset_allocation"],
+///     name: "HAA 자산배분",
+///     description: "계층적 자산 배분 전략",
+///     timeframe: "1M",
+///     tickers: ["SPY", "VEA", "VWO", "AGG", "SHY", "IEF", "LQD", "BIL"],
+///     category: Monthly,
+///     markets: [Stock],
+///     factory: AssetAllocationStrategy::haa
 /// }
 /// ```
 ///
@@ -57,7 +56,127 @@
 /// - 별칭을 통한 다중 접근 지원 (하위 호환성)
 #[macro_export]
 macro_rules! register_strategy {
-    // 패턴 1: 다중 타임프레임 전략 (secondary_timeframes 포함)
+    // 패턴 1: 커스텀 factory 사용 (파생 전략용)
+    (
+        id: $id:expr,
+        aliases: [$($alias:expr),* $(,)?],
+        name: $name:expr,
+        description: $desc:expr,
+        timeframe: $tf:expr,
+        tickers: [$($ticker:expr),* $(,)?],
+        category: $cat:ident,
+        markets: [$($market:ident),* $(,)?],
+        factory: $factory:expr
+    ) => {
+        inventory::submit! {
+            $crate::registry::StrategyMeta {
+                id: $id,
+                aliases: &[$($alias),*],
+                name: $name,
+                description: $desc,
+                default_timeframe: $tf,
+                secondary_timeframes: &[],
+                default_tickers: &[$($ticker),*],
+                category: $crate::registry::StrategyCategory::$cat,
+                supported_markets: &[$(trader_core::MarketType::$market),*],
+                factory: || Box::new($factory()),
+                ui_schema_factory: None,
+            }
+        }
+    };
+
+    // 패턴 1-1: 커스텀 factory + config 타입 (SDUI 지원)
+    (
+        id: $id:expr,
+        aliases: [$($alias:expr),* $(,)?],
+        name: $name:expr,
+        description: $desc:expr,
+        timeframe: $tf:expr,
+        tickers: [$($ticker:expr),* $(,)?],
+        category: $cat:ident,
+        markets: [$($market:ident),* $(,)?],
+        factory: $factory:expr,
+        config: $config_ty:ty
+    ) => {
+        inventory::submit! {
+            $crate::registry::StrategyMeta {
+                id: $id,
+                aliases: &[$($alias),*],
+                name: $name,
+                description: $desc,
+                default_timeframe: $tf,
+                secondary_timeframes: &[],
+                default_tickers: &[$($ticker),*],
+                category: $crate::registry::StrategyCategory::$cat,
+                supported_markets: &[$(trader_core::MarketType::$market),*],
+                factory: || Box::new($factory()),
+                ui_schema_factory: Some(|| <$config_ty>::ui_schema()),
+            }
+        }
+    };
+
+    // 패턴 2: 커스텀 factory + 다중 타임프레임
+    (
+        id: $id:expr,
+        aliases: [$($alias:expr),* $(,)?],
+        name: $name:expr,
+        description: $desc:expr,
+        timeframe: $tf:expr,
+        secondary_timeframes: [$($sec_tf:expr),* $(,)?],
+        tickers: [$($ticker:expr),* $(,)?],
+        category: $cat:ident,
+        markets: [$($market:ident),* $(,)?],
+        factory: $factory:expr
+    ) => {
+        inventory::submit! {
+            $crate::registry::StrategyMeta {
+                id: $id,
+                aliases: &[$($alias),*],
+                name: $name,
+                description: $desc,
+                default_timeframe: $tf,
+                secondary_timeframes: &[$($sec_tf),*],
+                default_tickers: &[$($ticker),*],
+                category: $crate::registry::StrategyCategory::$cat,
+                supported_markets: &[$(trader_core::MarketType::$market),*],
+                factory: || Box::new($factory()),
+                ui_schema_factory: None,
+            }
+        }
+    };
+
+    // 패턴 2-1: 커스텀 factory + 다중 타임프레임 + config (SDUI 지원)
+    (
+        id: $id:expr,
+        aliases: [$($alias:expr),* $(,)?],
+        name: $name:expr,
+        description: $desc:expr,
+        timeframe: $tf:expr,
+        secondary_timeframes: [$($sec_tf:expr),* $(,)?],
+        tickers: [$($ticker:expr),* $(,)?],
+        category: $cat:ident,
+        markets: [$($market:ident),* $(,)?],
+        factory: $factory:expr,
+        config: $config_ty:ty
+    ) => {
+        inventory::submit! {
+            $crate::registry::StrategyMeta {
+                id: $id,
+                aliases: &[$($alias),*],
+                name: $name,
+                description: $desc,
+                default_timeframe: $tf,
+                secondary_timeframes: &[$($sec_tf),*],
+                default_tickers: &[$($ticker),*],
+                category: $crate::registry::StrategyCategory::$cat,
+                supported_markets: &[$(trader_core::MarketType::$market),*],
+                factory: || Box::new($factory()),
+                ui_schema_factory: Some(|| <$config_ty>::ui_schema()),
+            }
+        }
+    };
+
+    // 패턴 3: 다중 타임프레임 전략 (기본 type::new() 사용)
     (
         id: $id:expr,
         aliases: [$($alias:expr),* $(,)?],
@@ -82,11 +201,43 @@ macro_rules! register_strategy {
                 category: $crate::registry::StrategyCategory::$cat,
                 supported_markets: &[$(trader_core::MarketType::$market),*],
                 factory: || Box::new(<$ty>::new()),
+                ui_schema_factory: None,
             }
         }
     };
 
-    // 패턴 2: 단일 타임프레임 전략 (기존 호환, secondary_timeframes 없음)
+    // 패턴 3-1: 다중 타임프레임 전략 + config (SDUI 지원)
+    (
+        id: $id:expr,
+        aliases: [$($alias:expr),* $(,)?],
+        name: $name:expr,
+        description: $desc:expr,
+        timeframe: $tf:expr,
+        secondary_timeframes: [$($sec_tf:expr),* $(,)?],
+        tickers: [$($ticker:expr),* $(,)?],
+        category: $cat:ident,
+        markets: [$($market:ident),* $(,)?],
+        type: $ty:ty,
+        config: $config_ty:ty
+    ) => {
+        inventory::submit! {
+            $crate::registry::StrategyMeta {
+                id: $id,
+                aliases: &[$($alias),*],
+                name: $name,
+                description: $desc,
+                default_timeframe: $tf,
+                secondary_timeframes: &[$($sec_tf),*],
+                default_tickers: &[$($ticker),*],
+                category: $crate::registry::StrategyCategory::$cat,
+                supported_markets: &[$(trader_core::MarketType::$market),*],
+                factory: || Box::new(<$ty>::new()),
+                ui_schema_factory: Some(|| <$config_ty>::ui_schema()),
+            }
+        }
+    };
+
+    // 패턴 4: 단일 타임프레임 전략 (기본 type::new() 사용, 기존 호환)
     (
         id: $id:expr,
         aliases: [$($alias:expr),* $(,)?],
@@ -105,11 +256,42 @@ macro_rules! register_strategy {
                 name: $name,
                 description: $desc,
                 default_timeframe: $tf,
-                secondary_timeframes: &[],  // 기본값: 빈 배열 (단일 TF)
+                secondary_timeframes: &[],
                 default_tickers: &[$($ticker),*],
                 category: $crate::registry::StrategyCategory::$cat,
                 supported_markets: &[$(trader_core::MarketType::$market),*],
                 factory: || Box::new(<$ty>::new()),
+                ui_schema_factory: None,
+            }
+        }
+    };
+
+    // 패턴 4-1: 단일 타임프레임 전략 + config (SDUI 지원)
+    (
+        id: $id:expr,
+        aliases: [$($alias:expr),* $(,)?],
+        name: $name:expr,
+        description: $desc:expr,
+        timeframe: $tf:expr,
+        tickers: [$($ticker:expr),* $(,)?],
+        category: $cat:ident,
+        markets: [$($market:ident),* $(,)?],
+        type: $ty:ty,
+        config: $config_ty:ty
+    ) => {
+        inventory::submit! {
+            $crate::registry::StrategyMeta {
+                id: $id,
+                aliases: &[$($alias),*],
+                name: $name,
+                description: $desc,
+                default_timeframe: $tf,
+                secondary_timeframes: &[],
+                default_tickers: &[$($ticker),*],
+                category: $crate::registry::StrategyCategory::$cat,
+                supported_markets: &[$(trader_core::MarketType::$market),*],
+                factory: || Box::new(<$ty>::new()),
+                ui_schema_factory: Some(|| <$config_ty>::ui_schema()),
             }
         }
     };

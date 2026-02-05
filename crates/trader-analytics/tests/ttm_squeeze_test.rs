@@ -11,34 +11,130 @@ use trader_analytics::indicators::{
 /// 샘플 OHLC 데이터 생성 (40개)
 fn sample_ohlc_data() -> (Vec<Decimal>, Vec<Decimal>, Vec<Decimal>) {
     let high = vec![
-        dec!(102), dec!(104), dec!(103), dec!(105), dec!(107),
-        dec!(106), dec!(108), dec!(110), dec!(109), dec!(111),
-        dec!(113), dec!(112), dec!(114), dec!(116), dec!(115),
-        dec!(117), dec!(119), dec!(118), dec!(120), dec!(122),
-        dec!(121), dec!(123), dec!(125), dec!(124), dec!(126),
-        dec!(128), dec!(127), dec!(129), dec!(131), dec!(130),
-        dec!(132), dec!(134), dec!(133), dec!(135), dec!(137),
-        dec!(136), dec!(138), dec!(140), dec!(139), dec!(141),
+        dec!(102),
+        dec!(104),
+        dec!(103),
+        dec!(105),
+        dec!(107),
+        dec!(106),
+        dec!(108),
+        dec!(110),
+        dec!(109),
+        dec!(111),
+        dec!(113),
+        dec!(112),
+        dec!(114),
+        dec!(116),
+        dec!(115),
+        dec!(117),
+        dec!(119),
+        dec!(118),
+        dec!(120),
+        dec!(122),
+        dec!(121),
+        dec!(123),
+        dec!(125),
+        dec!(124),
+        dec!(126),
+        dec!(128),
+        dec!(127),
+        dec!(129),
+        dec!(131),
+        dec!(130),
+        dec!(132),
+        dec!(134),
+        dec!(133),
+        dec!(135),
+        dec!(137),
+        dec!(136),
+        dec!(138),
+        dec!(140),
+        dec!(139),
+        dec!(141),
     ];
     let low = vec![
-        dec!(98), dec!(100), dec!(99), dec!(101), dec!(103),
-        dec!(102), dec!(104), dec!(106), dec!(105), dec!(107),
-        dec!(109), dec!(108), dec!(110), dec!(112), dec!(111),
-        dec!(113), dec!(115), dec!(114), dec!(116), dec!(118),
-        dec!(117), dec!(119), dec!(121), dec!(120), dec!(122),
-        dec!(124), dec!(123), dec!(125), dec!(127), dec!(126),
-        dec!(128), dec!(130), dec!(129), dec!(131), dec!(133),
-        dec!(132), dec!(134), dec!(136), dec!(135), dec!(137),
+        dec!(98),
+        dec!(100),
+        dec!(99),
+        dec!(101),
+        dec!(103),
+        dec!(102),
+        dec!(104),
+        dec!(106),
+        dec!(105),
+        dec!(107),
+        dec!(109),
+        dec!(108),
+        dec!(110),
+        dec!(112),
+        dec!(111),
+        dec!(113),
+        dec!(115),
+        dec!(114),
+        dec!(116),
+        dec!(118),
+        dec!(117),
+        dec!(119),
+        dec!(121),
+        dec!(120),
+        dec!(122),
+        dec!(124),
+        dec!(123),
+        dec!(125),
+        dec!(127),
+        dec!(126),
+        dec!(128),
+        dec!(130),
+        dec!(129),
+        dec!(131),
+        dec!(133),
+        dec!(132),
+        dec!(134),
+        dec!(136),
+        dec!(135),
+        dec!(137),
     ];
     let close = vec![
-        dec!(100), dec!(102), dec!(101), dec!(103), dec!(105),
-        dec!(104), dec!(106), dec!(108), dec!(107), dec!(109),
-        dec!(111), dec!(110), dec!(112), dec!(114), dec!(113),
-        dec!(115), dec!(117), dec!(116), dec!(118), dec!(120),
-        dec!(119), dec!(121), dec!(123), dec!(122), dec!(124),
-        dec!(126), dec!(125), dec!(127), dec!(129), dec!(128),
-        dec!(130), dec!(132), dec!(131), dec!(133), dec!(135),
-        dec!(134), dec!(136), dec!(138), dec!(137), dec!(139),
+        dec!(100),
+        dec!(102),
+        dec!(101),
+        dec!(103),
+        dec!(105),
+        dec!(104),
+        dec!(106),
+        dec!(108),
+        dec!(107),
+        dec!(109),
+        dec!(111),
+        dec!(110),
+        dec!(112),
+        dec!(114),
+        dec!(113),
+        dec!(115),
+        dec!(117),
+        dec!(116),
+        dec!(118),
+        dec!(120),
+        dec!(119),
+        dec!(121),
+        dec!(123),
+        dec!(122),
+        dec!(124),
+        dec!(126),
+        dec!(125),
+        dec!(127),
+        dec!(129),
+        dec!(128),
+        dec!(130),
+        dec!(132),
+        dec!(131),
+        dec!(133),
+        dec!(135),
+        dec!(134),
+        dec!(136),
+        dec!(138),
+        dec!(137),
+        dec!(139),
     ];
 
     (high, low, close)
@@ -47,34 +143,130 @@ fn sample_ohlc_data() -> (Vec<Decimal>, Vec<Decimal>, Vec<Decimal>) {
 /// 횡보 패턴 (squeeze 발생 가능)
 fn sample_consolidation_data() -> (Vec<Decimal>, Vec<Decimal>, Vec<Decimal>) {
     let high = vec![
-        dec!(105), dec!(106), dec!(105), dec!(106), dec!(105),
-        dec!(106), dec!(105), dec!(106), dec!(105), dec!(106),
-        dec!(105), dec!(106), dec!(105), dec!(106), dec!(105),
-        dec!(106), dec!(105), dec!(106), dec!(105), dec!(106),
-        dec!(105), dec!(106), dec!(105), dec!(106), dec!(105),
-        dec!(106), dec!(105), dec!(106), dec!(105), dec!(106),
-        dec!(105), dec!(106), dec!(105), dec!(106), dec!(105),
-        dec!(106), dec!(105), dec!(106), dec!(105), dec!(106),
+        dec!(105),
+        dec!(106),
+        dec!(105),
+        dec!(106),
+        dec!(105),
+        dec!(106),
+        dec!(105),
+        dec!(106),
+        dec!(105),
+        dec!(106),
+        dec!(105),
+        dec!(106),
+        dec!(105),
+        dec!(106),
+        dec!(105),
+        dec!(106),
+        dec!(105),
+        dec!(106),
+        dec!(105),
+        dec!(106),
+        dec!(105),
+        dec!(106),
+        dec!(105),
+        dec!(106),
+        dec!(105),
+        dec!(106),
+        dec!(105),
+        dec!(106),
+        dec!(105),
+        dec!(106),
+        dec!(105),
+        dec!(106),
+        dec!(105),
+        dec!(106),
+        dec!(105),
+        dec!(106),
+        dec!(105),
+        dec!(106),
+        dec!(105),
+        dec!(106),
     ];
     let low = vec![
-        dec!(95), dec!(94), dec!(95), dec!(94), dec!(95),
-        dec!(94), dec!(95), dec!(94), dec!(95), dec!(94),
-        dec!(95), dec!(94), dec!(95), dec!(94), dec!(95),
-        dec!(94), dec!(95), dec!(94), dec!(95), dec!(94),
-        dec!(95), dec!(94), dec!(95), dec!(94), dec!(95),
-        dec!(94), dec!(95), dec!(94), dec!(95), dec!(94),
-        dec!(95), dec!(94), dec!(95), dec!(94), dec!(95),
-        dec!(94), dec!(95), dec!(94), dec!(95), dec!(94),
+        dec!(95),
+        dec!(94),
+        dec!(95),
+        dec!(94),
+        dec!(95),
+        dec!(94),
+        dec!(95),
+        dec!(94),
+        dec!(95),
+        dec!(94),
+        dec!(95),
+        dec!(94),
+        dec!(95),
+        dec!(94),
+        dec!(95),
+        dec!(94),
+        dec!(95),
+        dec!(94),
+        dec!(95),
+        dec!(94),
+        dec!(95),
+        dec!(94),
+        dec!(95),
+        dec!(94),
+        dec!(95),
+        dec!(94),
+        dec!(95),
+        dec!(94),
+        dec!(95),
+        dec!(94),
+        dec!(95),
+        dec!(94),
+        dec!(95),
+        dec!(94),
+        dec!(95),
+        dec!(94),
+        dec!(95),
+        dec!(94),
+        dec!(95),
+        dec!(94),
     ];
     let close = vec![
-        dec!(100), dec!(101), dec!(100), dec!(101), dec!(100),
-        dec!(101), dec!(100), dec!(101), dec!(100), dec!(101),
-        dec!(100), dec!(101), dec!(100), dec!(101), dec!(100),
-        dec!(101), dec!(100), dec!(101), dec!(100), dec!(101),
-        dec!(100), dec!(101), dec!(100), dec!(101), dec!(100),
-        dec!(101), dec!(100), dec!(101), dec!(100), dec!(101),
-        dec!(100), dec!(101), dec!(100), dec!(101), dec!(100),
-        dec!(101), dec!(100), dec!(101), dec!(100), dec!(101),
+        dec!(100),
+        dec!(101),
+        dec!(100),
+        dec!(101),
+        dec!(100),
+        dec!(101),
+        dec!(100),
+        dec!(101),
+        dec!(100),
+        dec!(101),
+        dec!(100),
+        dec!(101),
+        dec!(100),
+        dec!(101),
+        dec!(100),
+        dec!(101),
+        dec!(100),
+        dec!(101),
+        dec!(100),
+        dec!(101),
+        dec!(100),
+        dec!(101),
+        dec!(100),
+        dec!(101),
+        dec!(100),
+        dec!(101),
+        dec!(100),
+        dec!(101),
+        dec!(100),
+        dec!(101),
+        dec!(100),
+        dec!(101),
+        dec!(100),
+        dec!(101),
+        dec!(100),
+        dec!(101),
+        dec!(100),
+        dec!(101),
+        dec!(100),
+        dec!(101),
     ];
 
     (high, low, close)
@@ -137,16 +329,28 @@ fn test_ttm_squeeze_basic() {
     // 모든 결과에 대해 기본 검증
     for (i, result) in squeeze.iter().enumerate() {
         // Squeeze 카운트는 0 이상
-        assert!(result.squeeze_count >= 0, "인덱스 {}: squeeze_count는 0 이상이어야 함", i);
+        assert!(
+            result.squeeze_count >= 0,
+            "인덱스 {}: squeeze_count는 0 이상이어야 함",
+            i
+        );
 
         // Squeeze 상태가 false면 카운트는 0
         if !result.is_squeeze {
-            assert_eq!(result.squeeze_count, 0, "인덱스 {}: squeeze 상태가 아니면 카운트는 0", i);
+            assert_eq!(
+                result.squeeze_count, 0,
+                "인덱스 {}: squeeze 상태가 아니면 카운트는 0",
+                i
+            );
         }
 
         // Released는 이전에 squeeze였다가 지금 해제된 경우만 true
         if result.released {
-            assert!(!result.is_squeeze, "인덱스 {}: released는 현재 squeeze가 아닐 때만 true", i);
+            assert!(
+                !result.is_squeeze,
+                "인덱스 {}: released는 현재 squeeze가 아닐 때만 true",
+                i
+            );
         }
     }
 }
@@ -163,7 +367,11 @@ fn test_ttm_squeeze_consolidation() {
     // 횡보 구간에서는 squeeze가 발생할 가능성이 높음
     let squeeze_count = squeeze.iter().filter(|s| s.is_squeeze).count();
 
-    println!("횡보 구간 squeeze 발생 횟수: {}/{}", squeeze_count, squeeze.len());
+    println!(
+        "횡보 구간 squeeze 발생 횟수: {}/{}",
+        squeeze_count,
+        squeeze.len()
+    );
 
     // 적어도 일부 구간에서는 squeeze가 발생해야 함
     assert!(squeeze_count > 0, "횡보 구간에서 squeeze가 발생해야 함");
@@ -275,15 +483,17 @@ fn test_ttm_squeeze_with_custom_params() {
         atr_period: 14,
     };
 
-    let squeeze = engine
-        .ttm_squeeze(&high, &low, &close, params)
-        .unwrap();
+    let squeeze = engine.ttm_squeeze(&high, &low, &close, params).unwrap();
 
     assert_eq!(squeeze.len(), close.len());
 
     // 파라미터가 다르면 결과도 달라질 수 있음
     let squeeze_count = squeeze.iter().filter(|s| s.is_squeeze).count();
-    println!("커스텀 파라미터 squeeze 발생 횟수: {}/{}", squeeze_count, squeeze.len());
+    println!(
+        "커스텀 파라미터 squeeze 발생 횟수: {}/{}",
+        squeeze_count,
+        squeeze.len()
+    );
 }
 
 #[test]
@@ -312,7 +522,11 @@ fn test_bollinger_bands_comparison() {
         }
     }
 
-    println!("수동 계산 squeeze 횟수: {}/{}", squeeze_count, bb.len() - 20);
+    println!(
+        "수동 계산 squeeze 횟수: {}/{}",
+        squeeze_count,
+        bb.len() - 20
+    );
 }
 
 #[test]

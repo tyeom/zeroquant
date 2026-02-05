@@ -154,7 +154,13 @@ impl SymbolRepository {
 
     /// 심볼을 조회하거나 생성하고 데이터베이스 ID를 반환합니다.
     #[instrument(skip(self))]
-    pub async fn get_or_create(&self, ticker: &str, quote: &str, market_type: &str, exchange: &str) -> Result<Uuid> {
+    pub async fn get_or_create(
+        &self,
+        ticker: &str,
+        quote: &str,
+        market_type: &str,
+        exchange: &str,
+    ) -> Result<Uuid> {
         // 기존 레코드 찾기 시도
         let existing: Option<(Uuid,)> = sqlx::query_as(
             r#"
@@ -987,6 +993,7 @@ impl PositionRepository {
     }
 
     /// 포지션을 삽입하거나 업데이트합니다.
+    #[allow(clippy::too_many_arguments)]
     pub async fn upsert(
         &self,
         exchange: &str,

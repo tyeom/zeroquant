@@ -219,7 +219,6 @@ pub async fn sync_equity_curve(
     // KIS API Rate Limit (2024.04.01 변경):
     // - 실계좌: 200ms (초당 5건)
     // - 모의계좌: 510ms (초당 2건) = 200ms + 310ms
-    // Python 모듈의 검증된 값 사용
     let api_call_delay_ms: u64 = if cred_info.is_testnet {
         520 // 510ms + 안전 마진 10ms
     } else {
@@ -425,7 +424,7 @@ pub async fn sync_equity_curve(
                     });
                 }
 
-                // 연속 조회 확인 (Python 로직 참조)
+                // 연속 조회 확인
                 // 1. 데이터가 더 없으면 종료
                 if !history.has_more {
                     debug!(
@@ -659,4 +658,88 @@ pub async fn sync_equity_curve(
             message: "Database not available".to_string(),
         }),
     )
+}
+
+/// 자산 곡선 캐시 삭제 요청.
+#[derive(Debug, serde::Deserialize)]
+pub struct ClearEquityCacheRequest {
+    /// 자격증명 ID
+    pub credential_id: String,
+}
+
+/// 자산 곡선 캐시 삭제 응답.
+#[derive(Debug, serde::Serialize)]
+pub struct ClearEquityCacheResponse {
+    pub success: bool,
+    pub deleted_count: u64,
+    pub message: String,
+}
+
+/// 자산 곡선 캐시 삭제.
+///
+/// DELETE /api/v1/analytics/equity-cache
+///
+/// 특정 credential의 자산 곡선 데이터를 삭제합니다.
+pub async fn clear_equity_cache(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<ClearEquityCacheRequest>,
+) -> impl IntoResponse {
+    // 1. credential_id 파싱
+    let credential_id = match Uuid::parse_str(&request.credential_id) {
+        Ok(id) => id,
+        Err(_) => {
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(ClearEquityCacheResponse {
+                    success: false,
+                    deleted_count: 0,
+                    message: "Invalid credential_id format".to_string(),
+                }),
+            );
+        }
+    };
+
+    // 2. DB 연결 확인
+    let pool = match state.db_pool.as_ref() {
+        Some(p) => p,
+        None => {
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ClearEquityCacheResponse {
+                    success: false,
+                    deleted_count: 0,
+                    message: "DB pool이 없습니다".to_string(),
+                }),
+            );
+        }
+    };
+
+    // 3. 캐시 삭제
+    match EquityHistoryRepository::clear_cache(pool, credential_id).await {
+        Ok(deleted_count) => {
+            info!(
+                "자산 곡선 캐시 삭제 완료: credential={}, 삭제={}건",
+                credential_id, deleted_count
+            );
+            (
+                axum::http::StatusCode::OK,
+                Json(ClearEquityCacheResponse {
+                    success: true,
+                    deleted_count,
+                    message: format!("{}건의 자산 곡선 데이터가 삭제되었습니다.", deleted_count),
+                }),
+            )
+        }
+        Err(e) => {
+            warn!("자산 곡선 캐시 삭제 실패: {}", e);
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ClearEquityCacheResponse {
+                    success: false,
+                    deleted_count: 0,
+                    message: format!("캐시 삭제 실패: {}", e),
+                }),
+            )
+        }
+    }
 }

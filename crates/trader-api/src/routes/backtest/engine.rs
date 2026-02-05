@@ -2,6 +2,12 @@
 //!
 //! 전략별 백테스트를 실행하고 결과를 변환하는 함수를 제공합니다.
 //!
+//! # SDUI 기반 동적 파라미터
+//!
+//! 전략 파라미터는 SDUI(Server-Driven UI)를 통해 동적으로 제공됩니다.
+//! StrategyRegistry를 사용하여 전략 인스턴스를 생성하고,
+//! SDUI에서 전달받은 params를 그대로 초기화에 사용합니다.
+//!
 //! # CPU-intensive 작업 처리
 //!
 //! 백테스트는 대량의 캔들 데이터를 처리하는 CPU-intensive 작업입니다.
@@ -11,29 +17,17 @@
 use chrono::{NaiveDate, TimeZone, Utc};
 use rust_decimal::Decimal;
 use std::collections::{BTreeMap, HashMap};
+use tracing::debug;
 
 use super::loader::parse_symbol;
 use super::types::{
     BacktestConfigSummary, BacktestMetricsResponse, BacktestMultiRunResponse, BacktestRunResponse,
-    EquityCurvePoint, MultiTimeframeRequest, TradeHistoryItem,
+    EquityCurvePoint, TradeHistoryItem,
 };
 
 use trader_analytics::backtest::{BacktestConfig, BacktestEngine, BacktestReport};
 use trader_core::{Kline, MarketType, Symbol, Timeframe};
-use trader_strategy::strategies::{
-    AllWeatherConfig, AllWeatherStrategy, BaaConfig, BaaStrategy, BollingerStrategy,
-    CandlePatternConfig, CandlePatternStrategy, DualMomentumConfig, DualMomentumStrategy,
-    GridStrategy, HaaConfig, HaaStrategy, InfinityBotConfig, InfinityBotStrategy,
-    KosdaqFireRainConfig, KosdaqFireRainStrategy, KospiBothSideConfig, KospiBothSideStrategy,
-    MagicSplitStrategy, MarketCapTopConfig, MarketCapTopStrategy, MarketInterestDayConfig,
-    MarketInterestDayStrategy, PensionBotConfig, PensionBotStrategy, RsiStrategy,
-    SectorMomentumConfig, SectorMomentumStrategy, SectorVbConfig, SectorVbStrategy,
-    SimplePowerConfig, SimplePowerStrategy, SmaStrategy, SmallCapQuantConfig,
-    SmallCapQuantStrategy, SnowConfig, SnowStrategy, StockGuganConfig, StockGuganStrategy,
-    StockRotationConfig, StockRotationStrategy, Us3xLeverageConfig, Us3xLeverageStrategy,
-    VolatilityBreakoutStrategy, XaaConfig, XaaStrategy,
-};
-use trader_strategy::Strategy;
+use trader_strategy::StrategyRegistry;
 
 /// 전략별 백테스트 실행
 ///
@@ -71,7 +65,30 @@ pub async fn run_strategy_backtest(
     Ok(report)
 }
 
+/// SDUI params에 ticker 주입
+///
+/// SDUI에서 ticker가 제공되지 않은 경우, klines에서 추출한 ticker를 주입합니다.
+fn inject_ticker(params: Option<serde_json::Value>, ticker: &str) -> serde_json::Value {
+    let mut config = params.unwrap_or(serde_json::json!({}));
+
+    if let Some(obj) = config.as_object_mut() {
+        // ticker가 없으면 주입
+        if !obj.contains_key("ticker") {
+            obj.insert("ticker".to_string(), serde_json::json!(ticker));
+        }
+        // amount가 없으면 기본값 주입
+        if !obj.contains_key("amount") {
+            obj.insert("amount".to_string(), serde_json::json!("100000"));
+        }
+    }
+
+    config
+}
+
 /// 내부 백테스트 실행 함수 (sync 컨텍스트에서 호출됨)
+///
+/// StrategyRegistry를 사용하여 전략 인스턴스를 동적으로 생성합니다.
+/// SDUI에서 제공된 params가 그대로 전략 초기화에 사용됩니다.
 async fn run_strategy_backtest_inner(
     strategy_id: &str,
     config: BacktestConfig,
@@ -87,452 +104,29 @@ async fn run_strategy_backtest_inner(
         "BTC/USDT".to_string()
     };
 
-    // 기본 전략 설정 생성
-    let _default_config = |strategy_symbol: &str| -> serde_json::Value {
-        serde_json::json!({
-            "ticker": strategy_symbol,
-            "amount": "100000"
-        })
-    };
+    // StrategyRegistry에서 전략 인스턴스 생성
+    let mut strategy = StrategyRegistry::create_instance(strategy_id)
+        .map_err(|e| format!("전략 생성 실패: {}", e))?;
 
-    // 사용자 파라미터와 기본 설정 병합
-    let merge_params = |default: serde_json::Value,
-                        user_params: &Option<serde_json::Value>|
-     -> serde_json::Value {
-        if let Some(user) = user_params {
-            if let (Some(default_obj), Some(user_obj)) = (default.as_object(), user.as_object()) {
-                let mut merged = default_obj.clone();
-                for (key, value) in user_obj {
-                    merged.insert(key.clone(), value.clone());
-                }
-                return serde_json::Value::Object(merged);
-            }
-        }
-        default
-    };
+    // SDUI params에 ticker 주입 후 초기화
+    let strategy_config = inject_ticker(params.clone(), &symbol_str);
 
-    match strategy_id {
-        "rsi_mean_reversion" | "rsi" => {
-            let mut strategy = RsiStrategy::new();
-            let strategy_config = merge_params(
-                serde_json::json!({
-                    "ticker": symbol_str,
-                    "period": 14,
-                    "oversold_threshold": 30.0,
-                    "overbought_threshold": 70.0,
-                    "amount": "100000"
-                }),
-                params,
-            );
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        "grid_trading" | "grid" => {
-            let mut strategy = GridStrategy::new();
-            let strategy_config = merge_params(
-                serde_json::json!({
-                    "ticker": symbol_str,
-                    "grid_spacing_pct": 1.0,
-                    "grid_levels": 10,
-                    "amount_per_level": "100000"
-                }),
-                params,
-            );
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        "bollinger" => {
-            let mut strategy = BollingerStrategy::new();
-            let strategy_config = merge_params(
-                serde_json::json!({
-                    "ticker": symbol_str,
-                    "period": 20,
-                    "std_multiplier": 1.5,
-                    "use_rsi_confirmation": false,
-                    "min_bandwidth_pct": 0.0,
-                    "amount": "100000"
-                }),
-                params,
-            );
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        "volatility_breakout" => {
-            let mut strategy = VolatilityBreakoutStrategy::new();
-            let strategy_config = merge_params(
-                serde_json::json!({
-                    "ticker": symbol_str,
-                    "k_factor": 0.3,
-                    "lookback_period": 1,
-                    "use_atr": true,
-                    "atr_period": 5,
-                    "min_range_pct": 0.1,
-                    "amount": "100000"
-                }),
-                params,
-            );
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        "magic_split" => {
-            let mut strategy = MagicSplitStrategy::new();
-            let strategy_config = merge_params(
-                serde_json::json!({
-                    "ticker": symbol_str,
-                    "levels": [
-                        {"number": 1, "target_rate": "10.0", "trigger_rate": null, "invest_money": "200000"},
-                        {"number": 2, "target_rate": "2.0", "trigger_rate": "-3.0", "invest_money": "100000"},
-                        {"number": 3, "target_rate": "3.0", "trigger_rate": "-5.0", "invest_money": "100000"},
-                        {"number": 4, "target_rate": "3.0", "trigger_rate": "-5.0", "invest_money": "100000"},
-                        {"number": 5, "target_rate": "4.0", "trigger_rate": "-6.0", "invest_money": "100000"}
-                    ],
-                    "allow_same_day_reentry": false,
-                    "slippage_tolerance": "1.0"
-                }),
-                params,
-            );
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        "simple_power" => {
-            let mut strategy = SimplePowerStrategy::new();
-            let default_cfg =
-                serde_json::to_value(SimplePowerConfig::default()).map_err(|e| e.to_string())?;
-            let strategy_config = merge_params(default_cfg, params);
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        "haa" => {
-            let mut strategy = HaaStrategy::new();
-            let default_cfg =
-                serde_json::to_value(HaaConfig::default()).map_err(|e| e.to_string())?;
-            let strategy_config = merge_params(default_cfg, params);
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        "xaa" => {
-            let mut strategy = XaaStrategy::new();
-            let default_cfg =
-                serde_json::to_value(XaaConfig::default()).map_err(|e| e.to_string())?;
-            let strategy_config = merge_params(default_cfg, params);
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        "stock_rotation" => {
-            let mut strategy = StockRotationStrategy::new();
-            let default_cfg =
-                serde_json::to_value(StockRotationConfig::default()).map_err(|e| e.to_string())?;
-            let strategy_config = merge_params(default_cfg, params);
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        "sma_crossover" => {
-            // SMA 크로스오버 전략
-            let mut strategy = SmaStrategy::new();
-            let strategy_config = merge_params(
-                serde_json::json!({
-                    "ticker": symbol_str,
-                    "short_period": 10,
-                    "long_period": 20,
-                    "amount": "100000"
-                }),
-                params,
-            );
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        "all_weather" | "all_weather_us" | "all_weather_kr" => {
-            let mut strategy = AllWeatherStrategy::new();
-            // market 필드가 params에 있으면 그대로 사용, 없으면 기본값 US
-            let default_cfg =
-                serde_json::to_value(AllWeatherConfig::default()).map_err(|e| e.to_string())?;
-            let strategy_config = merge_params(default_cfg, params);
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        "snow" | "snow_us" | "snow_kr" => {
-            let mut strategy = SnowStrategy::new();
-            // market 필드가 params에 있으면 그대로 사용, 없으면 기본값 US
-            let default_cfg =
-                serde_json::to_value(SnowConfig::default()).map_err(|e| e.to_string())?;
-            let strategy_config = merge_params(default_cfg, params);
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        "market_cap_top" => {
-            let mut strategy = MarketCapTopStrategy::new();
-            let default_cfg =
-                serde_json::to_value(MarketCapTopConfig::default()).map_err(|e| e.to_string())?;
-            let strategy_config = merge_params(default_cfg, params);
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        "candle_pattern" => {
-            let mut strategy = CandlePatternStrategy::new();
-            let default_cfg =
-                serde_json::to_value(CandlePatternConfig::default()).map_err(|e| e.to_string())?;
-            let strategy_config = merge_params(default_cfg, params);
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        "infinity_bot" => {
-            let mut strategy = InfinityBotStrategy::new();
-            let default_cfg =
-                serde_json::to_value(InfinityBotConfig::default()).map_err(|e| e.to_string())?;
-            let strategy_config = merge_params(default_cfg, params);
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        "market_interest_day" => {
-            let mut strategy = MarketInterestDayStrategy::new();
-            let default_cfg = serde_json::to_value(MarketInterestDayConfig::default())
-                .map_err(|e| e.to_string())?;
-            let strategy_config = merge_params(default_cfg, params);
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        // 3차 전략들
-        "baa" => {
-            let mut strategy = BaaStrategy::new();
-            let default_cfg =
-                serde_json::to_value(BaaConfig::default()).map_err(|e| e.to_string())?;
-            let strategy_config = merge_params(default_cfg, params);
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        "sector_momentum" => {
-            let mut strategy = SectorMomentumStrategy::new();
-            let default_cfg =
-                serde_json::to_value(SectorMomentumConfig::default()).map_err(|e| e.to_string())?;
-            let strategy_config = merge_params(default_cfg, params);
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        "dual_momentum" => {
-            let mut strategy = DualMomentumStrategy::new();
-            let default_cfg =
-                serde_json::to_value(DualMomentumConfig::default()).map_err(|e| e.to_string())?;
-            let strategy_config = merge_params(default_cfg, params);
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        "small_cap_quant" => {
-            let mut strategy = SmallCapQuantStrategy::new();
-            let default_cfg =
-                serde_json::to_value(SmallCapQuantConfig::default()).map_err(|e| e.to_string())?;
-            let strategy_config = merge_params(default_cfg, params);
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        "pension_bot" => {
-            let mut strategy = PensionBotStrategy::new();
-            let default_cfg =
-                serde_json::to_value(PensionBotConfig::default()).map_err(|e| e.to_string())?;
-            let strategy_config = merge_params(default_cfg, params);
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        // 2차 전략들
-        "sector_vb" => {
-            let mut strategy = SectorVbStrategy::new();
-            let default_cfg =
-                serde_json::to_value(SectorVbConfig::default()).map_err(|e| e.to_string())?;
-            let strategy_config = merge_params(default_cfg, params);
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        "kospi_bothside" => {
-            let mut strategy = KospiBothSideStrategy::new();
-            let default_cfg =
-                serde_json::to_value(KospiBothSideConfig::default()).map_err(|e| e.to_string())?;
-            let strategy_config = merge_params(default_cfg, params);
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        "kosdaq_fire_rain" => {
-            let mut strategy = KosdaqFireRainStrategy::new();
-            let default_cfg =
-                serde_json::to_value(KosdaqFireRainConfig::default()).map_err(|e| e.to_string())?;
-            let strategy_config = merge_params(default_cfg, params);
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        "us_3x_leverage" => {
-            let mut strategy = Us3xLeverageStrategy::new();
-            let default_cfg =
-                serde_json::to_value(Us3xLeverageConfig::default()).map_err(|e| e.to_string())?;
-            let strategy_config = merge_params(default_cfg, params);
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        "stock_gugan" => {
-            let mut strategy = StockGuganStrategy::new();
-            let default_cfg =
-                serde_json::to_value(StockGuganConfig::default()).map_err(|e| e.to_string())?;
-            let strategy_config = merge_params(default_cfg, params);
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        _ => {
-            return Err(format!("지원하지 않는 전략입니다: {}", strategy_id));
-        }
-    }
+    debug!(
+        strategy_id = strategy_id,
+        ticker = %symbol_str,
+        config = ?strategy_config,
+        "전략 초기화 (StrategyRegistry 기반)"
+    );
+
+    strategy
+        .initialize(strategy_config)
+        .await
+        .map_err(|e| format!("전략 초기화 실패: {}", e))?;
+
+    engine
+        .run(&mut *strategy, klines)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// 다중 자산 전략 백테스트 실행
@@ -574,42 +168,19 @@ pub async fn run_multi_strategy_backtest(
     Ok(report)
 }
 
-/// 내부 다중 자산 백테스트 실행 함수 (sync 컨텍스트에서 호출됨)
-async fn run_multi_strategy_backtest_inner(
-    strategy_id: &str,
-    config: BacktestConfig,
-    merged_klines: &[Kline],
-    multi_klines: &HashMap<String, Vec<Kline>>,
-    params: &Option<serde_json::Value>,
-) -> Result<BacktestReport, String> {
-    // 초기 자본금을 먼저 복사 (클로저에서 사용)
-    let initial_capital = config.initial_capital;
+/// 다중 자산 전략용 파라미터 주입
+///
+/// SDUI params에 symbols와 initial_capital을 주입합니다.
+fn inject_multi_asset_params(
+    params: Option<serde_json::Value>,
+    symbols: &[String],
+    initial_capital: Decimal,
+) -> serde_json::Value {
+    let mut config = params.unwrap_or(serde_json::json!({}));
 
-    let mut engine = BacktestEngine::new(config);
-
-    // 사용자 파라미터와 기본 설정 병합
-    let merge_params = |default: serde_json::Value,
-                        user_params: &Option<serde_json::Value>|
-     -> serde_json::Value {
-        if let Some(user) = user_params {
-            if let (Some(default_obj), Some(user_obj)) = (default.as_object(), user.as_object()) {
-                let mut merged = default_obj.clone();
-                for (key, value) in user_obj {
-                    merged.insert(key.clone(), value.clone());
-                }
-                return serde_json::Value::Object(merged);
-            }
-        }
-        default
-    };
-
-    // 심볼 목록 추출
-    let symbols: Vec<String> = multi_klines.keys().cloned().collect();
-
-    // 초기 자본금을 전략 파라미터에 주입
-    let inject_common_params = |mut cfg: serde_json::Value| -> serde_json::Value {
-        if let Some(obj) = cfg.as_object_mut() {
-            // 심볼 목록 주입
+    if let Some(obj) = config.as_object_mut() {
+        // 심볼 목록 주입
+        if !obj.contains_key("symbols") {
             obj.insert(
                 "symbols".to_string(),
                 serde_json::Value::Array(
@@ -619,187 +190,63 @@ async fn run_multi_strategy_backtest_inner(
                         .collect(),
                 ),
             );
-            // 초기 자본금 주입 (cash_balance로 사용)
+        }
+        // 초기 자본금 주입
+        if !obj.contains_key("initial_capital") {
             obj.insert(
                 "initial_capital".to_string(),
                 serde_json::Value::String(initial_capital.to_string()),
             );
         }
-        cfg
-    };
-
-    match strategy_id {
-        "simple_power" => {
-            let mut strategy = SimplePowerStrategy::new();
-            let default_cfg =
-                serde_json::to_value(SimplePowerConfig::default()).map_err(|e| e.to_string())?;
-            let default_cfg = inject_common_params(default_cfg);
-            let strategy_config = merge_params(default_cfg, params);
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, merged_klines)
-                .await
-                .map_err(|e| e.to_string())
+        // amount 기본값
+        if !obj.contains_key("amount") {
+            obj.insert("amount".to_string(), serde_json::json!("100000"));
         }
-        "haa" => {
-            let mut strategy = HaaStrategy::new();
-            let default_cfg =
-                serde_json::to_value(HaaConfig::default()).map_err(|e| e.to_string())?;
-            let default_cfg = inject_common_params(default_cfg);
-            let strategy_config = merge_params(default_cfg, params);
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, merged_klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        "xaa" => {
-            let mut strategy = XaaStrategy::new();
-            let default_cfg =
-                serde_json::to_value(XaaConfig::default()).map_err(|e| e.to_string())?;
-            let default_cfg = inject_common_params(default_cfg);
-            let strategy_config = merge_params(default_cfg, params);
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, merged_klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        "stock_rotation" => {
-            let mut strategy = StockRotationStrategy::new();
-            let default_cfg =
-                serde_json::to_value(StockRotationConfig::default()).map_err(|e| e.to_string())?;
-            let default_cfg = inject_common_params(default_cfg);
-            let strategy_config = merge_params(default_cfg, params);
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, merged_klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        // 추가 다중 자산 전략들
-        "all_weather" | "all_weather_us" | "all_weather_kr" => {
-            let mut strategy = AllWeatherStrategy::new();
-            let default_cfg =
-                serde_json::to_value(AllWeatherConfig::default()).map_err(|e| e.to_string())?;
-            let default_cfg = inject_common_params(default_cfg);
-            let strategy_config = merge_params(default_cfg, params);
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, merged_klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        "snow" | "snow_us" | "snow_kr" => {
-            let mut strategy = SnowStrategy::new();
-            let default_cfg =
-                serde_json::to_value(SnowConfig::default()).map_err(|e| e.to_string())?;
-            let default_cfg = inject_common_params(default_cfg);
-            let strategy_config = merge_params(default_cfg, params);
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, merged_klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        "baa" => {
-            let mut strategy = BaaStrategy::new();
-            let default_cfg =
-                serde_json::to_value(BaaConfig::default()).map_err(|e| e.to_string())?;
-            let default_cfg = inject_common_params(default_cfg);
-            let strategy_config = merge_params(default_cfg, params);
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, merged_klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        "sector_momentum" => {
-            let mut strategy = SectorMomentumStrategy::new();
-            let default_cfg =
-                serde_json::to_value(SectorMomentumConfig::default()).map_err(|e| e.to_string())?;
-            let default_cfg = inject_common_params(default_cfg);
-            let strategy_config = merge_params(default_cfg, params);
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, merged_klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        "dual_momentum" => {
-            let mut strategy = DualMomentumStrategy::new();
-            let default_cfg =
-                serde_json::to_value(DualMomentumConfig::default()).map_err(|e| e.to_string())?;
-            let default_cfg = inject_common_params(default_cfg);
-            let strategy_config = merge_params(default_cfg, params);
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, merged_klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        "pension_bot" => {
-            let mut strategy = PensionBotStrategy::new();
-            let default_cfg =
-                serde_json::to_value(PensionBotConfig::default()).map_err(|e| e.to_string())?;
-            let default_cfg = inject_common_params(default_cfg);
-            let strategy_config = merge_params(default_cfg, params);
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, merged_klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        "market_cap_top" => {
-            let mut strategy = MarketCapTopStrategy::new();
-            let default_cfg =
-                serde_json::to_value(MarketCapTopConfig::default()).map_err(|e| e.to_string())?;
-            let default_cfg = inject_common_params(default_cfg);
-            let strategy_config = merge_params(default_cfg, params);
-            strategy
-                .initialize(strategy_config)
-                .await
-                .map_err(|e| e.to_string())?;
-            engine
-                .run(&mut strategy, merged_klines)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        _ => Err(format!(
-            "지원하지 않는 다중 자산 전략입니다: {}",
-            strategy_id
-        )),
     }
+
+    config
+}
+
+/// 내부 다중 자산 백테스트 실행 함수 (sync 컨텍스트에서 호출됨)
+///
+/// StrategyRegistry를 사용하여 전략 인스턴스를 동적으로 생성합니다.
+/// SDUI에서 제공된 params가 그대로 전략 초기화에 사용됩니다.
+async fn run_multi_strategy_backtest_inner(
+    strategy_id: &str,
+    config: BacktestConfig,
+    merged_klines: &[Kline],
+    multi_klines: &HashMap<String, Vec<Kline>>,
+    params: &Option<serde_json::Value>,
+) -> Result<BacktestReport, String> {
+    let initial_capital = config.initial_capital;
+    let mut engine = BacktestEngine::new(config);
+
+    // 심볼 목록 추출
+    let symbols: Vec<String> = multi_klines.keys().cloned().collect();
+
+    // StrategyRegistry에서 전략 인스턴스 생성
+    let mut strategy = StrategyRegistry::create_instance(strategy_id)
+        .map_err(|e| format!("전략 생성 실패: {}", e))?;
+
+    // 다중 자산 전략용 params 주입
+    let strategy_config = inject_multi_asset_params(params.clone(), &symbols, initial_capital);
+
+    debug!(
+        strategy_id = strategy_id,
+        symbols = ?symbols,
+        config = ?strategy_config,
+        "다중 자산 전략 초기화 (StrategyRegistry 기반)"
+    );
+
+    strategy
+        .initialize(strategy_config)
+        .await
+        .map_err(|e| format!("전략 초기화 실패: {}", e))?;
+
+    engine
+        .run(&mut *strategy, merged_klines)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// BacktestReport를 API 응답으로 변환

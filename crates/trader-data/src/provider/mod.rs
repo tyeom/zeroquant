@@ -7,6 +7,11 @@
 //! - KOSPI/KOSDAQ 종목 기본 정보, PER/PBR, OHLCV 데이터
 //! - Yahoo Finance 국내 주식 의존성 대체
 //!
+//! ## 네이버 금융
+//! - `NaverFinanceFetcher`: 네이버 금융 크롤러
+//! - 시가총액, PER/PBR, ROE, 섹터, KOSPI/KOSDAQ/ETF 구분
+//! - 국내 주식 펀더멘털 데이터 수집
+//!
 //! ## 심볼 정보 Provider
 //! - `KrxSymbolProvider`: 한국거래소(KRX) 종목 정보
 //! - `BinanceSymbolProvider`: Binance 암호화폐 종목 정보
@@ -14,9 +19,11 @@
 //! - `CompositeSymbolProvider`: 모든 Provider 통합
 
 pub mod krx_api;
+pub mod naver;
 pub mod symbol_info;
 
 pub use krx_api::{KrxApiClient, KrxEtfInfo, KrxOhlcv, KrxStockInfo, KrxValuation};
+pub use naver::{KrMarketType, NaverError, NaverFinanceFetcher, NaverFundamentalData};
 pub use symbol_info::{
     BinanceSymbolProvider, CompositeSymbolProvider, KrxSymbolProvider, SymbolInfoProvider,
     SymbolMetadata, SymbolResolver, YahooSymbolProvider,

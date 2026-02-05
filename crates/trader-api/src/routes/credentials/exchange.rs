@@ -194,7 +194,7 @@ pub async fn list_exchange_credentials(
         error!("자격증명 목록 조회 실패: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("DB_ERROR", &format!("조회 실패: {}", e))),
+            Json(ApiError::new("DB_ERROR", format!("조회 실패: {}", e))),
         )
     })?;
 
@@ -360,7 +360,7 @@ pub async fn create_exchange_credential(
     .bind(&request.display_name)
     .bind(market_type)
     .bind(&encrypted_data)
-    .bind(&nonce.to_vec())
+    .bind(nonce.to_vec())
     .bind(request.is_testnet)
     .bind(&request.settings)
     .fetch_one(pool)
@@ -369,7 +369,7 @@ pub async fn create_exchange_credential(
         error!("자격증명 저장 실패: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("DB_ERROR", &format!("저장 실패: {}", e))),
+            Json(ApiError::new("DB_ERROR", format!("저장 실패: {}", e))),
         )
     })?;
 
@@ -452,7 +452,7 @@ pub async fn update_exchange_credential(
         error!("자격증명 조회 실패: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("DB_ERROR", &format!("조회 실패: {}", e))),
+            Json(ApiError::new("DB_ERROR", format!("조회 실패: {}", e))),
         )
     })?;
 
@@ -516,7 +516,7 @@ pub async fn update_exchange_credential(
     )
     .bind(&exchange_name)
     .bind(&encrypted_data)
-    .bind(&nonce.to_vec())
+    .bind(nonce.to_vec())
     .bind(is_active)
     .bind(&settings)
     .bind(id)
@@ -526,7 +526,7 @@ pub async fn update_exchange_credential(
         error!("자격증명 업데이트 실패: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("DB_ERROR", &format!("업데이트 실패: {}", e))),
+            Json(ApiError::new("DB_ERROR", format!("업데이트 실패: {}", e))),
         )
     })?;
 
@@ -576,7 +576,7 @@ pub async fn delete_exchange_credential(
         error!("자격증명 삭제 실패: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("DB_ERROR", &format!("삭제 실패: {}", e))),
+            Json(ApiError::new("DB_ERROR", format!("삭제 실패: {}", e))),
         )
     })?;
 
@@ -648,7 +648,7 @@ pub async fn test_exchange_credential(
         error!("자격증명 조회 실패: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("DB_ERROR", &format!("조회 실패: {}", e))),
+            Json(ApiError::new("DB_ERROR", format!("조회 실패: {}", e))),
         )
     })?;
 

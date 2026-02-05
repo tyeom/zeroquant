@@ -150,12 +150,10 @@ impl WatchlistRepository {
         pool: &PgPool,
         id: Uuid,
     ) -> Result<Option<WatchlistRecord>, sqlx::Error> {
-        let record = sqlx::query_as::<_, WatchlistRecord>(
-            "SELECT * FROM watchlist WHERE id = $1",
-        )
-        .bind(id)
-        .fetch_optional(pool)
-        .await?;
+        let record = sqlx::query_as::<_, WatchlistRecord>("SELECT * FROM watchlist WHERE id = $1")
+            .bind(id)
+            .fetch_optional(pool)
+            .await?;
 
         Ok(record)
     }
@@ -166,11 +164,9 @@ impl WatchlistRepository {
         input: NewWatchlist,
     ) -> Result<WatchlistRecord, sqlx::Error> {
         // 현재 최대 sort_order 조회
-        let max_order: Option<i32> = sqlx::query_scalar(
-            "SELECT MAX(sort_order) FROM watchlist",
-        )
-        .fetch_one(pool)
-        .await?;
+        let max_order: Option<i32> = sqlx::query_scalar("SELECT MAX(sort_order) FROM watchlist")
+            .fetch_one(pool)
+            .await?;
 
         let next_order = max_order.unwrap_or(-1) + 1;
 
@@ -281,9 +277,9 @@ impl WatchlistRepository {
         .bind(&input.symbol)
         .bind(&input.market)
         .bind(&input.memo)
-        .bind(&input.target_price)
-        .bind(&input.stop_price)
-        .bind(&input.added_price)
+        .bind(input.target_price)
+        .bind(input.stop_price)
+        .bind(input.added_price)
         .bind(next_order)
         .fetch_one(pool)
         .await?;
@@ -357,9 +353,9 @@ impl WatchlistRepository {
         )
         .bind(item_id)
         .bind(&input.memo)
-        .bind(&input.target_price)
-        .bind(&input.stop_price)
-        .bind(&input.alert_enabled)
+        .bind(input.target_price)
+        .bind(input.stop_price)
+        .bind(input.alert_enabled)
         .fetch_optional(pool)
         .await?;
 

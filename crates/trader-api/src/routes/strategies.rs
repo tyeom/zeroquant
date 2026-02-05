@@ -85,7 +85,10 @@ pub struct StrategyListItem {
     #[serde(rename = "isMultiTimeframe")]
     pub is_multi_timeframe: bool,
     /// 다중 타임프레임 설정 (NULL이면 단일 TF 전략)
-    #[serde(rename = "multiTimeframeConfig", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "multiTimeframeConfig",
+        skip_serializing_if = "Option::is_none"
+    )]
     #[ts(type = "Record<string, unknown> | null")]
     pub multi_timeframe_config: Option<Value>,
 }
@@ -262,7 +265,6 @@ impl From<EngineStats> for EngineStatsResponse {
     }
 }
 
-/// API 에러 응답.
 // ==================== 유효성 검사 함수 ====================
 
 /// 리스크 프로필 유효성 검사.
@@ -401,7 +403,7 @@ pub async fn create_strategy(
     let strategy_id = format!(
         "{}_{}",
         request.strategy_type,
-        Uuid::new_v4().to_string()[..8].to_string()
+        &Uuid::new_v4().to_string()[..8]
     );
 
     // 전략 이름 (커스텀 이름이 있으면 사용, 없으면 기본 이름)
@@ -739,7 +741,10 @@ async fn load_multi_timeframe_data(
     use trader_core::Timeframe;
 
     // 데이터 프로바이더 확인
-    let data_provider = state.data_provider.as_ref().ok_or("데이터 프로바이더 없음")?;
+    let data_provider = state
+        .data_provider
+        .as_ref()
+        .ok_or("데이터 프로바이더 없음")?;
 
     // 전략 설정에서 심볼 목록 가져오기
     let config = engine.get_strategy_config(strategy_id).await?;
@@ -767,14 +772,20 @@ async fn load_multi_timeframe_data(
 
     // 각 심볼에 대해 데이터 로드
     for symbol in &symbols {
-        match data_provider.get_multi_timeframe_klines(symbol, mtf_config).await {
+        match data_provider
+            .get_multi_timeframe_klines(symbol, mtf_config)
+            .await
+        {
             Ok(klines_by_tf) => {
                 // Kline 데이터를 (Timeframe, Vec<Kline>) 형태로 변환
                 let data: Vec<(Timeframe, Vec<trader_core::Kline>)> =
                     klines_by_tf.into_iter().collect();
 
                 // 전략 컨텍스트에 업데이트
-                if let Err(e) = engine.update_strategy_klines(strategy_id, symbol, data).await {
+                if let Err(e) = engine
+                    .update_strategy_klines(strategy_id, symbol, data)
+                    .await
+                {
                     tracing::warn!(
                         strategy_id = %strategy_id,
                         symbol = %symbol,
@@ -1068,11 +1079,7 @@ pub async fn clone_strategy(
         .unwrap_or_else(|| "unknown".to_string());
 
     // 새 전략 ID 생성
-    let new_id = format!(
-        "{}_{}",
-        strategy_type,
-        Uuid::new_v4().to_string()[..8].to_string()
-    );
+    let new_id = format!("{}_{}", strategy_type, &Uuid::new_v4().to_string()[..8]);
 
     // 파라미터 병합 (원본 + 오버라이드)
     let merged_config = if let Some(override_params) = request.override_params {
@@ -1240,7 +1247,10 @@ pub async fn get_strategy_timeframes(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(ApiError::new("NOT_FOUND", format!("Strategy not found: {}", id))),
+                Json(ApiError::new(
+                    "NOT_FOUND",
+                    format!("Strategy not found: {}", id),
+                )),
             )
         })?;
 
@@ -1258,8 +1268,7 @@ pub async fn get_strategy_timeframes(
         })
         .unwrap_or_default();
 
-    let is_multi_tf = record.multi_timeframe_config.is_some()
-        && !secondary_timeframes.is_empty();
+    let is_multi_tf = record.multi_timeframe_config.is_some() && !secondary_timeframes.is_empty();
 
     Ok(Json(TimeframeConfigResponse {
         strategy_id: id,
@@ -1297,7 +1306,10 @@ pub async fn update_strategy_timeframes(
     if !exists {
         return Err((
             StatusCode::NOT_FOUND,
-            Json(ApiError::new("NOT_FOUND", format!("Strategy not found: {}", id))),
+            Json(ApiError::new(
+                "NOT_FOUND",
+                format!("Strategy not found: {}", id),
+            )),
         ));
     }
 
@@ -1307,7 +1319,10 @@ pub async fn update_strategy_timeframes(
         if config.get("primary").is_none() {
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(ApiError::new("VALIDATION_ERROR", "multi_timeframe_config.primary is required")),
+                Json(ApiError::new(
+                    "VALIDATION_ERROR",
+                    "multi_timeframe_config.primary is required",
+                )),
             ));
         }
 
@@ -1316,7 +1331,10 @@ pub async fn update_strategy_timeframes(
             if !secondary.is_array() {
                 return Err((
                     StatusCode::BAD_REQUEST,
-                    Json(ApiError::new("VALIDATION_ERROR", "multi_timeframe_config.secondary must be an array")),
+                    Json(ApiError::new(
+                        "VALIDATION_ERROR",
+                        "multi_timeframe_config.secondary must be an array",
+                    )),
                 ));
             }
         }
@@ -1339,7 +1357,10 @@ pub async fn update_strategy_timeframes(
         tracing::error!("Failed to update timeframe config: {:?}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("DB_ERROR", format!("Failed to update: {}", e))),
+            Json(ApiError::new(
+                "DB_ERROR",
+                format!("Failed to update: {}", e),
+            )),
         )
     })?;
 
@@ -1357,8 +1378,7 @@ pub async fn update_strategy_timeframes(
         })
         .unwrap_or_default();
 
-    let is_multi_tf = record.multi_timeframe_config.is_some()
-        && !secondary_timeframes.is_empty();
+    let is_multi_tf = record.multi_timeframe_config.is_some() && !secondary_timeframes.is_empty();
 
     tracing::info!(
         "Updated timeframe config for strategy {}: is_multi_tf={}",

@@ -9,11 +9,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::analytics_provider::{
-    GlobalScoreResult, MacroEnvironment, MarketBreadth, MarketRegime, RouteState,
-    ScreeningResult, StructuralFeatures,
+    GlobalScoreResult, MacroEnvironment, MarketBreadth, MarketRegime, RouteState, ScreeningResult,
+    StructuralFeatures,
 };
 use super::market_data::Kline;
 use super::order::{OrderStatusType, Side};
+use super::trigger::TriggerResult;
 use crate::Timeframe;
 
 // =============================================================================
@@ -94,7 +95,8 @@ impl MultiTimeframeConfig {
 
     /// 기본 타임프레임 반환 (설정되지 않은 경우 첫 번째 타임프레임).
     pub fn get_primary_timeframe(&self) -> Option<Timeframe> {
-        self.primary_timeframe.or_else(|| self.timeframes.keys().next().copied())
+        self.primary_timeframe
+            .or_else(|| self.timeframes.keys().next().copied())
     }
 
     /// 설정이 비어있는지 확인.
@@ -314,6 +316,12 @@ pub struct StrategyContext {
     /// 시장 폭 (20일선 상회 비율 등)
     pub market_breadth: Option<MarketBreadth>,
 
+    /// 진입 트리거 결과 (ticker → TriggerResult)
+    ///
+    /// 각 종목의 진입 신호 강도와 트리거 라벨을 제공합니다.
+    /// TriggerCalculator에서 계산된 결과가 여기에 저장됩니다.
+    pub trigger_results: HashMap<String, TriggerResult>,
+
     // ===== 다중 타임프레임 데이터 (Phase 1.4.2) =====
     /// 타임프레임별 캔들 데이터 (ticker → (timeframe → klines))
     ///
@@ -356,6 +364,7 @@ impl Default for StrategyContext {
             market_regime: HashMap::new(),
             macro_environment: None,
             market_breadth: None,
+            trigger_results: HashMap::new(),
             klines_by_timeframe: HashMap::new(),
             last_exchange_sync: now,
             last_analytics_sync: now,
@@ -638,6 +647,35 @@ impl StrategyContext {
     /// 시장 폭 조회.
     pub fn get_market_breadth(&self) -> Option<&MarketBreadth> {
         self.market_breadth.as_ref()
+    }
+
+    /// 특정 종목의 진입 트리거 조회.
+    ///
+    /// # 인자
+    ///
+    /// * `ticker` - 조회할 종목 티커
+    ///
+    /// # 반환
+    ///
+    /// 해당 종목의 TriggerResult (없으면 None)
+    ///
+    /// # 예시
+    ///
+    /// ```rust,ignore
+    /// if let Some(trigger) = context.get_trigger("005930") {
+    ///     if trigger.is_strong() {
+    ///         // 강한 진입 신호 - 매수 진입
+    ///     }
+    /// }
+    /// ```
+    pub fn get_trigger(&self, ticker: &str) -> Option<&TriggerResult> {
+        self.trigger_results.get(ticker)
+    }
+
+    /// 진입 트리거 결과 업데이트.
+    pub fn update_trigger_results(&mut self, triggers: HashMap<String, TriggerResult>) {
+        self.trigger_results = triggers;
+        self.last_analytics_sync = Utc::now();
     }
 
     /// 분석 결과 동기화 만료 여부 확인.

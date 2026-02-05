@@ -232,7 +232,12 @@ mod tests {
     use chrono::Utc;
     use trader_core::types::MarketType;
 
-    fn create_test_score(ticker: &str, score: Decimal, grade: &str, confidence: Decimal) -> (String, GlobalScoreResult) {
+    fn create_test_score(
+        ticker: &str,
+        score: Decimal,
+        grade: &str,
+        confidence: Decimal,
+    ) -> (String, GlobalScoreResult) {
         let result = GlobalScoreResult {
             ticker: Some(ticker.to_string()),
             market_type: Some(MarketType::Stock),

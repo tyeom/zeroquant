@@ -18,7 +18,10 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 #[cfg_attr(feature = "sqlx-support", derive(sqlx::Type))]
-#[cfg_attr(feature = "sqlx-support", sqlx(type_name = "text", rename_all = "lowercase"))]
+#[cfg_attr(
+    feature = "sqlx-support",
+    sqlx(type_name = "text", rename_all = "lowercase")
+)]
 #[cfg_attr(feature = "utoipa-support", derive(utoipa::ToSchema))]
 pub enum Side {
     /// 매수

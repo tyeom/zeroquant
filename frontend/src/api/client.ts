@@ -9,6 +9,13 @@ import type {
   TelegramSettings,
 } from '../types';
 
+// SDUI 타입 import
+import type {
+  StrategyUISchema,
+  SchemaFragment,
+  GetFragmentsResponse,
+} from '../types/sdui';
+
 // 자동 생성된 타입 import (ts-rs)
 import type {
   // Journal 타입
@@ -753,6 +760,63 @@ export const getBacktestStrategies = async (): Promise<BacktestStrategiesRespons
   return response.data;
 };
 
+// ==================== SDUI (새로운 스키마 API) ====================
+
+/** 전략 메타데이터 (SDUI) */
+export interface StrategyMetaItem {
+  id: string;
+  aliases: string[];
+  name: string;
+  description: string;
+  defaultTimeframe: string;
+  secondaryTimeframes: string[];
+  isMultiTimeframe: boolean;
+  defaultTickers: string[];
+  category: string;
+  supportedMarkets: string[];
+}
+
+/** 전략 메타데이터 응답 */
+export interface StrategyMetaResponse {
+  strategies: StrategyMetaItem[];
+}
+
+/**
+ * 전략 메타데이터 목록 조회 (SDUI)
+ * GET /api/v1/strategies/meta
+ */
+export const getStrategyMeta = async (): Promise<StrategyMetaResponse> => {
+  const response = await api.get('/strategies/meta');
+  return response.data;
+};
+
+/**
+ * 특정 전략의 SDUI 스키마 조회
+ * GET /api/v1/strategies/{id}/schema
+ */
+export const getStrategySchema = async (strategyId: string): Promise<StrategyUISchema> => {
+  const response = await api.get(`/strategies/${strategyId}/schema`);
+  return response.data;
+};
+
+/**
+ * Fragment 목록 조회 (SDUI)
+ * GET /api/v1/schema/fragments
+ */
+export const getSchemaFragments = async (): Promise<GetFragmentsResponse> => {
+  const response = await api.get('/schema/fragments');
+  return response.data;
+};
+
+/**
+ * Fragment 상세 조회 (SDUI)
+ * GET /api/v1/schema/fragments/{id}/detail
+ */
+export const getSchemaFragmentDetail = async (fragmentId: string): Promise<SchemaFragment> => {
+  const response = await api.get(`/schema/fragments/${fragmentId}/detail`);
+  return response.data;
+};
+
 export const getBacktestResults = async (): Promise<BacktestResult[]> => {
   const response = await api.get('/backtest/results');
   return response.data.results || [];
@@ -1140,6 +1204,118 @@ export const syncEquityCurve = async (request: SyncEquityCurveRequest): Promise<
   return response.data;
 };
 
+// 자산 곡선 캐시 삭제 응답
+export interface ClearEquityCacheResponse {
+  success: boolean;
+  deleted_count: number;
+  message: string;
+}
+
+// 자산 곡선 캐시 삭제
+export const clearEquityCache = async (credentialId: string): Promise<ClearEquityCacheResponse> => {
+  const response = await api.delete('/analytics/equity-cache', {
+    data: { credential_id: credentialId },
+  });
+  return response.data;
+};
+
+// ==================== 기술적 지표 (Technical Indicators) ====================
+
+/** OBV 지표 쿼리 */
+export interface ObvQuery {
+  /** 종목 코드 */
+  ticker: string;
+  /** 거래소 (KRX, BINANCE 등) */
+  exchange?: string;
+  /** 타임프레임 (1d, 1h, 15m 등) */
+  timeframe?: string;
+  /** 조회 기간 (일 수) */
+  period?: number;
+  /** 시그널 라인 기간 (기본: 20) */
+  signal_period?: number;
+  /** 변화율 반환 여부 */
+  include_change?: boolean;
+}
+
+/** OBV 데이터 포인트 */
+export interface ObvPoint {
+  /** 타임스탬프 (ISO 8601) */
+  timestamp: string;
+  /** OBV 값 */
+  obv: number;
+  /** 시그널 라인 (SMA of OBV) */
+  signal?: number;
+  /** OBV 변화량 */
+  change?: number;
+}
+
+/** OBV 응답 */
+export interface ObvResponse {
+  /** 종목 코드 */
+  ticker: string;
+  /** 파라미터 */
+  params: {
+    signal_period: number;
+  };
+  /** 데이터 포인트 */
+  data: ObvPoint[];
+}
+
+/** OBV 지표 조회 */
+export const getObvIndicator = async (query: ObvQuery): Promise<ObvResponse> => {
+  const response = await api.get('/analytics/indicators/obv', { params: query });
+  return response.data;
+};
+
+/** SuperTrend 지표 쿼리 */
+export interface SuperTrendQuery {
+  /** 종목 코드 */
+  ticker: string;
+  /** 거래소 (KRX, BINANCE 등) */
+  exchange?: string;
+  /** 타임프레임 (1d, 1h, 15m 등) */
+  timeframe?: string;
+  /** 조회 기간 (일 수) */
+  period?: number;
+  /** ATR 기간 (기본: 10) */
+  atr_period?: number;
+  /** ATR 배수 (기본: 3.0) */
+  multiplier?: number;
+}
+
+/** SuperTrend 데이터 포인트 */
+export interface SuperTrendPoint {
+  /** 타임스탬프 (ISO 8601) */
+  timestamp: string;
+  /** SuperTrend 값 */
+  value?: number;
+  /** 추세 방향 (true: 상승, false: 하락) */
+  is_uptrend: boolean;
+  /** 매수 시그널 */
+  buy_signal: boolean;
+  /** 매도 시그널 */
+  sell_signal: boolean;
+}
+
+/** SuperTrend 응답 */
+export interface SuperTrendResponse {
+  /** 종목 코드 */
+  ticker: string;
+  /** 파라미터 */
+  params: {
+    atr_period: number;
+    multiplier: number;
+  };
+  /** 데이터 포인트 */
+  data: SuperTrendPoint[];
+}
+
+/** SuperTrend 지표 조회 */
+export const getSuperTrendIndicator = async (query: SuperTrendQuery): Promise<SuperTrendResponse> => {
+  const response = await api.get('/analytics/indicators/supertrend', { params: query });
+  return response.data;
+};
+
 // ==================== 알림 (Notifications) ====================
 
 /** 알림 설정 응답 */
@@ -1439,8 +1615,29 @@ export const updateJournalExecution = async (
 };
 
 /** 거래소 체결 내역 동기화 */
-export const syncJournalExecutions = async (exchange?: string, startDate?: string): Promise<JournalSyncResponse> => {
-  const response = await api.post('/journal/sync', { exchange, start_date: startDate });
+export const syncJournalExecutions = async (
+  exchange?: string,
+  startDate?: string,
+  forceFullSync?: boolean
+): Promise<JournalSyncResponse> => {
+  const response = await api.post('/journal/sync', {
+    exchange,
+    start_date: startDate,
+    force_full_sync: forceFullSync ?? false,
+  });
+  return response.data;
+};
+
+/** 캐시 삭제 응답 */
+export interface ClearCacheResponse {
+  success: boolean;
+  deleted_count: number;
+  message: string;
+}
+
+/** 체결 내역 캐시 삭제 */
+export const clearJournalCache = async (): Promise<ClearCacheResponse> => {
+  const response = await api.delete('/journal/cache');
   return response.data;
 };
 
@@ -1884,6 +2081,48 @@ export const getTopRanked = async (query?: RankingQuery): Promise<GeneratedRanki
 /** 모든 심볼 GlobalScore 계산 (관리자용) */
 export const calculateGlobalScore = async (): Promise<{ processed: number; started_at: string; completed_at: string }> => {
   const response = await api.post('/ranking/global');
+  return response.data;
+};
+
+// ==================== Score History (점수 히스토리) ====================
+
+/** Score History 요약 항목 */
+export interface ScoreHistorySummary {
+  /** 종목 코드 */
+  symbol: string;
+  /** 날짜 (YYYY-MM-DD) */
+  score_date: string;
+  /** Global Score (0-100) */
+  global_score: number | null;
+  /** RouteState (ATTACK/ARMED/WATCH/REST/SIDELINE) */
+  route_state: string | null;
+  /** 전체 순위 */
+  rank: number | null;
+  /** 전일 대비 점수 변화 */
+  score_change: number | null;
+  /** 전일 대비 순위 변화 (양수=상승) */
+  rank_change: number | null;
+}
+
+/** Score History 응답 */
+export interface ScoreHistoryResponse {
+  /** 종목 코드 */
+  symbol: string;
+  /** 히스토리 데이터 */
+  history: ScoreHistorySummary[];
+  /** 총 레코드 수 */
+  total: number;
+}
+
+/** Score History 조회 쿼리 */
+export interface ScoreHistoryQuery {
+  /** 조회 일수 (기본 90, 최대 365) */
+  days?: number;
+}
+
+/** 종목별 Score History 조회 */
+export const getScoreHistory = async (ticker: string, query?: ScoreHistoryQuery): Promise<ScoreHistoryResponse> => {
+  const response = await api.get(`/ranking/history/${ticker}`, { params: query });
   return response.data;
 };
 

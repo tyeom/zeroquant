@@ -572,6 +572,26 @@ impl EquityHistoryRepository {
         Ok(count.unwrap_or(0))
     }
 
+    /// 자산 곡선 캐시 삭제.
+    ///
+    /// 특정 credential의 자산 곡선 데이터를 삭제합니다.
+    /// 삭제된 레코드 수를 반환합니다.
+    pub async fn clear_cache(pool: &PgPool, credential_id: Uuid) -> Result<u64, sqlx::Error> {
+        let result =
+            sqlx::query(r#"DELETE FROM portfolio_equity_history WHERE credential_id = $1"#)
+                .bind(credential_id)
+                .execute(pool)
+                .await?;
+
+        info!(
+            "자산 곡선 캐시 삭제: credential={}, 삭제된 레코드={}",
+            credential_id,
+            result.rows_affected()
+        );
+
+        Ok(result.rows_affected())
+    }
+
     // ==================== 거래소 데이터 동기화 ====================
 
     /// 거래소 체결 내역으로 자산 곡선 복원.
@@ -674,11 +694,16 @@ impl EquityHistoryRepository {
     ///
     /// 1. 체결 기록에서 일별 보유 수량 추적 (누적)
     /// 2. ohlcv 테이블에서 일별 종가 조회
-    /// 3. 일별 자산 = Σ(보유 수량 × 종가) + 현금 잔고
+    /// 3. 일별 자산 = Σ(보유 수량 × 종가)
+    ///
+    /// # ISA 계좌 특수 케이스
+    /// - 현금 잔고는 추적하지 않음 (체결 내역만으로 정확한 현금 추정 불가)
+    /// - 주식 가치만으로 자산 곡선 계산
+    /// - 전량 매도 시 자산 곡선 0으로 표시
     pub async fn sync_with_market_prices(
         pool: &PgPool,
         credential_id: Uuid,
-        _current_cash: Decimal, // 주식 가치만 추적
+        _current_cash: Decimal, // 미사용 (주식 가치만 추적)
         currency: &str,
         market: &str,
         account_type: Option<&str>,
@@ -701,14 +726,16 @@ impl EquityHistoryRepository {
             return Ok(0);
         }
 
-        // 2. 모든 체결 기록을 처리하여 최종 보유 수량 계산
-        let mut all_holdings: HashMap<String, Decimal> = HashMap::new();
+        // 2. 현재 양수 포지션만 추적 (과거 매도 종목 제외)
+        // 과거 매도한 종목의 가격 데이터가 없으면 자산 곡선이 왜곡되므로
+        // 현재 보유 중인 종목만 자산 곡선에 포함
+        let mut holdings: HashMap<String, Decimal> = HashMap::new();
         for row in &executions {
             let symbol: String = row.get("symbol");
             let side: String = row.get("side");
             let quantity: Decimal = row.get("quantity");
 
-            let current_qty = all_holdings.entry(symbol).or_insert(Decimal::ZERO);
+            let current_qty = holdings.entry(symbol).or_insert(Decimal::ZERO);
             if side == "buy" {
                 *current_qty += quantity;
             } else {
@@ -716,31 +743,33 @@ impl EquityHistoryRepository {
             }
         }
 
-        // 3. 현재 보유 중인 심볼만 필터링 (수량 > 0)
-        let positive_holdings: Vec<String> = all_holdings
+        // 현재 양수 포지션만 추출
+        let positive_holdings: Vec<String> = holdings
             .iter()
             .filter(|(_, qty)| **qty > Decimal::ZERO)
             .map(|(symbol, _)| symbol.clone())
             .collect();
 
         if positive_holdings.is_empty() {
-            info!("활성 포지션 없음 (credential: {})", credential_id);
+            info!("현재 보유 포지션 없음 (credential: {})", credential_id);
             return Ok(0);
         }
 
-        // 4. 상장폐지 종목 제외 (is_active = false인 심볼 필터링)
+        let all_symbols: Vec<String> = positive_holdings;
+
+        // 3. 상장폐지 종목 제외
         let delisted_symbols: Vec<String> = sqlx::query_scalar(
             r#"
             SELECT ticker FROM symbol_info
             WHERE ticker = ANY($1) AND is_active = false
             "#,
         )
-        .bind(&positive_holdings)
+        .bind(&all_symbols)
         .fetch_all(pool)
         .await
         .unwrap_or_default();
 
-        let active_symbols: Vec<String> = positive_holdings
+        let active_symbols: Vec<String> = all_symbols
             .into_iter()
             .filter(|s| !delisted_symbols.contains(s))
             .collect();
@@ -754,18 +783,22 @@ impl EquityHistoryRepository {
         }
 
         if active_symbols.is_empty() {
-            info!("활성 포지션 없음 (상장폐지 제외 후, credential: {})", credential_id);
+            info!(
+                "활성 종목 없음 (상장폐지 제외 후, credential: {})",
+                credential_id
+            );
             return Ok(0);
         }
 
         info!(
-            "{} 활성 포지션 추적 중: {:?}",
+            "{} 종목 자산 곡선 계산 중: {:?}",
             active_symbols.len(),
             active_symbols
         );
 
         // 4. 현재 보유 심볼의 체결 기록만 필터링하여 일별 보유 수량 추적
-        let mut holdings: HashMap<String, Decimal> = HashMap::new();
+        // holdings는 위에서 이미 계산됨, 다시 초기화하여 일별 추적
+        holdings.clear();
         let mut daily_holdings: BTreeMap<NaiveDate, HashMap<String, Decimal>> = BTreeMap::new();
         let mut first_active_date: Option<NaiveDate> = None;
 
@@ -776,7 +809,7 @@ impl EquityHistoryRepository {
             let quantity: Decimal = row.get("quantity");
             let date = executed_at.date_naive();
 
-            // 현재 보유 중인 심볼만 처리
+            // 현재 보유 중인 심볼만 처리 (상장폐지 및 전량 매도 종목 제외)
             if !active_symbols.contains(&symbol) {
                 continue;
             }
@@ -804,28 +837,31 @@ impl EquityHistoryRepository {
             start_date, end_date
         );
 
-        // 5. 현재 보유 심볼의 일별 종가 조회 (배치 쿼리)
+        // 5. 모든 거래 종목의 일별 종가 조회 (배치 쿼리)
         let mut price_cache: HashMap<(String, NaiveDate), Decimal> = HashMap::new();
 
-        // Yahoo Finance 형식으로 심볼 변환 맵 생성
-        let symbol_to_yahoo: HashMap<String, String> = active_symbols
+        // OHLCV 테이블의 심볼 형식으로 변환
+        // execution_cache: "458730/KRW" → ticker: "458730"
+        // ohlcv: "458730" (순수 ticker만 사용)
+        let symbol_to_ticker: HashMap<String, String> = active_symbols
             .iter()
             .map(|s| {
-                let yahoo = if s.len() == 6 && s.chars().all(|c| c.is_ascii_digit()) {
-                    format!("{}.KS", s)
+                // /KRW, /USD 등 suffix 제거
+                let ticker = if let Some(pos) = s.find('/') {
+                    s[..pos].to_string()
                 } else {
                     s.clone()
                 };
-                (s.clone(), yahoo)
+                (s.clone(), ticker)
             })
             .collect();
 
-        let yahoo_to_symbol: HashMap<String, String> = symbol_to_yahoo
+        let ticker_to_symbol: HashMap<String, String> = symbol_to_ticker
             .iter()
             .map(|(k, v)| (v.clone(), k.clone()))
             .collect();
 
-        let yahoo_symbols: Vec<String> = symbol_to_yahoo.values().cloned().collect();
+        let tickers: Vec<String> = symbol_to_ticker.values().cloned().collect();
 
         // 모든 심볼을 한 번의 쿼리로 조회 (ANY 패턴 사용)
         let prices = sqlx::query(
@@ -836,16 +872,16 @@ impl EquityHistoryRepository {
             ORDER BY symbol, open_time
             "#,
         )
-        .bind(&yahoo_symbols)
+        .bind(&tickers)
         .fetch_all(pool)
         .await?;
 
         for row in prices {
-            let yahoo_symbol: String = row.get("symbol");
+            let ticker: String = row.get("symbol");
             let date: NaiveDate = row.get("date");
             let close: Decimal = row.get("close");
 
-            if let Some(original_symbol) = yahoo_to_symbol.get(&yahoo_symbol) {
+            if let Some(original_symbol) = ticker_to_symbol.get(&ticker) {
                 price_cache.insert((original_symbol.clone(), date), close);
             }
         }
@@ -868,10 +904,12 @@ impl EquityHistoryRepository {
         let mut prev_equity = Decimal::ZERO;
         let mut initial_equity = Decimal::ZERO;
         let mut is_first = true;
-        let mut missing_price_symbols: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut missing_price_symbols: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
 
         let mut current_date = start_date;
         while current_date <= end_date {
+            // 해당 날짜의 보유 현황 업데이트
             if let Some(holdings_snapshot) = daily_holdings.get(&current_date) {
                 active_holdings = holdings_snapshot.clone();
             }
@@ -912,22 +950,27 @@ impl EquityHistoryRepository {
                     } else {
                         _has_all_prices = false;
                         if !missing_price_symbols.contains(symbol) {
-                            warn!("{} 종가 전혀 없음: {} (보유: {})", current_date, symbol, qty);
+                            warn!(
+                                "{} 종가 전혀 없음: {} (보유: {})",
+                                current_date, symbol, qty
+                            );
                             missing_price_symbols.insert(symbol.clone());
                         }
                     }
                 }
             }
 
-            // 보유 종목이 있는 날만 저장 (일부 가격 누락되어도 계산된 값 사용)
+            // 총자산 = 증권 가치 (현금 잔고 미포함)
+            let total_equity = securities_value;
+
+            // 모든 종가가 있고 보유 종목이 있는 날만 저장
             if securities_value > Decimal::ZERO {
                 if is_first {
-                    initial_equity = securities_value;
-                    prev_equity = securities_value;
+                    initial_equity = total_equity;
+                    prev_equity = total_equity;
                     is_first = false;
                 }
 
-                let total_equity = securities_value;
                 let daily_pnl = total_equity - prev_equity;
 
                 let snapshot_time =
@@ -937,7 +980,7 @@ impl EquityHistoryRepository {
                     credential_id,
                     snapshot_time,
                     total_equity,
-                    cash_balance: Decimal::ZERO,
+                    cash_balance: Decimal::ZERO, // 주식 가치만 추적
                     securities_value,
                     total_pnl: total_equity - initial_equity,
                     daily_pnl,
@@ -961,7 +1004,7 @@ impl EquityHistoryRepository {
         }
 
         info!(
-            "{} 일별 자산 포인트 동기화 완료 (credential: {}, initial_equity={}, active_symbols={:?})",
+            "{} 일별 자산 포인트 동기화 완료 (credential: {}, initial_equity={}, symbols={:?})",
             saved_count, credential_id, initial_equity, active_symbols
         );
 

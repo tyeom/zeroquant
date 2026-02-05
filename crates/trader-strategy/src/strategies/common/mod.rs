@@ -15,6 +15,7 @@
 //! - **screening_integration**: 스크리닝 결과 및 RouteState 전략 연동
 
 pub mod defaults;
+pub mod exit_config;
 pub mod global_score_utils;
 pub mod indicators;
 pub mod momentum;
@@ -49,8 +50,8 @@ pub use indicators::{
 };
 
 pub use position_sizing::{
-    AtrPositionSizer, FixedRatioSizer, GlobalScorePositionSizer, KellyPositionSizer,
-    PositionSize, PositionSizer,
+    AtrPositionSizer, FixedRatioSizer, GlobalScorePositionSizer, KellyPositionSizer, PositionSize,
+    PositionSizer,
 };
 
 pub use global_score_utils::{
@@ -69,3 +70,5 @@ pub use signal_filters::{
     CompositeFilter, ConfirmationPattern, FilteredSignal, SignalContext, SignalFilter,
     SignalStrength, TrendFilter, VolumeFilter,
 };
+
+pub use exit_config::ExitConfig;

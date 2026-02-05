@@ -58,7 +58,7 @@ pub struct RebalanceConfig {
     pub rebalance_threshold: Decimal,
 
     /// 현금 심볼 (예: "CASH", "KRW", "USD").
-    pub cash_ticker:  String,
+    pub cash_ticker: String,
 }
 
 impl Default for RebalanceConfig {
@@ -104,7 +104,7 @@ impl RebalanceConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PortfolioPosition {
     /// 자산 심볼 (예: "SPY", "069500").
-    pub ticker:  String,
+    pub ticker: String,
 
     /// 보유 수량.
     pub quantity: Decimal,
@@ -143,7 +143,7 @@ impl PortfolioPosition {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TargetAllocation {
     /// 자산 심볼.
-    pub ticker:  String,
+    pub ticker: String,
 
     /// 목표 비중 (0.0 ~ 1.0).
     pub weight: Decimal,

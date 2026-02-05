@@ -83,15 +83,15 @@ impl StructuralFeaturesCache {
     /// 타임프레임별 TTL 결정 (초 단위).
     fn ttl_for_timeframe(timeframe: &str) -> u64 {
         match timeframe {
-            "1m" => 60,        // 1분
-            "5m" => 300,       // 5분
-            "15m" => 900,      // 15분
-            "1h" => 3600,      // 1시간
-            "4h" => 14400,     // 4시간
-            "1d" => 21600,     // 6시간 (하루 4회 갱신)
-            "1w" => 86400,     // 1일
-            "1M" => 604800,    // 1주
-            _ => 3600,         // 기본값: 1시간
+            "1m" => 60,     // 1분
+            "5m" => 300,    // 5분
+            "15m" => 900,   // 15분
+            "1h" => 3600,   // 1시간
+            "4h" => 14400,  // 4시간
+            "1d" => 21600,  // 6시간 (하루 4회 갱신)
+            "1w" => 86400,  // 1일
+            "1M" => 604800, // 1주
+            _ => 3600,      // 기본값: 1시간
         }
     }
 }
@@ -111,6 +111,7 @@ mod tests {
         assert_eq!(StructuralFeaturesCache::ttl_for_timeframe("1d"), 21600); // 6시간
         assert_eq!(StructuralFeaturesCache::ttl_for_timeframe("1h"), 3600); // 1시간
         assert_eq!(StructuralFeaturesCache::ttl_for_timeframe("5m"), 300); // 5분
-        assert_eq!(StructuralFeaturesCache::ttl_for_timeframe("unknown"), 3600); // 기본값
+        assert_eq!(StructuralFeaturesCache::ttl_for_timeframe("unknown"), 3600);
+        // 기본값
     }
 }

@@ -5,8 +5,8 @@
 //! 모든 공개 API는 ticker 문자열을 사용합니다. String 정보가 필요한 경우
 //! StringResolver를 통해 조회합니다.
 
-use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use trader_core::domain::{RouteState, ScreeningResult, StrategyContext};
 
 /// 스크리닝 결과 활용 trait.
@@ -41,7 +41,11 @@ pub trait ScreeningAware {
     /// # 반환
     ///
     /// 점수 높은 순으로 정렬된 종목 목록
-    fn filter_by_global_score(&self, min_score: Decimal, limit: Option<usize>) -> Vec<&ScreeningResult>;
+    fn filter_by_global_score(
+        &self,
+        min_score: Decimal,
+        limit: Option<usize>,
+    ) -> Vec<&ScreeningResult>;
 }
 
 /// StrategyContext에서 특정 RouteState 종목 추출.
@@ -266,6 +270,8 @@ mod tests {
             timestamp: Utc::now(),
             sector_rs,
             sector_rank: None,
+            trigger_score: None,
+            trigger_label: None,
         }
     }
 
@@ -287,7 +293,8 @@ mod tests {
             ..context
         };
 
-        let attack_tickers = get_tickers_by_route_state(&context, "test_preset", RouteState::Attack);
+        let attack_tickers =
+            get_tickers_by_route_state(&context, "test_preset", RouteState::Attack);
         assert_eq!(attack_tickers.len(), 2);
     }
 

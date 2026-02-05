@@ -27,11 +27,11 @@ use std::str::FromStr;
 use tracing::{debug, info};
 
 use trader_analytics::backtest::{BacktestConfig, BacktestEngine, BacktestReport};
-use trader_core::{Kline, MarketType, Symbol, Timeframe};
+use trader_core::{Kline, Symbol, Timeframe};
 use trader_data::{Database, DatabaseConfig, KlineRepository, SymbolRepository};
 use trader_strategy::strategies::{
-    BollingerStrategy, GridStrategy, HaaStrategy, MagicSplitStrategy, RsiStrategy,
-    SimplePowerStrategy, StockRotationStrategy, VolatilityBreakoutStrategy, XaaStrategy,
+    AssetAllocationStrategy, CompoundMomentumStrategy, DayTradingStrategy, MeanReversionStrategy,
+    RotationStrategy,
 };
 use trader_strategy::Strategy;
 
@@ -106,7 +106,7 @@ pub enum StrategyType {
 }
 
 impl StrategyType {
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "grid" | "gridtrading" => Some(Self::Grid),
             "rsi" | "rsimeanreversion" => Some(Self::Rsi),
@@ -194,7 +194,7 @@ pub async fn run_backtest(config: BacktestCliConfig) -> Result<BacktestReport> {
 
     // 5. 전략 타입 파싱
     let strategy_type =
-        StrategyType::from_str(&strategy_config.strategy_type).ok_or_else(|| {
+        StrategyType::parse(&strategy_config.strategy_type).ok_or_else(|| {
             anyhow!(
                 "Unknown strategy type: {}. Use --list-strategies to see available strategies.",
                 strategy_config.strategy_type
@@ -237,7 +237,7 @@ async fn run_strategy_backtest(
 ) -> Result<BacktestReport> {
     match strategy_type {
         StrategyType::Grid => {
-            let mut strategy = GridStrategy::default();
+            let mut strategy = MeanReversionStrategy::grid();
             strategy
                 .initialize(params.clone())
                 .await
@@ -249,7 +249,7 @@ async fn run_strategy_backtest(
                 .map_err(|e| anyhow!("Backtest failed: {}", e))
         }
         StrategyType::Rsi => {
-            let mut strategy = RsiStrategy::default();
+            let mut strategy = MeanReversionStrategy::rsi();
             strategy
                 .initialize(params.clone())
                 .await
@@ -261,7 +261,7 @@ async fn run_strategy_backtest(
                 .map_err(|e| anyhow!("Backtest failed: {}", e))
         }
         StrategyType::Bollinger => {
-            let mut strategy = BollingerStrategy::default();
+            let mut strategy = MeanReversionStrategy::bollinger();
             strategy
                 .initialize(params.clone())
                 .await
@@ -273,7 +273,7 @@ async fn run_strategy_backtest(
                 .map_err(|e| anyhow!("Backtest failed: {}", e))
         }
         StrategyType::Volatility => {
-            let mut strategy = VolatilityBreakoutStrategy::default();
+            let mut strategy = DayTradingStrategy::breakout();
             strategy
                 .initialize(params.clone())
                 .await
@@ -285,7 +285,7 @@ async fn run_strategy_backtest(
                 .map_err(|e| anyhow!("Backtest failed: {}", e))
         }
         StrategyType::MagicSplit => {
-            let mut strategy = MagicSplitStrategy::default();
+            let mut strategy = MeanReversionStrategy::magic_split();
             strategy
                 .initialize(params.clone())
                 .await
@@ -297,7 +297,7 @@ async fn run_strategy_backtest(
                 .map_err(|e| anyhow!("Backtest failed: {}", e))
         }
         StrategyType::SimplePower => {
-            let mut strategy = SimplePowerStrategy::default();
+            let mut strategy = CompoundMomentumStrategy::new();
             strategy
                 .initialize(params.clone())
                 .await
@@ -309,7 +309,7 @@ async fn run_strategy_backtest(
                 .map_err(|e| anyhow!("Backtest failed: {}", e))
         }
         StrategyType::Haa => {
-            let mut strategy = HaaStrategy::default();
+            let mut strategy = AssetAllocationStrategy::haa();
             strategy
                 .initialize(params.clone())
                 .await
@@ -321,7 +321,7 @@ async fn run_strategy_backtest(
                 .map_err(|e| anyhow!("Backtest failed: {}", e))
         }
         StrategyType::Xaa => {
-            let mut strategy = XaaStrategy::default();
+            let mut strategy = AssetAllocationStrategy::xaa();
             strategy
                 .initialize(params.clone())
                 .await
@@ -333,7 +333,7 @@ async fn run_strategy_backtest(
                 .map_err(|e| anyhow!("Backtest failed: {}", e))
         }
         StrategyType::StockRotation => {
-            let mut strategy = StockRotationStrategy::default();
+            let mut strategy = RotationStrategy::stock_rotation();
             strategy
                 .initialize(params.clone())
                 .await
@@ -360,9 +360,9 @@ fn load_strategy_config(path: &str) -> Result<StrategyConfigFile> {
 
     let content = std::fs::read_to_string(path)?;
 
-    if path.extension().map_or(false, |ext| ext == "toml") {
+    if path.extension().is_some_and(|ext| ext == "toml") {
         Ok(toml::from_str(&content)?)
-    } else if path.extension().map_or(false, |ext| ext == "json") {
+    } else if path.extension().is_some_and(|ext| ext == "json") {
         Ok(serde_json::from_str(&content)?)
     } else {
         Err(anyhow!(
@@ -378,8 +378,8 @@ fn load_strategy_config(path: &str) -> Result<StrategyConfigFile> {
 /// Country 필드가 자동 설정되도록 합니다.
 fn create_symbol(config: &BacktestCliConfig) -> Symbol {
     match config.market {
-        Market::KR => Symbol::kr_stock(&config.symbol.to_uppercase(), "KRW"),
-        Market::US => Symbol::us_stock(&config.symbol.to_uppercase(), "USD"),
+        Market::KR => Symbol::kr_stock(config.symbol.to_uppercase(), "KRW"),
+        Market::US => Symbol::us_stock(config.symbol.to_uppercase(), "USD"),
     }
 }
 
@@ -425,7 +425,7 @@ fn save_report(report: &BacktestReport, path: &str) -> Result<()> {
         std::fs::create_dir_all(parent)?;
     }
 
-    let content = if path.extension().map_or(false, |ext| ext == "json") {
+    let content = if path.extension().is_some_and(|ext| ext == "json") {
         serde_json::to_string_pretty(report)?
     } else {
         // 기본: 텍스트 요약
@@ -506,17 +506,17 @@ mod tests {
     #[test]
     fn test_strategy_type_parsing() {
         assert!(matches!(
-            StrategyType::from_str("grid"),
+            StrategyType::parse("grid"),
             Some(StrategyType::Grid)
         ));
         assert!(matches!(
-            StrategyType::from_str("RSI"),
+            StrategyType::parse("RSI"),
             Some(StrategyType::Rsi)
         ));
         assert!(matches!(
-            StrategyType::from_str("simple_power"),
+            StrategyType::parse("simple_power"),
             Some(StrategyType::SimplePower)
         ));
-        assert!(StrategyType::from_str("unknown").is_none());
+        assert!(StrategyType::parse("unknown").is_none());
     }
 }

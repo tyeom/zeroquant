@@ -36,7 +36,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
-use trader_core::{unrealized_pnl, Kline, MarketData, Side, Signal, SignalMarker, SignalType, Timeframe};
+use trader_core::{
+    unrealized_pnl, Kline, MarketData, Side, Signal, SignalMarker, SignalType, Timeframe,
+};
 use trader_data::storage::ohlcv::OhlcvCache;
 use trader_strategy::{Strategy, StrategyRegistry};
 use uuid::Uuid;
@@ -187,8 +189,8 @@ impl Default for SimulationEngine {
             current_kline_index: 0,
             current_simulation_time: None,
             speed: 1.0,
-            commission_rate: dec!(0.001),   // 0.1%
-            slippage_rate: dec!(0.0005),    // 0.05%
+            commission_rate: dec!(0.001), // 0.1%
+            slippage_rate: dec!(0.0005),  // 0.05%
             total_realized_pnl: Decimal::ZERO,
             total_commission: Decimal::ZERO,
             peak_equity: dec!(10_000_000),
@@ -209,6 +211,7 @@ impl SimulationEngine {
     }
 
     /// 시뮬레이션 초기화 (전략 + 데이터 로드)
+    #[allow(clippy::too_many_arguments)]
     pub async fn initialize(
         &mut self,
         strategy_id: &str,
@@ -246,7 +249,8 @@ impl SimulationEngine {
 
         // 기본 심볼 (단일 자산) 또는 전략 기본 심볼 사용
         let symbol = if symbols.is_empty() {
-            meta.default_tickers.first()
+            meta.default_tickers
+                .first()
                 .ok_or_else(|| "심볼이 지정되지 않았습니다".to_string())?
                 .to_string()
         } else {
@@ -255,12 +259,14 @@ impl SimulationEngine {
 
         // 타임프레임 (전략 메타에서 문자열 → enum 변환)
         let timeframe_str = meta.default_timeframe;
-        let timeframe = timeframe_str.parse::<Timeframe>()
+        let timeframe = timeframe_str
+            .parse::<Timeframe>()
             .map_err(|_| format!("잘못된 타임프레임: {}", timeframe_str))?;
 
         // NaiveDate → DateTime<Utc> 변환 (당일 00:00 UTC)
         let start_dt = Utc.from_utc_datetime(&start.and_time(NaiveTime::MIN));
-        let end_dt = Utc.from_utc_datetime(&end.and_time(NaiveTime::from_hms_opt(23, 59, 59).unwrap()));
+        let end_dt =
+            Utc.from_utc_datetime(&end.and_time(NaiveTime::from_hms_opt(23, 59, 59).unwrap()));
 
         let klines = cache
             .get_cached_klines_range(&symbol, timeframe, start_dt, end_dt)
@@ -314,7 +320,9 @@ impl SimulationEngine {
         self.current_simulation_time = Some(kline.close_time);
 
         // 전략에 데이터 전달 (백테스트와 동일)
-        let strategy = self.strategy.as_mut()
+        let strategy = self
+            .strategy
+            .as_mut()
             .ok_or_else(|| "전략이 초기화되지 않았습니다".to_string())?;
 
         let exchange_name = "simulation";
@@ -347,12 +355,7 @@ impl SimulationEngine {
         let price = signal.suggested_price.unwrap_or(kline.close);
 
         // SignalMarker 저장
-        let marker = SignalMarker::from_signal(
-            signal,
-            price,
-            kline.open_time,
-            &signal.strategy_id,
-        );
+        let marker = SignalMarker::from_signal(signal, price, kline.open_time, &signal.strategy_id);
         self.signal_markers.push(marker);
 
         match signal.signal_type {
@@ -401,7 +404,8 @@ impl SimulationEngine {
         // 포지션 크기 계산 (백테스트와 동일: strength 기반)
         let max_position_size_pct = dec!(0.2); // 20%
         let max_amount = self.current_balance * max_position_size_pct;
-        let position_amount = max_amount * Decimal::from_f64(signal.strength).unwrap_or(Decimal::ONE);
+        let position_amount =
+            max_amount * Decimal::from_f64(signal.strength).unwrap_or(Decimal::ONE);
         let quantity = position_amount / execution_price;
 
         // 수수료 계산
@@ -531,9 +535,11 @@ impl SimulationEngine {
                 } else {
                     Side::Sell
                 };
-                pos.unrealized_pnl = unrealized_pnl(pos.entry_price, kline.close, pos.quantity, side);
+                pos.unrealized_pnl =
+                    unrealized_pnl(pos.entry_price, kline.close, pos.quantity, side);
                 if pos.entry_price > Decimal::ZERO {
-                    pos.return_pct = pos.unrealized_pnl / (pos.entry_price * pos.quantity) * dec!(100);
+                    pos.return_pct =
+                        pos.unrealized_pnl / (pos.entry_price * pos.quantity) * dec!(100);
                 }
             }
         }
@@ -1031,11 +1037,7 @@ pub async fn get_simulation_status(State(_state): State<Arc<AppState>>) -> impl 
     let engine = SIMULATION_ENGINE.read().await;
 
     let total_equity = engine.total_equity();
-    let unrealized_pnl: Decimal = engine
-        .positions
-        .values()
-        .map(|p| p.unrealized_pnl)
-        .sum();
+    let unrealized_pnl: Decimal = engine.positions.values().map(|p| p.unrealized_pnl).sum();
 
     let return_pct = if engine.initial_balance > Decimal::ZERO {
         (total_equity - engine.initial_balance) / engine.initial_balance * dec!(100)

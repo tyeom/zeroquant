@@ -48,7 +48,7 @@ pub async fn get_active_account(
         warn!("활성 계정 조회 실패 (테이블 없음?): {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("DB_ERROR", &format!("조회 실패: {}", e))),
+            Json(ApiError::new("DB_ERROR", format!("조회 실패: {}", e))),
         )
     })?;
 
@@ -73,7 +73,7 @@ pub async fn get_active_account(
                     error!("자격증명 조회 실패: {}", e);
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ApiError::new("DB_ERROR", &format!("조회 실패: {}", e))),
+                        Json(ApiError::new("DB_ERROR", format!("조회 실패: {}", e))),
                     )
                 })?;
 
@@ -137,7 +137,7 @@ pub async fn set_active_account(
                     error!("자격증명 조회 실패: {}", e);
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ApiError::new("DB_ERROR", &format!("조회 실패: {}", e))),
+                        Json(ApiError::new("DB_ERROR", format!("조회 실패: {}", e))),
                     )
                 })?;
 
@@ -170,7 +170,7 @@ pub async fn set_active_account(
         error!("활성 계정 저장 실패: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("DB_ERROR", &format!("저장 실패: {}", e))),
+            Json(ApiError::new("DB_ERROR", format!("저장 실패: {}", e))),
         )
     })?;
 

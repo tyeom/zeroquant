@@ -122,13 +122,16 @@ impl KrxDataSource {
             ("isuCd", &isin_cd),
             ("strtDd", start_date),
             ("endDd", end_date),
-            ("adjStkPrc", "2"),  // 수정주가 사용
+            ("adjStkPrc", "2"), // 수정주가 사용
         ];
 
         let response = self
             .client
             .post(KRX_API_URL)
-            .header("Referer", "https://data.krx.co.kr/contents/MDC/MDI/outerLoader/index.cmd")
+            .header(
+                "Referer",
+                "https://data.krx.co.kr/contents/MDC/MDI/outerLoader/index.cmd",
+            )
             .form(&params)
             .send()
             .await

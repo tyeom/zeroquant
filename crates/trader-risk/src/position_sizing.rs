@@ -368,7 +368,13 @@ mod tests {
     use trader_core::{Side, Symbol};
 
     fn create_test_position(symbol: &Symbol, quantity: Decimal, price: Decimal) -> Position {
-        Position::new("test_exchange", symbol.to_string(), Side::Buy, quantity, price)
+        Position::new(
+            "test_exchange",
+            symbol.to_string(),
+            Side::Buy,
+            quantity,
+            price,
+        )
     }
 
     #[test]

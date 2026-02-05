@@ -8,12 +8,12 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
 use utoipa::{IntoParams, ToSchema};
+use uuid::Uuid;
 
 use crate::error::ApiErrorResponse;
 use crate::repository::{BacktestResultsRepository, SignalMarkerRepository};
@@ -191,7 +191,10 @@ pub async fn search_signals(
         None => {
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiErrorResponse::new("DATABASE_ERROR", "Database not available")),
+                Json(ApiErrorResponse::new(
+                    "DATABASE_ERROR",
+                    "Database not available",
+                )),
             ))
         }
     };
@@ -233,7 +236,10 @@ pub async fn get_signals_by_symbol(
         None => {
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiErrorResponse::new("DATABASE_ERROR", "Database not available")),
+                Json(ApiErrorResponse::new(
+                    "DATABASE_ERROR",
+                    "Database not available",
+                )),
             ))
         }
     };
@@ -277,7 +283,10 @@ pub async fn get_signals_by_strategy(
         None => {
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiErrorResponse::new("DATABASE_ERROR", "Database not available")),
+                Json(ApiErrorResponse::new(
+                    "DATABASE_ERROR",
+                    "Database not available",
+                )),
             ))
         }
     };
@@ -346,7 +355,10 @@ pub async fn get_backtest_signals(
         None => {
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiErrorResponse::new("DATABASE_ERROR", "Database not available")),
+                Json(ApiErrorResponse::new(
+                    "DATABASE_ERROR",
+                    "Database not available",
+                )),
             ))
         }
     };
@@ -357,7 +369,7 @@ pub async fn get_backtest_signals(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiErrorResponse::new("DATABASE_ERROR", &e.to_string())),
+                Json(ApiErrorResponse::new("DATABASE_ERROR", e.to_string())),
             )
         })?;
 
@@ -366,7 +378,10 @@ pub async fn get_backtest_signals(
         None => {
             return Err((
                 StatusCode::NOT_FOUND,
-                Json(ApiErrorResponse::new("NOT_FOUND", "백테스트 결과를 찾을 수 없습니다")),
+                Json(ApiErrorResponse::new(
+                    "NOT_FOUND",
+                    "백테스트 결과를 찾을 수 없습니다",
+                )),
             ))
         }
     };

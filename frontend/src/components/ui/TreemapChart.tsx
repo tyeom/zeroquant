@@ -63,6 +63,48 @@ export interface TreemapChartProps {
  * />
  * ```
  */
+// colorValue를 RGB 색상으로 변환하는 함수
+function getColorByValue(
+  value: number,
+  min: number,
+  max: number,
+  colors: [string, string, string]
+): string {
+  // value를 0~1 범위로 정규화
+  const range = max - min
+  const normalized = range === 0 ? 0.5 : Math.max(0, Math.min(1, (value - min) / range))
+
+  // 빨강(0) -> 회색(0.5) -> 초록(1)
+  const hexToRgb = (hex: string) => {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
+    return result
+      ? [parseInt(result[1], 16), parseInt(result[2], 16), parseInt(result[3], 16)]
+      : [128, 128, 128]
+  }
+
+  const [r1, g1, b1] = hexToRgb(colors[0]) // red
+  const [r2, g2, b2] = hexToRgb(colors[1]) // gray
+  const [r3, g3, b3] = hexToRgb(colors[2]) // green
+
+  let r: number, g: number, b: number
+
+  if (normalized <= 0.5) {
+    // red -> gray
+    const t = normalized * 2
+    r = Math.round(r1 + (r2 - r1) * t)
+    g = Math.round(g1 + (g2 - g1) * t)
+    b = Math.round(b1 + (b2 - b1) * t)
+  } else {
+    // gray -> green
+    const t = (normalized - 0.5) * 2
+    r = Math.round(r2 + (r3 - r2) * t)
+    g = Math.round(g2 + (g3 - g2) * t)
+    b = Math.round(b2 + (b3 - b2) * t)
+  }
+
+  return `rgb(${r}, ${g}, ${b})`
+}
+
 export function TreemapChart(props: TreemapChartProps) {
   const height = () => props.height || 400
 
@@ -99,16 +141,14 @@ export function TreemapChart(props: TreemapChartProps) {
         {
           type: 'treemap',
           roam: false,
-          nodeClick: 'zoomToNode',
+          nodeClick: false,
+          visibleMin: 300,
+          top: 30,
+          bottom: props.showVisualMap ? 45 : 5,
+          left: 5,
+          right: 5,
           breadcrumb: {
-            show: true,
-            itemStyle: {
-              color: '#374151',
-              borderColor: '#4b5563',
-              textStyle: {
-                color: '#e5e7eb',
-              },
-            },
+            show: false,
           },
           label: {
             show: true,
@@ -170,30 +210,52 @@ export function TreemapChart(props: TreemapChartProps) {
               },
             },
           ],
-          data: props.data,
+          data: props.showVisualMap
+            ? props.data.map((item) => ({
+                ...item,
+                itemStyle: {
+                  color: getColorByValue(
+                    item.colorValue ?? 0,
+                    props.visualMapMin ?? -5,
+                    props.visualMapMax ?? 5,
+                    colorRange() as [string, string, string]
+                  ),
+                },
+              }))
+            : props.data,
         },
       ],
     }
 
-    // visualMap 추가 (색상 범위)
+    // visualMap 추가 (색상 범위 레전드) - 차트 하단에 수평 배치
     if (props.showVisualMap) {
+      const minVal = props.visualMapMin ?? -5
+      const maxVal = props.visualMapMax ?? 5
       options.visualMap = {
-        type: 'continuous',
-        min: props.visualMapMin ?? -5,
-        max: props.visualMapMax ?? 5,
-        dimension: 'colorValue',
-        inRange: {
-          color: colorRange(),
-        },
-        text: [`+${props.visualMapMax ?? 5}%`, `${props.visualMapMin ?? -5}%`],
+        type: 'piecewise',
+        show: true,
+        min: minVal,
+        max: maxVal,
+        splitNumber: 5,
+        calculable: false,
+        seriesIndex: 0,
+        pieces: [
+          { min: minVal, max: minVal * 0.6, label: `${minVal}%`, color: colorRange()[0] },
+          { min: minVal * 0.6, max: minVal * 0.2, label: '', color: '#b45555' },
+          { min: minVal * 0.2, max: maxVal * 0.2, label: '0%', color: colorRange()[1] },
+          { min: maxVal * 0.2, max: maxVal * 0.6, label: '', color: '#55b455' },
+          { min: maxVal * 0.6, max: maxVal, label: `+${maxVal}%`, color: colorRange()[2] },
+        ],
         textStyle: {
           color: '#9ca3af',
+          fontSize: 10,
         },
         orient: 'horizontal',
         left: 'center',
-        bottom: 10,
-        itemWidth: 15,
-        itemHeight: 100,
+        bottom: 5,
+        itemWidth: 25,
+        itemHeight: 10,
+        itemGap: 5,
       }
     }
 

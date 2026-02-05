@@ -6,8 +6,13 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+#[cfg(feature = "ts-rs-support")]
+use ts_rs::TS;
+
 /// Fragment 카테고리.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs-support", derive(TS))]
+#[cfg_attr(feature = "ts-rs-support", ts(export, export_to = "sdui/"))]
 #[serde(rename_all = "snake_case")]
 pub enum FragmentCategory {
     /// 기술적 지표 (RSI, MACD, Bollinger Bands 등)
@@ -26,6 +31,8 @@ pub enum FragmentCategory {
 
 /// 필드 타입.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs-support", derive(TS))]
+#[cfg_attr(feature = "ts-rs-support", ts(export, export_to = "sdui/"))]
 #[serde(rename_all = "lowercase")]
 pub enum FieldType {
     /// 정수형
@@ -52,12 +59,13 @@ pub enum FieldType {
 
 /// 필드 스키마.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs-support", derive(TS))]
+#[cfg_attr(feature = "ts-rs-support", ts(export, export_to = "sdui/"))]
 pub struct FieldSchema {
     /// 필드 이름 (snake_case)
     pub name: String,
 
-    /// 필드 타입
-    #[serde(rename = "type")]
+    /// 필드 타입 (프론트엔드와 동일한 키 이름 사용)
     pub field_type: FieldType,
 
     /// 표시 라벨 (한글)
@@ -69,6 +77,7 @@ pub struct FieldSchema {
 
     /// 기본값 (JSON 값)
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts-rs-support", ts(type = "unknown"))]
     pub default: Option<serde_json::Value>,
 
     /// 최소값 (number/integer 타입)
@@ -90,6 +99,14 @@ pub struct FieldSchema {
     /// 필수 여부
     #[serde(default)]
     pub required: bool,
+
+    /// 숨김 여부 (UI에서 표시하지 않음)
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
+
+    /// 표시 순서 (낮을수록 먼저 표시)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub order: Option<i32>,
 }
 
 impl Default for FieldSchema {
@@ -105,6 +122,8 @@ impl Default for FieldSchema {
             options: Vec::new(),
             condition: None,
             required: false,
+            hidden: false,
+            order: None,
         }
     }
 }
@@ -114,6 +133,8 @@ impl Default for FieldSchema {
 /// Fragment는 여러 전략에서 공통으로 사용되는 설정 그룹입니다.
 /// 예: RSI 설정, 트레일링 스탑 설정 등
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs-support", derive(TS))]
+#[cfg_attr(feature = "ts-rs-support", ts(export, export_to = "sdui/"))]
 pub struct SchemaFragment {
     /// Fragment ID (예: "indicator.rsi", "risk.trailing_stop")
     pub id: String,
@@ -176,6 +197,8 @@ impl SchemaFragment {
 
 /// Fragment 참조.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs-support", derive(TS))]
+#[cfg_attr(feature = "ts-rs-support", ts(export, export_to = "sdui/"))]
 pub struct FragmentRef {
     /// Fragment ID
     pub id: String,
@@ -208,6 +231,8 @@ impl FragmentRef {
 /// 전략의 완전한 UI 구성을 나타냅니다.
 /// Fragment 참조 + 커스텀 필드로 구성됩니다.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs-support", derive(TS))]
+#[cfg_attr(feature = "ts-rs-support", ts(export, export_to = "sdui/"))]
 pub struct StrategyUISchema {
     /// 전략 ID
     pub id: String,
@@ -232,6 +257,7 @@ pub struct StrategyUISchema {
 
     /// 기본 설정값 (옵션)
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts-rs-support", ts(type = "Record<string, unknown> | null"))]
     pub defaults: Option<HashMap<String, serde_json::Value>>,
 }
 

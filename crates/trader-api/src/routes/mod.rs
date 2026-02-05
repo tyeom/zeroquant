@@ -104,9 +104,7 @@ pub use signals::{
     signals_router, SignalMarkerDto, SignalSearchRequest, SignalSearchResponse,
     StrategySignalsQuery, SymbolSignalsQuery,
 };
-pub use simulation::{
-    simulation_router, SimulationStartRequest, SimulationStatusResponse,
-};
+pub use simulation::{simulation_router, SimulationStartRequest, SimulationStatusResponse};
 pub use strategies::{strategies_router, ApiError, StrategiesListResponse, StrategyDetailResponse};
 pub use watchlist::{
     watchlist_router, AddItemsRequest, AddItemsResponse, WatchlistDetailResponse,

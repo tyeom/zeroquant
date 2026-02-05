@@ -83,9 +83,7 @@ impl MacroData {
         let change = current - previous;
         let pct = (change / previous) * Decimal::from(100);
 
-        pct.to_string()
-            .parse::<f64>()
-            .unwrap_or(0.0)
+        pct.to_string().parse::<f64>().unwrap_or(0.0)
     }
 }
 
@@ -129,7 +127,10 @@ impl MacroDataProvider {
             .map_err(|e| MacroDataError::ParseError(format!("{}", e)))?;
 
         if quotes.is_empty() {
-            return Err(MacroDataError::NoData(format!("심볼 {} 데이터 없음", symbol)));
+            return Err(MacroDataError::NoData(format!(
+                "심볼 {} 데이터 없음",
+                symbol
+            )));
         }
 
         debug!("{} 캔들 {} 개 수신", symbol, quotes.len());

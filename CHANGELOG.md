@@ -1,7 +1,126 @@
 # Changelog
 
 
-## [Unreleased] - 2026-02-04
+## [0.7.0] - 2026-02-05
+
+> ⚠️ **전략 리팩토링 진행 중**: 이 버전은 대규모 전략 통합 및 마이그레이션 정리 작업이 포함되어 있습니다.
+> 일부 전략이 삭제되거나 이름이 변경되었습니다. 기존 전략 설정을 사용하는 경우 마이그레이션이 필요할 수 있습니다.
+
+### Added
+
+#### 🌐 네이버 금융 크롤러 (Naver Finance Crawler)
+- **NaverFinanceFetcher** (`trader-data/src/provider/naver.rs`)
+  - 국내 주식 펀더멘털 데이터 크롤링
+  - 시가총액, PER, PBR, ROE, EPS, BPS, 배당수익률
+  - 52주 최고/최저, 섹터 정보
+  - scraper 크레이트 기반 HTML 파싱
+  - Rate limiting (기본 300ms 딜레이)
+- **Collector 통합**
+  - `NAVER_FUNDAMENTAL_ENABLED` 환경변수 지원
+  - `NAVER_REQUEST_DELAY_MS` 설정 (기본: 300ms)
+  - Yahoo Finance 대비 수집 속도 개선 (3.5시간 → 2시간 예상)
+
+#### 🧪 전략 테스트 확장 (16개 신규)
+- **asset_allocation_test.rs** - 자산배분 전략 테스트
+- **compound_momentum_test.rs** - 복합 모멘텀 테스트
+- **day_trading_test.rs** - 데이 트레이딩 테스트
+- **infinity_bot_test.rs** - 무한매수봇 테스트
+- **kosdaq_fire_rain_test.rs** - 코스닥 불비 테스트
+- **kospi_bothside_test.rs** - 코스피 양방향 테스트
+- **mean_reversion_test.rs** - 평균회귀 테스트
+- **momentum_power_test.rs** - 모멘텀 파워 테스트
+- **pension_portfolio_test.rs** - 연금 포트폴리오 테스트
+- **range_trading_test.rs** - 박스권 매매 테스트
+- **rotation_test.rs** - 로테이션 전략 테스트
+- **rsi_multi_tf_test.rs** - RSI 멀티 타임프레임 테스트
+- **sector_vb_test.rs** - 섹터 변동성 돌파 테스트
+- **small_cap_factor_test.rs** - 소형주 팩터 테스트
+- **us_3x_leverage_test.rs** - 미국 3배 레버리지 테스트
+- **volatility_breakout_test.rs** - 변동성 돌파 테스트
+
+#### 📊 분석 모듈 확장
+- **correlation.rs** - 종목 간 상관관계 분석
+- **volume_profile.rs** - 거래량 프로파일 분석
+- **survival.rs** - 생존 분석 (전략 지속성)
+- **sector_rs.rs** - 섹터 상대 강도 분석
+- **weekly_ma.rs** - 주봉 이동평균 지표
+- **volume.rs** - 거래량 관련 지표 확장
+
+### Changed
+
+#### 🔄 전략 대폭 리팩토링 (Breaking Changes)
+
+**삭제된 전략 (15개)**:
+- `all_weather.rs` → `asset_allocation.rs`로 통합
+- `baa.rs` → `asset_allocation.rs`로 통합
+- `bollinger.rs` → `mean_reversion.rs`로 통합
+- `dual_momentum.rs` → `rotation.rs`로 통합
+- `grid.rs` → `day_trading.rs`로 통합
+- `haa.rs` → `asset_allocation.rs`로 통합
+- `magic_split.rs` → 삭제 (사용률 저조)
+- `market_cap_top.rs` → `rotation.rs`로 통합
+- `market_interest_day.rs` → `day_trading.rs`로 통합
+- `obv.rs` (지표) → `volume.rs`로 통합
+- `rsi.rs` → `mean_reversion.rs`로 통합
+- `sector_momentum.rs` → `rotation.rs`로 통합
+- `sma.rs` → 삭제 (더 이상 사용되지 않음)
+- `stock_rotation.rs` → `rotation.rs`로 통합
+- `volatility_breakout.rs` → 삭제 (day_trading으로 대체)
+- `xaa.rs` → `asset_allocation.rs`로 통합
+
+**이름 변경 (3개)**:
+- `simple_power.rs` → `compound_momentum.rs`
+- `snow.rs` → `momentum_power.rs`
+- `stock_gugan.rs` → `range_trading.rs`
+
+**신규 통합 전략 (4개)**:
+- `asset_allocation.rs` - All Weather, HAA, XAA, BAA 통합
+- `day_trading.rs` - Grid, Market Interest Day 통합
+- `mean_reversion.rs` - Bollinger, RSI 통합
+- `rotation.rs` - Dual Momentum, Sector Momentum, Stock Rotation, Market Cap Top 통합
+
+#### 🗄️ 마이그레이션 정리 (19 → 7개로 통합)
+- `01_core_foundation.sql` - 기본 스키마, ENUM, 확장 (기존 01~04 통합)
+- `02_data_management.sql` - 심볼 정보, OHLCV, 펀더멘털 (기존 04~05 통합)
+- `03_trading_analytics.sql` - 매매일지, 포트폴리오 분석 (기존 06~08 통합)
+- `04_strategy_signals.sql` - 전략, 신호, 알림 시스템 (기존 09 통합)
+- `05_evaluation_ranking.sql` - Reality Check, 랭킹 시스템 (기존 10, 12 통합)
+- `06_user_settings.sql` - 관심종목, 스크리닝 프리셋, KIS 토큰 (기존 13~17 통합)
+- `migrations/README.md` - 마이그레이션 가이드 업데이트
+
+#### 🧹 Clippy 경고 전체 수정 (50+ → 0)
+- `manual_clamp` 패턴 수정: `.max(a).min(b)` → `.clamp(a, b)`
+- `should_implement_trait` 수정: `from_str` → `parse` 메서드 이름 변경
+- `question_mark` 수정: `let...else { return None }` → `?` 연산자
+- `if_same_then_else` 수정: 동일 분기 병합
+- `needless_range_loop` 수정: 인덱스 루프 → 이터레이터
+- 의도적 패턴에 `#[allow]` 어트리뷰트 추가
+
+#### 📝 문서 업데이트
+- **CLAUDE.md** - v0.6.0 → v0.7.0 업데이트
+- **docs/todo.md** - 전략 리팩토링 진행 상황 반영
+- **docs/prd.md** - 네이버 크롤러 요구사항 추가
+
+### Fixed
+
+- **MarketType 열거형 수정** - `MarketType::Kr`, `MarketType::Us` → `MarketType::Stock`으로 통일
+- **백테스트 엔진** - 다중 심볼 데이터 매칭 로직 개선
+- **스크리닝 와일드카드** - 불필요한 패턴 매칭 제거
+- **analytics/manager.rs** - 캐시 unwrap 패턴 안전하게 처리
+
+### Dependencies
+
+#### 신규 추가
+- `scraper = "0.21"` - HTML 파싱 (네이버 금융 크롤링)
+
+### Database
+
+- 마이그레이션 파일 19개 → 7개로 통합 (63% 파일 감소)
+- 총 크기 유지하면서 관리 복잡도 감소
+
+---
+
+## [0.6.0] - 2026-02-04
 
 ### Added
 

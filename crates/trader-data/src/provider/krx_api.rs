@@ -216,6 +216,7 @@ pub struct KrxEtnInfo {
 
 /// API 응답 래퍼.
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct ApiResponse<T> {
     #[serde(rename = "OutBlock_1")]
     out_block: Option<Vec<T>>,
@@ -338,7 +339,7 @@ impl KrxApiClient {
         }
 
         // 3. 환경변수 폴백
-        if let Some(api_key) = std::env::var("KRX_API_KEY").ok() {
+        if let Ok(api_key) = std::env::var("KRX_API_KEY") {
             tracing::info!("KRX API 키 로드: 환경변수에서 로드됨 (폴백)");
             return Ok(Some(Self::new(api_key)));
         }
@@ -408,7 +409,8 @@ impl KrxApiClient {
         api_id: &str,
         params: &HashMap<&str, &str>,
     ) -> Result<Vec<T>, Box<dyn std::error::Error + Send + Sync>> {
-        self.request_with_category(ApiCategory::Stock, api_id, params).await
+        self.request_with_category(ApiCategory::Stock, api_id, params)
+            .await
     }
 
     /// KOSPI 종목 기본 정보 조회.
@@ -451,11 +453,15 @@ impl KrxApiClient {
                 market: "STK".to_string(),
                 sector: s.sector,
                 market_cap: parse_decimal_opt(&s.market_cap),
-                shares_outstanding: s.shares.as_ref().and_then(|v| v.replace(",", "").parse().ok()),
+                shares_outstanding: s
+                    .shares
+                    .as_ref()
+                    .and_then(|v| v.replace(",", "").parse().ok()),
                 par_value: parse_decimal_opt(&s.par_value),
-                listing_date: s.listing_date.as_ref().and_then(|d| {
-                    NaiveDate::parse_from_str(d, "%Y/%m/%d").ok()
-                }),
+                listing_date: s
+                    .listing_date
+                    .as_ref()
+                    .and_then(|d| NaiveDate::parse_from_str(d, "%Y/%m/%d").ok()),
             })
             .collect();
 
@@ -503,11 +509,15 @@ impl KrxApiClient {
                 market: "KSQ".to_string(),
                 sector: s.sector,
                 market_cap: parse_decimal_opt(&s.market_cap),
-                shares_outstanding: s.shares.as_ref().and_then(|v| v.replace(",", "").parse().ok()),
+                shares_outstanding: s
+                    .shares
+                    .as_ref()
+                    .and_then(|v| v.replace(",", "").parse().ok()),
                 par_value: parse_decimal_opt(&s.par_value),
-                listing_date: s.listing_date.as_ref().and_then(|d| {
-                    NaiveDate::parse_from_str(d, "%Y/%m/%d").ok()
-                }),
+                listing_date: s
+                    .listing_date
+                    .as_ref()
+                    .and_then(|d| NaiveDate::parse_from_str(d, "%Y/%m/%d").ok()),
             })
             .collect();
 
@@ -558,12 +568,15 @@ impl KrxApiClient {
                     ticker: e.ticker?,
                     name: e.name,
                     underlying_index: e.underlying_index,
-                    issuer: None,  // ETF 일별매매정보에서는 운용사 정보 미제공
+                    issuer: None, // ETF 일별매매정보에서는 운용사 정보 미제공
                     nav: parse_decimal_opt(&e.nav),
                     tracking_error: parse_decimal_opt(&e.tracking_error),
                     close: parse_decimal_opt(&e.close),
                     market_cap: parse_decimal_opt(&e.market_cap),
-                    volume: e.volume.as_ref().and_then(|v| v.replace(",", "").parse().ok()),
+                    volume: e
+                        .volume
+                        .as_ref()
+                        .and_then(|v| v.replace(",", "").parse().ok()),
                 })
             })
             .collect();
@@ -620,7 +633,11 @@ impl KrxApiClient {
             })
             .collect();
 
-        tracing::info!(market = market, count = valuations.len(), "가치지표 조회 완료");
+        tracing::info!(
+            market = market,
+            count = valuations.len(),
+            "가치지표 조회 완료"
+        );
         Ok(valuations)
     }
 
@@ -674,7 +691,11 @@ impl KrxApiClient {
                     high: parse_decimal_opt(&o.high).unwrap_or_default(),
                     low: parse_decimal_opt(&o.low).unwrap_or_default(),
                     close: parse_decimal_opt(&o.close).unwrap_or_default(),
-                    volume: o.volume.as_ref().and_then(|v| v.replace(",", "").parse().ok()).unwrap_or(0),
+                    volume: o
+                        .volume
+                        .as_ref()
+                        .and_then(|v| v.replace(",", "").parse().ok())
+                        .unwrap_or(0),
                     trading_value: parse_decimal_opt(&o.trading_value),
                 })
             })
@@ -736,14 +757,22 @@ impl KrxApiClient {
                         high: parse_decimal_opt(&o.high).unwrap_or_default(),
                         low: parse_decimal_opt(&o.low).unwrap_or_default(),
                         close: parse_decimal_opt(&o.close).unwrap_or_default(),
-                        volume: o.volume.as_ref().and_then(|v| v.replace(",", "").parse().ok()).unwrap_or(0),
+                        volume: o
+                            .volume
+                            .as_ref()
+                            .and_then(|v| v.replace(",", "").parse().ok())
+                            .unwrap_or(0),
                         trading_value: parse_decimal_opt(&o.trading_value),
                     },
                 ))
             })
             .collect();
 
-        tracing::info!(market = market, base_date = base_date, "전종목 시세 조회 완료");
+        tracing::info!(
+            market = market,
+            base_date = base_date,
+            "전종목 시세 조회 완료"
+        );
         Ok(results)
     }
 
@@ -854,7 +883,10 @@ impl KrxApiClient {
                     open: parse_decimal_opt(&i.open),
                     high: parse_decimal_opt(&i.high),
                     low: parse_decimal_opt(&i.low),
-                    volume: i.volume.as_ref().and_then(|v| v.replace(",", "").parse().ok()),
+                    volume: i
+                        .volume
+                        .as_ref()
+                        .and_then(|v| v.replace(",", "").parse().ok()),
                     trading_value: parse_decimal_opt(&i.trading_value),
                     market_cap: parse_decimal_opt(&i.market_cap),
                 })
@@ -872,7 +904,8 @@ impl KrxApiClient {
         &self,
         base_date: &str,
     ) -> Result<Vec<KrxDailyTrade>, Box<dyn std::error::Error + Send + Sync>> {
-        self.fetch_daily_trades_internal("stk_bydd_trd", "유가증권시장", base_date).await
+        self.fetch_daily_trades_internal("stk_bydd_trd", "유가증권시장", base_date)
+            .await
     }
 
     /// 코스닥 전종목 일별 매매정보 조회 (섹터 포함).
@@ -882,7 +915,8 @@ impl KrxApiClient {
         &self,
         base_date: &str,
     ) -> Result<Vec<KrxDailyTrade>, Box<dyn std::error::Error + Send + Sync>> {
-        self.fetch_daily_trades_internal("ksq_bydd_trd", "코스닥시장", base_date).await
+        self.fetch_daily_trades_internal("ksq_bydd_trd", "코스닥시장", base_date)
+            .await
     }
 
     /// 코넥스 전종목 일별 매매정보 조회.
@@ -892,7 +926,8 @@ impl KrxApiClient {
         &self,
         base_date: &str,
     ) -> Result<Vec<KrxDailyTrade>, Box<dyn std::error::Error + Send + Sync>> {
-        self.fetch_daily_trades_internal("knx_bydd_trd", "코넥스시장", base_date).await
+        self.fetch_daily_trades_internal("knx_bydd_trd", "코넥스시장", base_date)
+            .await
     }
 
     /// 일별 매매정보 조회 내부 구현.
@@ -960,7 +995,10 @@ impl KrxApiClient {
                     volume,
                     trading_value: parse_decimal_opt(&t.trading_value),
                     market_cap: parse_decimal_opt(&t.market_cap),
-                    shares_outstanding: t.shares.as_ref().and_then(|v| v.replace(",", "").parse().ok()),
+                    shares_outstanding: t
+                        .shares
+                        .as_ref()
+                        .and_then(|v| v.replace(",", "").parse().ok()),
                 })
             })
             .collect();
@@ -1014,7 +1052,10 @@ impl KrxApiClient {
                     indicative_value: parse_decimal_opt(&e.indicative_value),
                     close: parse_decimal_opt(&e.close),
                     market_cap: parse_decimal_opt(&e.market_cap),
-                    volume: e.volume.as_ref().and_then(|v| v.replace(",", "").parse().ok()),
+                    volume: e
+                        .volume
+                        .as_ref()
+                        .and_then(|v| v.replace(",", "").parse().ok()),
                 })
             })
             .collect();
@@ -1057,7 +1098,11 @@ impl KrxApiClient {
         let mut all = kospi_result?;
         all.extend(kosdaq_result?);
 
-        tracing::info!(total = all.len(), base_date = base_date, "전체 일별 매매정보 조회 완료");
+        tracing::info!(
+            total = all.len(),
+            base_date = base_date,
+            "전체 일별 매매정보 조회 완료"
+        );
         Ok(all)
     }
 
@@ -1076,10 +1121,7 @@ impl KrxApiClient {
             by_sector.entry(sector).or_default().push(trade);
         }
 
-        tracing::info!(
-            sector_count = by_sector.len(),
-            "섹터별 종목 그룹핑 완료"
-        );
+        tracing::info!(sector_count = by_sector.len(), "섹터별 종목 그룹핑 완료");
         Ok(by_sector)
     }
 }

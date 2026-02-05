@@ -23,14 +23,24 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 // trader-core 도메인 타입 (ToSchema 지원)
-use trader_core::{OrderStatusType, OrderType, Side, SignalIndicators, TimeInForce};
 use trader_core::types::{MarketType, Symbol};
+use trader_core::{OrderStatusType, OrderType, Side, SignalIndicators, TimeInForce};
 
 // ==================== 각 모듈에서 스키마 Import ====================
 
 use crate::error::ApiErrorResponse;
 use crate::repository::{RankedSymbol, SevenFactorData, SevenFactorResponse};
 use crate::routes::{
+    // Ranking 모듈
+    ranking::{
+        CalculateResponse, FilterInfo, RankingQuery, RankingResponse, SevenFactorBatchRequest,
+        SevenFactorBatchResponse, SevenFactorQuery,
+    },
+    // Signals 모듈
+    signals::{
+        SignalMarkerDto, SignalSearchRequest, SignalSearchResponse, StrategySignalsQuery,
+        SymbolSignalsQuery,
+    },
     // Strategies 모듈
     strategies::{ApiError, StrategyListItem},
     // Health 모듈
@@ -46,10 +56,6 @@ use crate::routes::{
     ScreeningResponse,
     StatsResponse,
     StrategiesListResponse,
-    // Signals 모듈
-    signals::{SignalMarkerDto, SignalSearchRequest, SignalSearchResponse, SymbolSignalsQuery, StrategySignalsQuery},
-    // Ranking 모듈
-    ranking::{CalculateResponse, FilterInfo, RankingQuery, RankingResponse, SevenFactorBatchRequest, SevenFactorBatchResponse, SevenFactorQuery},
 };
 
 // ==================== OpenAPI 문서 정의 ====================

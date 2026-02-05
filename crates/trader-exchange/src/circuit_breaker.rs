@@ -573,15 +573,14 @@ impl CircuitBreaker {
 
     /// Open 상태에서 타임아웃이 경과했으면 HalfOpen으로 전이.
     fn maybe_transition_from_open(&self, state: &mut CircuitBreakerState) {
-        if state.state == CircuitState::Open {
-            if state.last_state_change.elapsed() >= self.config.reset_timeout() {
+        if state.state == CircuitState::Open
+            && state.last_state_change.elapsed() >= self.config.reset_timeout() {
                 self.transition_to(state, CircuitState::HalfOpen);
                 tracing::info!(
                     circuit_breaker = %self.name,
                     "Circuit breaker timeout: Open -> HalfOpen"
                 );
             }
-        }
     }
 
     /// 상태 전이.

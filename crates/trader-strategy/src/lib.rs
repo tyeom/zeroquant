@@ -47,7 +47,7 @@ pub use plugin::{BuiltinStrategyFactory, LoaderConfig, PluginError, PluginLoader
 pub use registry::{StrategyCategory, StrategyMeta, StrategyRegistry};
 pub use schema_composer::SchemaComposer;
 pub use schema_registry::FragmentRegistry;
-pub use strategies::{GridConfig, GridStats, GridStrategy, RsiConfig, RsiStats, RsiStrategy};
+pub use strategies::{MeanReversionConfig, MeanReversionStrategy, MeanReversionVariant};
 pub use traits::{Strategy, StrategyMetadata};
 
 // 프로시저 매크로 재내보내기

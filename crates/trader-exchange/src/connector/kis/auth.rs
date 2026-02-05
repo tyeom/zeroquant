@@ -173,10 +173,7 @@ impl KisOAuth {
             let token_guard = self.token.read().await;
             if let Some(ref token) = *token_guard {
                 if !token.is_expired_or_expiring() {
-                    debug!(
-                        "Using cached KIS token (expires at: {})",
-                        token.expires_at
-                    );
+                    debug!("Using cached KIS token (expires at: {})", token.expires_at);
                     return Ok(token.clone());
                 } else {
                     warn!(
@@ -215,8 +212,7 @@ impl KisOAuth {
                 self.config.app_secret.len()
             );
             return Err(ExchangeError::Unauthorized(
-                "KIS_APP_SECRET 환경변수가 올바르게 설정되지 않았습니다."
-                    .to_string(),
+                "KIS_APP_SECRET 환경변수가 올바르게 설정되지 않았습니다.".to_string(),
             ));
         }
 

@@ -2,19 +2,27 @@
  * SDUI 스키마 API 함수
  *
  * 전략 스키마 및 Fragment 조회 API를 호출합니다.
+ * ts-rs 자동 생성 타입 사용
  */
 import api from './client';
 import type {
   StrategyUISchema,
   SchemaFragment,
-  GetFragmentsResponse,
-} from '../types/sdui';
+} from '../types/generated/sdui';
+
+/**
+ * Fragment 목록 응답 타입
+ */
+export interface GetFragmentsResponse {
+  fragments: SchemaFragment[];
+  total: number;
+}
 
 /**
  * 전략 스키마 조회
  *
  * @param strategyId 전략 ID (예: "grid", "rsi")
- * @returns 전략 UI 스키마
+ * @returns 전략 UI 스키마 (ts-rs 자동 생성 타입)
  *
  * @example
  * ```typescript

@@ -47,11 +47,19 @@ export function SymbolSearch(props: SymbolSearchProps) {
   const [isLoading, setIsLoading] = createSignal(false)
   const [selectedIndex, setSelectedIndex] = createSignal(-1)
   const [showDropdown, setShowDropdown] = createSignal(false)
+  const [isEditing, setIsEditing] = createSignal(false)
 
   // 선택된 심볼 목록 (복수 모드용)
   const selectedSymbols = (): string[] => {
     if (!props.value) return []
     return Array.isArray(props.value) ? props.value : [props.value]
+  }
+
+  // 단일 선택 모드에서 현재 선택된 값
+  const singleSelectedValue = (): string | null => {
+    if (props.multiple) return null
+    if (!props.value) return null
+    return Array.isArray(props.value) ? props.value[0] || null : props.value
   }
 
   // 디바운스 타이머
@@ -115,12 +123,29 @@ export function SymbolSearch(props: SymbolSearchProps) {
     } else {
       // 단일 선택 모드
       props.onSelect?.(ticker, name)
+      setIsEditing(false)
     }
 
     setQuery('')
     setResults([])
     setSelectedIndex(-1)
     setShowDropdown(false)
+  }
+
+  // 단일 선택 모드에서 편집 시작
+  const startEditing = () => {
+    if (!props.disabled) {
+      setIsEditing(true)
+      setQuery('')
+    }
+  }
+
+  // 단일 선택 모드에서 선택 해제
+  const handleClearSingle = () => {
+    if (!props.disabled) {
+      props.onSelect?.('')
+      setIsEditing(true)
+    }
   }
 
   // 심볼 제거 핸들러 (복수 모드용)
@@ -218,19 +243,45 @@ export function SymbolSearch(props: SymbolSearchProps) {
       <div class="relative">
         <div class="flex gap-2">
           <div class="relative flex-1">
-            <Search class={`absolute left-3 top-1/2 -translate-y-1/2 ${sizes.icon} text-[var(--color-text-muted)]`} />
-            <input
-              type="text"
-              value={query()}
-              onInput={(e) => handleInput(e.currentTarget.value)}
-              onKeyDown={handleKeyDown}
-              onFocus={() => setShowDropdown(true)}
-              onBlur={handleBlur}
-              placeholder={props.placeholder || '심볼/회사명 검색...'}
-              disabled={props.disabled}
-              autofocus={props.autoFocus}
-              class={`w-full pl-9 ${sizes.input} ${props.inputClass || ''} bg-[var(--color-surface)] border border-[var(--color-surface-light)] rounded-lg text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)] disabled:opacity-50`}
-            />
+            {/* 단일 선택 모드: 선택된 값 표시 또는 검색창 */}
+            <Show when={!props.multiple && singleSelectedValue() && !isEditing()} fallback={
+              <>
+                <Search class={`absolute left-3 top-1/2 -translate-y-1/2 ${sizes.icon} text-[var(--color-text-muted)]`} />
+                <input
+                  type="text"
+                  value={query()}
+                  onInput={(e) => handleInput(e.currentTarget.value)}
+                  onKeyDown={handleKeyDown}
+                  onFocus={() => setShowDropdown(true)}
+                  onBlur={handleBlur}
+                  placeholder={props.placeholder || '종목 코드 또는 이름 검색'}
+                  disabled={props.disabled}
+                  autofocus={props.autoFocus || isEditing()}
+                  class={`w-full pl-9 ${sizes.input} ${props.inputClass || ''} bg-[var(--color-surface)] border border-[var(--color-surface-light)] rounded-lg text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)] disabled:opacity-50`}
+                />
+              </>
+            }>
+              {/* 선택된 심볼 표시 (단일 모드) */}
+              <div
+                onClick={startEditing}
+                class={`flex items-center gap-2 ${sizes.input} pl-3 pr-2 bg-[var(--color-surface)] border border-[var(--color-surface-light)] rounded-lg cursor-pointer hover:border-[var(--color-primary)] transition-colors ${props.disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                <span class="flex-1 font-medium text-[var(--color-primary)]">
+                  {singleSelectedValue()}
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleClearSingle()
+                  }}
+                  disabled={props.disabled}
+                  class="p-1 hover:bg-[var(--color-surface-light)] rounded transition-colors"
+                >
+                  <X class={`${sizes.icon} text-[var(--color-text-muted)]`} />
+                </button>
+              </div>
+            </Show>
           </div>
           {/* 복수 모드: 추가 버튼 */}
           <Show when={props.multiple}>

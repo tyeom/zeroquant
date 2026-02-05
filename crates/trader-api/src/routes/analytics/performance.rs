@@ -40,7 +40,7 @@ pub(crate) fn parse_period_duration(period: &str) -> Duration {
             );
             now.signed_duration_since(start_of_year)
         }
-        "all" | _ => Duration::days(3650), // 10년
+        _ => Duration::days(3650), // 10년 (all 및 기타)
     }
 }
 

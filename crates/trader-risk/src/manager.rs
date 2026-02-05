@@ -435,7 +435,13 @@ mod tests {
         quantity: Decimal,
         entry_price: Decimal,
     ) -> Position {
-        Position::new("test_exchange", symbol.to_string(), side, quantity, entry_price)
+        Position::new(
+            "test_exchange",
+            symbol.to_string(),
+            side,
+            quantity,
+            entry_price,
+        )
     }
 
     #[test]

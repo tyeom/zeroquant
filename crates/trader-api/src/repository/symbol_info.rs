@@ -410,6 +410,7 @@ impl SymbolInfoRepository {
             #[serde(rename = "ISU_ENG_NM", default)]
             name_en: Option<String>,
             #[serde(rename = "MKT_NM", default)]
+            #[allow(dead_code)]
             market_name: Option<String>,
             #[serde(rename = "SECT_TP_NM", default)]
             sector: Option<String>,
@@ -508,6 +509,7 @@ impl SymbolInfoRepository {
             #[serde(default)]
             quote_type: Option<String>,
             #[serde(default)]
+            #[allow(dead_code)]
             market: Option<String>,
             #[serde(default)]
             currency: Option<String>,

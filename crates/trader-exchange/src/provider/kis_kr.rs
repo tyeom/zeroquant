@@ -7,13 +7,13 @@ use chrono::TimeZone;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::sync::Arc;
-use uuid::Uuid;
+use tracing::{debug, info, warn};
 use trader_core::domain::{
     ExchangeProvider, ExecutionHistoryRequest, ExecutionHistoryResponse, PendingOrder,
     ProviderError, Side, StrategyAccountInfo, StrategyPositionInfo, Trade,
 };
 use trader_core::types::{MarketType, Symbol};
-use tracing::{debug, info, warn};
+use uuid::Uuid;
 
 /// KIS 날짜/시간 파싱 (YYYYMMDD + HHMMSS → DateTime<Utc>).
 fn parse_kis_datetime(date: &str, time: &str) -> Result<chrono::DateTime<chrono::Utc>, String> {
@@ -65,7 +65,9 @@ impl KisKrProvider {
     ///
     /// KIS API는 한 번에 최대 1년, 100건만 반환하므로 년도별로 분할하고 연속 조회 키를 사용합니다.
     /// Rate limiting과 무한 루프 방지 로직 포함.
-    async fn fetch_all_order_history(&self) -> Result<Vec<crate::connector::kis::client_kr::KrOrderExecution>, ProviderError> {
+    async fn fetch_all_order_history(
+        &self,
+    ) -> Result<Vec<crate::connector::kis::client_kr::KrOrderExecution>, ProviderError> {
         use crate::connector::kis::client_kr::KrOrderExecution;
         use chrono::{Datelike, Duration, NaiveDate};
 
@@ -81,7 +83,7 @@ impl KisKrProvider {
             let end = if years_ago == 0 {
                 today
             } else {
-                NaiveDate::from_ymd_opt(today.year() - years_ago as i32, today.month(), today.day())
+                NaiveDate::from_ymd_opt(today.year() - years_ago, today.month(), today.day())
                     .unwrap_or(today - Duration::days(365 * years_ago as i64))
             };
             let start = end - Duration::days(364); // 1년 미만으로 설정
@@ -96,7 +98,13 @@ impl KisKrProvider {
 
         // 각 날짜 범위에 대해 조회
         for (range_idx, (start_str, end_str)) in date_ranges.iter().enumerate() {
-            debug!("날짜 범위 {}/{}: {} ~ {}", range_idx + 1, date_ranges.len(), start_str, end_str);
+            debug!(
+                "날짜 범위 {}/{}: {} ~ {}",
+                range_idx + 1,
+                date_ranges.len(),
+                start_str,
+                end_str
+            );
 
             let mut ctx_fk = String::new();
             let mut ctx_nk = String::new();
@@ -124,16 +132,30 @@ impl KisKrProvider {
                     Err(e) => {
                         let error_msg = e.to_string();
                         // Rate Limit 에러 시 재시도
-                        if error_msg.contains("초당") || error_msg.contains("건수") || error_msg.contains("exceeded") {
+                        if error_msg.contains("초당")
+                            || error_msg.contains("건수")
+                            || error_msg.contains("exceeded")
+                        {
                             warn!("Rate limit hit, waiting 2 seconds...");
                             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                            match self.client.get_order_history(start_str, end_str, "00", &ctx_fk, &ctx_nk).await {
+                            match self
+                                .client
+                                .get_order_history(start_str, end_str, "00", &ctx_fk, &ctx_nk)
+                                .await
+                            {
                                 Ok(h) => h,
                                 Err(_) => break, // 재시도 실패 시 다음 범위로
                             }
                         } else {
                             // 다른 에러는 다음 범위로 진행
-                            debug!("날짜 범위 {} 조회 실패, 다음 범위로: {}", range_idx + 1, e);
+                            warn!(
+                                "날짜 범위 {}/{} ({} ~ {}) 조회 실패, 다음 범위로: {}",
+                                range_idx + 1,
+                                date_ranges.len(),
+                                start_str,
+                                end_str,
+                                e
+                            );
                             break;
                         }
                     }
@@ -142,9 +164,17 @@ impl KisKrProvider {
                 let count = history.executions.len();
                 all_executions.extend(history.executions);
 
-                // 데이터가 있으면 해당 범위에서 거래 기록 발견
+                // 데이터가 있으면 해당 범위에서 거래 기록 발견 (debug 레벨로 출력)
                 if count > 0 {
-                    debug!("페이지 {} 완료: {} 건", page, count);
+                    debug!(
+                        "날짜 범위 {}/{} ({} ~ {}), 페이지 {}: {} 건 발견",
+                        range_idx + 1,
+                        date_ranges.len(),
+                        start_str,
+                        end_str,
+                        page,
+                        count
+                    );
                 }
 
                 // 종료 조건들
@@ -190,9 +220,11 @@ impl KisKrProvider {
                 continue;
             }
 
-            let entry = positions
-                .entry(execution.stock_code.clone())
-                .or_insert((Decimal::ZERO, Decimal::ZERO, Decimal::ZERO));
+            let entry = positions.entry(execution.stock_code.clone()).or_insert((
+                Decimal::ZERO,
+                Decimal::ZERO,
+                Decimal::ZERO,
+            ));
 
             match execution.side_code.as_str() {
                 "02" => {
@@ -321,12 +353,8 @@ impl KisKrProvider {
             };
 
             // 포지션 생성
-            let mut position = StrategyPositionInfo::new(
-                code.clone(),
-                Side::Buy,
-                current_qty,
-                avg_entry_price,
-            );
+            let mut position =
+                StrategyPositionInfo::new(code.clone(), Side::Buy, current_qty, avg_entry_price);
             position.update_price(current_price);
 
             // 손익 계산
@@ -487,6 +515,21 @@ impl ExchangeProvider for KisKrProvider {
         &self,
         request: &ExecutionHistoryRequest,
     ) -> Result<ExecutionHistoryResponse, ProviderError> {
+        let is_isa = self.is_isa_account();
+        info!(
+            "fetch_execution_history 호출: is_isa={}, account_type={:?}",
+            is_isa,
+            self.client.oauth().config().account_type
+        );
+
+        // ISA 계좌는 전체 체결 내역 기반으로 조회 (페이징 포함)
+        // ISA 계좌는 체결 기록 기반 자산 계산이 필수이므로 전체 내역 조회
+        if is_isa {
+            info!("ISA 계좌: 전체 체결 내역 기반 조회 시작");
+            return self.fetch_execution_history_from_all_orders().await;
+        }
+
+        // 일반 계좌: 단일 페이지 조회
         // 커서 파싱 (format: "ctx_fk100|ctx_nk100")
         let (ctx_fk, ctx_nk) = if let Some(cursor) = &request.cursor {
             let parts: Vec<&str> = cursor.split('|').collect();
@@ -516,8 +559,66 @@ impl ExchangeProvider for KisKrProvider {
             .map_err(|e| ProviderError::Api(format!("KIS 체결 내역 조회 실패: {}", e)))?;
 
         // KIS 응답을 Trade로 변환
+        let trades = self.convert_executions_to_trades(&history.executions);
+
+        // 다음 페이지 커서 생성
+        let next_cursor =
+            if !history.ctx_area_fk100.is_empty() && !history.ctx_area_nk100.is_empty() {
+                Some(format!(
+                    "{}|{}",
+                    history.ctx_area_fk100, history.ctx_area_nk100
+                ))
+            } else {
+                None
+            };
+
+        Ok(ExecutionHistoryResponse {
+            trades,
+            next_cursor,
+        })
+    }
+}
+
+impl KisKrProvider {
+    /// 전체 체결 내역을 조회하여 ExecutionHistoryResponse로 변환.
+    ///
+    /// ISA 계좌 등 체결 기록 기반 자산 계산이 필요한 경우 사용합니다.
+    /// 페이징을 통해 계좌 개설 이후 모든 체결 내역을 조회합니다.
+    async fn fetch_execution_history_from_all_orders(
+        &self,
+    ) -> Result<ExecutionHistoryResponse, ProviderError> {
+        // 전체 체결 내역 조회 (페이징 포함)
+        let all_executions = self.fetch_all_order_history().await?;
+
+        info!(
+            "ISA 계좌 전체 체결 내역 조회 완료: {} 건",
+            all_executions.len()
+        );
+
+        // KIS 응답을 Trade로 변환
+        let trades = self.convert_executions_to_trades(&all_executions);
+
+        info!(
+            "ISA 계좌 체결 내역 Trade 변환 완료: {} 건 (원본 {} 건)",
+            trades.len(),
+            all_executions.len()
+        );
+
+        // 전체 내역이므로 다음 페이지 없음
+        Ok(ExecutionHistoryResponse {
+            trades,
+            next_cursor: None,
+        })
+    }
+
+    /// KrOrderExecution 배열을 Trade 배열로 변환.
+    fn convert_executions_to_trades(
+        &self,
+        executions: &[crate::connector::kis::client_kr::KrOrderExecution],
+    ) -> Vec<Trade> {
         let mut trades = Vec::new();
-        for execution in &history.executions {
+
+        for execution in executions {
             // 체결 수량이 0이면 스킵
             if execution.filled_qty <= rust_decimal::Decimal::ZERO {
                 continue;
@@ -538,8 +639,8 @@ impl ExchangeProvider for KisKrProvider {
             );
 
             // 체결 시각 파싱
-            let executed_at =
-                parse_kis_datetime(&execution.order_date, &execution.order_time).unwrap_or_else(|_| chrono::Utc::now());
+            let executed_at = parse_kis_datetime(&execution.order_date, &execution.order_time)
+                .unwrap_or_else(|_| chrono::Utc::now());
 
             // Trade 생성
             let trade = Trade {
@@ -549,9 +650,9 @@ impl ExchangeProvider for KisKrProvider {
                 exchange_trade_id: execution.order_no.clone(),
                 ticker: symbol.to_string(),
                 side: trade_side,
-                quantity: execution.filled_qty, // Quantity는 Decimal의 alias
-                price: execution.avg_price,     // Price는 Decimal의 alias
-                fee: Decimal::ZERO,             // KIS API는 수수료를 제공하지 않음
+                quantity: execution.filled_qty,
+                price: execution.avg_price,
+                fee: Decimal::ZERO, // KIS API는 수수료를 제공하지 않음
                 fee_currency: "KRW".to_string(),
                 executed_at,
                 is_maker: false, // KIS API는 메이커/테이커 정보를 제공하지 않음
@@ -564,14 +665,7 @@ impl ExchangeProvider for KisKrProvider {
             trades.push(trade);
         }
 
-        // 다음 페이지 커서 생성
-        let next_cursor = if !history.ctx_area_fk100.is_empty() && !history.ctx_area_nk100.is_empty() {
-            Some(format!("{}|{}", history.ctx_area_fk100, history.ctx_area_nk100))
-        } else {
-            None
-        };
-
-        Ok(ExecutionHistoryResponse { trades, next_cursor })
+        trades
     }
 }
 

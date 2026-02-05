@@ -20,7 +20,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, error, info, warn};
 use trader_core::{
     Kline, MarketType, OrderBook, OrderBookLevel, OrderRequest, OrderStatus, OrderType, Position,
-    RoundMethod, Side, Symbol, Ticker, TickSizeProvider, Timeframe, TradeTick,
+    RoundMethod, Side, Symbol, TickSizeProvider, Ticker, Timeframe, TradeTick,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -485,8 +485,7 @@ impl BinanceClient {
         let quotes = ["USDT", "BUSD", "BTC", "ETH", "BNB", "USDC"];
 
         for quote in quotes {
-            if binance_symbol.ends_with(quote) {
-                let base = &binance_symbol[..binance_symbol.len() - quote.len()];
+            if let Some(base) = binance_symbol.strip_suffix(quote) {
                 return Symbol::new(base, quote, MarketType::Crypto);
             }
         }
@@ -637,11 +636,7 @@ impl Exchange for BinanceClient {
         })
     }
 
-    async fn get_order_book(
-        &self,
-        symbol: &str,
-        limit: Option<u32>,
-    ) -> ExchangeResult<OrderBook> {
+    async fn get_order_book(&self, symbol: &str, limit: Option<u32>) -> ExchangeResult<OrderBook> {
         let binance_symbol = Self::from_symbol(symbol);
         let limit_str = limit.unwrap_or(100).to_string();
 

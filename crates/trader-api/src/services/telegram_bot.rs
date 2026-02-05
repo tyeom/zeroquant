@@ -5,17 +5,15 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use sqlx::PgPool;
 use tracing::{debug, error, info};
 
 use trader_notification::{
-    BotCommandHandler, CommandResponse, NotificationResult, ReportPeriod,
-    TelegramBotHandler, TelegramConfig,
+    BotCommandHandler, CommandResponse, NotificationResult, ReportPeriod, TelegramBotHandler,
+    TelegramConfig,
 };
-
-use crate::repository::JournalRepository;
 
 /// API 연동 봇 핸들러.
 ///
@@ -80,7 +78,16 @@ impl BotCommandHandler for ApiBotHandler {
         debug!("포트폴리오 조회 시작");
 
         // 보유 현황 조회 (모든 credential의 포지션)
-        let positions_result: Result<Vec<(String, Decimal, Option<Decimal>, Option<Decimal>, Option<Decimal>)>, _> = sqlx::query_as(
+        let positions_result: Result<
+            Vec<(
+                String,
+                Decimal,
+                Option<Decimal>,
+                Option<Decimal>,
+                Option<Decimal>,
+            )>,
+            _,
+        > = sqlx::query_as(
             r#"
             SELECT DISTINCT ON (symbol)
                 symbol,
@@ -92,7 +99,7 @@ impl BotCommandHandler for ApiBotHandler {
             WHERE quantity > 0
             ORDER BY symbol, snapshot_time DESC
             LIMIT 10
-            "#
+            "#,
         )
         .fetch_all(&self.db_pool)
         .await;
@@ -111,7 +118,9 @@ impl BotCommandHandler for ApiBotHandler {
                 let mut total_value = Decimal::ZERO;
                 let mut total_pnl = Decimal::ZERO;
 
-                for (symbol, quantity, market_value, unrealized_pnl, unrealized_pnl_pct) in positions {
+                for (symbol, quantity, market_value, unrealized_pnl, unrealized_pnl_pct) in
+                    positions
+                {
                     let pnl = unrealized_pnl.unwrap_or(Decimal::ZERO);
                     let pnl_pct = unrealized_pnl_pct.unwrap_or(Decimal::ZERO);
                     let value = market_value.unwrap_or(Decimal::ZERO);
@@ -174,16 +183,15 @@ impl BotCommandHandler for ApiBotHandler {
         let status_emoji = if db_status { "✅" } else { "❌" };
 
         // 활성 전략 수 조회
-        let active_strategies: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM strategies WHERE status = 'active'"
-        )
-        .fetch_one(&self.db_pool)
-        .await
-        .unwrap_or(0);
+        let active_strategies: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM strategies WHERE status = 'active'")
+                .fetch_one(&self.db_pool)
+                .await
+                .unwrap_or(0);
 
         // 오늘 거래 수
         let today_trades: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM executions WHERE DATE(executed_at) = CURRENT_DATE"
+            "SELECT COUNT(*) FROM executions WHERE DATE(executed_at) = CURRENT_DATE",
         )
         .fetch_one(&self.db_pool)
         .await
@@ -232,7 +240,7 @@ impl BotCommandHandler for ApiBotHandler {
 
         // 전략 상태 업데이트
         let result = sqlx::query(
-            "UPDATE strategies SET status = 'stopped', updated_at = NOW() WHERE strategy_id = $1"
+            "UPDATE strategies SET status = 'stopped', updated_at = NOW() WHERE strategy_id = $1",
         )
         .bind(id)
         .execute(&self.db_pool)
@@ -328,7 +336,7 @@ impl BotCommandHandler for ApiBotHandler {
              FROM symbol_global_score
              WHERE recommendation IN ('ATTACK', 'BUY')
              ORDER BY overall_score DESC
-             LIMIT 10"
+             LIMIT 10",
         )
         .fetch_all(&self.db_pool)
         .await
@@ -372,7 +380,10 @@ mod tests {
 
     #[test]
     fn test_format_krw() {
-        assert_eq!(ApiBotHandler::format_krw(Decimal::from(150_000_000)), "1.5억");
+        assert_eq!(
+            ApiBotHandler::format_krw(Decimal::from(150_000_000)),
+            "1.5억"
+        );
         assert_eq!(ApiBotHandler::format_krw(Decimal::from(5_000_000)), "500만");
         assert_eq!(ApiBotHandler::format_krw(Decimal::from(5_000)), "5000");
     }

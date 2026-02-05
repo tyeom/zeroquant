@@ -18,7 +18,9 @@
 
 ZeroQuant는 암호화폐와 주식 시장에서 **24/7 자동화된 거래**를 수행하는 트레이딩 시스템입니다.
 
-검증된 **26가지 전략**과 **50개 ML 패턴 인식** (캔들스틱 26개 + 차트 패턴 24개)을 통해 **그리드 트레이딩**, **자산배분**, **모멘텀** 등 다양한 투자 방법론을 지원합니다. 웹 대시보드에서 실시간 모니터링과 전략 제어가 가능하며, 리스크 관리 시스템이 자동으로 자산을 보호합니다.
+검증된 **16가지 통합 전략**과 **50개 ML 패턴 인식** (캔들스틱 26개 + 차트 패턴 24개)을 통해 **그리드 트레이딩**, **자산배분**, **모멘텀** 등 다양한 투자 방법론을 지원합니다. 웹 대시보드에서 실시간 모니터링과 전략 제어가 가능하며, 리스크 관리 시스템이 자동으로 자산을 보호합니다.
+
+> ⚠️ **v0.7.0 전략 리팩토링**: 기존 26개 전략이 16개로 통합되었습니다. 유사 기능을 가진 전략들이 하나의 모듈로 병합되어 유지보수성이 향상되었습니다.
 
 ## 주요 기능
 
@@ -29,8 +31,9 @@ ZeroQuant는 암호화폐와 주식 시장에서 **24/7 자동화된 거래**를
 | 한국/미국 주식 | 한국투자증권 (KIS) | 국내/해외 주식, 모의투자 지원 |
 
 ### 📊 데이터 & 분석
-- **다중 데이터 소스**: KRX OPEN API (국내), Yahoo Finance (해외/암호화폐)
-  - 데이터 프로바이더 토글 지원 (`PROVIDER_KRX_API_ENABLED`, `PROVIDER_YAHOO_ENABLED`)
+- **다중 데이터 소스**: KRX OPEN API, 네이버 금융 (국내), Yahoo Finance (해외/암호화폐)
+  - 데이터 프로바이더 토글 지원 (`PROVIDER_KRX_API_ENABLED`, `PROVIDER_YAHOO_ENABLED`, `NAVER_FUNDAMENTAL_ENABLED`)
+  - 네이버 금융 크롤링으로 국내 펀더멘털 데이터 수집 속도 개선
 - **다중 타임프레임 분석**: 여러 시간대 데이터 동시 분석 (1분~월봉)
   - Look-Ahead Bias 방지 자동 정렬
   - 크로스 타임프레임 시그널 결합
@@ -93,51 +96,39 @@ ZeroQuant는 암호화폐와 주식 시장에서 **24/7 자동화된 거래**를
 
 ## 지원 전략
 
-### 실시간 전략
-| 전략 | 설명 |
-|------|------|
-| **Grid Trading** | 가격 범위 내 자동 매수/매도 그리드 (고정/동적/트렌드 필터) |
-| **RSI Mean Reversion** | RSI 과매수/과매도 기반 평균회귀 |
-| **Bollinger Bands** | 볼린저 밴드 이탈 시 진입/청산 |
-| **Magic Split** | 10차수 분할매수 익절 전략 |
-| **Infinity Bot** | 무한매수봇 (50라운드, 트레일링 스탑) |
+### 통합 전략 (v0.7.0)
 
-### 일간 전략
+#### 📈 실시간/단기 전략
 | 전략 | 설명 |
 |------|------|
-| **Volatility Breakout** | 변동성 돌파 (래리 윌리엄스) |
-| **SMA Crossover** | 이동평균선 교차 추세 추종 |
-| **Compound Momentum** | 모멘텀 기반 공격/안전 자산 전환 |
-| **Stock Rotation** | 모멘텀 기반 종목 로테이션 |
-| **Market Interest Day** | 거래량 급증 종목 단타 |
+| **Day Trading** | 그리드 트레이딩 + 거래량 급증 종목 단타 (Grid, Market Interest Day 통합) |
+| **Mean Reversion** | RSI/볼린저 밴드 기반 평균회귀 전략 (RSI, Bollinger 통합) |
+| **Infinity Bot** | 무한매수봇 (50라운드, 트레일링 스탑) |
 | **Candle Pattern** | 35개 캔들스틱 패턴 인식 |
 
-### 월간 자산배분 전략
+#### 📊 모멘텀/로테이션 전략
 | 전략 | 설명 |
 |------|------|
-| **All Weather** | 레이 달리오 영감의 전천후 포트폴리오 (US/KR) |
-| **HAA** | Hierarchical Asset Allocation (계층적 자산배분) |
-| **XAA** | Extended Asset Allocation (확장 자산배분) |
-| **Momentum Power** | 모멘텀 기반 ETF 조합 + MA 필터 |
-| **Market Cap Top** | 시가총액 상위 종목 월간 리밸런싱 |
-| **BAA** | Bold Asset Allocation (공격/수비 모드 전환) |
-| **Dual Momentum** | 절대/상대 모멘텀 기반 자산배분 |
+| **Rotation** | 듀얼/섹터 모멘텀 + 시가총액 상위 로테이션 (Dual Momentum, Sector Momentum, Stock Rotation, Market Cap Top 통합) |
+| **Compound Momentum** | 모멘텀 기반 공격/안전 자산 전환 (구 Simple Power) |
+| **Momentum Power** | 모멘텀 기반 ETF 조합 + MA 필터 (구 Snow) |
+
+#### 🏦 자산배분 전략
+| 전략 | 설명 |
+|------|------|
+| **Asset Allocation** | 전천후 포트폴리오 (All Weather, HAA, XAA, BAA 통합) |
 | **Pension Portfolio** | 연금 계좌 자동 운용 (MDD 최소화) |
 
-### 섹터/레버리지 전략
+#### 🎯 섹터/레버리지/국내 전략
 | 전략 | 설명 |
 |------|------|
-| **Sector Momentum** | 섹터 ETF 로테이션 전략 |
 | **Sector VB** | 섹터별 변동성 돌파 |
 | **US 3X Leverage** | 미국 3배 레버리지 ETF (TQQQ/SOXL) |
-
-### 국내 주식 전략
-| 전략 | 설명 |
-|------|------|
-| **Momentum Surge** | 급등 모멘텀 단타 변동성 돌파 |
-| **Market Both Side** | 시장 롱숏 양방향 매매 |
+| **Kosdaq Fire Rain** | 코스닥 급등 모멘텀 단타 |
+| **Kospi Both Side** | KOSPI 롱숏 양방향 매매 |
 | **Small Cap Factor** | 소형주 팩터 전략 |
-| **Range Trading** | 박스권 구간별 분할 매매 전략 |
+| **Range Trading** | 박스권 구간별 분할 매매 (구 Stock Gugan) |
+| **RSI Multi Timeframe** | 다중 타임프레임 RSI 전략 |
 
 ## 전략 개발 가이드
 
@@ -251,7 +242,7 @@ zeroquant/
 ├── crates/
 │   ├── trader-core/         # 도메인 모델, 공통 유틸리티
 │   ├── trader-exchange/     # 거래소 연동 (Binance, KIS)
-│   ├── trader-strategy/     # 전략 엔진, 26개 전략
+│   ├── trader-strategy/     # 전략 엔진, 16개 통합 전략
 │   ├── trader-risk/         # 리스크 관리
 │   ├── trader-execution/    # 주문 실행 엔진
 │   ├── trader-data/         # 데이터 수집/저장 (OHLCV)
@@ -272,7 +263,7 @@ zeroquant/
 │   │   ├── TradingJournal.tsx # 매매일지
 │   │   └── Settings.tsx     # 설정 (API 키, 알림)
 │   └── src/components/      # 재사용 컴포넌트 (15개+)
-├── migrations/              # DB 마이그레이션 (23개)
+├── migrations/              # DB 마이그레이션 (7개 통합)
 ├── scripts/                 # ML 훈련 파이프라인
 └── docs/                    # 프로젝트 문서
 ```

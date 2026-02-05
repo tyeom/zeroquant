@@ -54,7 +54,7 @@ impl Role {
     }
 
     /// 문자열에서 역할 파싱.
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "admin" => Some(Role::Admin),
             "trader" => Some(Role::Trader),
@@ -152,10 +152,10 @@ mod tests {
 
     #[test]
     fn test_role_from_str() {
-        assert_eq!(Role::from_str("admin"), Some(Role::Admin));
-        assert_eq!(Role::from_str("TRADER"), Some(Role::Trader));
-        assert_eq!(Role::from_str("Viewer"), Some(Role::Viewer));
-        assert_eq!(Role::from_str("unknown"), None);
+        assert_eq!(Role::parse("admin"), Some(Role::Admin));
+        assert_eq!(Role::parse("TRADER"), Some(Role::Trader));
+        assert_eq!(Role::parse("Viewer"), Some(Role::Viewer));
+        assert_eq!(Role::parse("unknown"), None);
     }
 
     #[test]

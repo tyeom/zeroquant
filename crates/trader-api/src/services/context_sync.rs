@@ -13,7 +13,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
-use trader_core::{AnalyticsProvider, ExchangeProvider, MarketType, ScreeningPreset, StrategyContext};
+use trader_core::{
+    AnalyticsProvider, ExchangeProvider, MarketType, ScreeningPreset, StrategyContext,
+};
 
 /// 전략 컨텍스트 동기화 서비스.
 ///
@@ -198,10 +200,7 @@ impl ContextSyncService {
         ctx.update_macro_environment(macro_env);
         ctx.update_market_breadth(breadth);
 
-        tracing::debug!(
-            ticker_count = tickers.len(),
-            "분석 결과 동기화 완료"
-        );
+        tracing::debug!(ticker_count = tickers.len(), "분석 결과 동기화 완료");
 
         Ok(())
     }

@@ -88,11 +88,7 @@ impl MatchingEngine {
 
     /// ticker String에서 quote 통화를 추출합니다 (예: "BTC/USDT" -> "USDT").
     fn parse_quote(ticker: &str) -> String {
-        ticker
-            .split('/')
-            .nth(1)
-            .unwrap_or("USDT")
-            .to_string()
+        ticker.split('/').nth(1).unwrap_or("USDT").to_string()
     }
 
     /// 호가 단위 제공자를 설정합니다.

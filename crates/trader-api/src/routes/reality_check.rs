@@ -155,9 +155,16 @@ async fn get_stats(
     debug!("GET /stats (limit: {})", query.limit);
 
     // 세 가지 통계를 병렬로 조회
-    let daily_result = RealityCheckRepository::get_daily_stats(state.db_pool.as_ref().expect("DB pool not initialized"), query.limit);
-    let source_result = RealityCheckRepository::get_source_stats(state.db_pool.as_ref().expect("DB pool not initialized"));
-    let rank_result = RealityCheckRepository::get_rank_stats(state.db_pool.as_ref().expect("DB pool not initialized"));
+    let daily_result = RealityCheckRepository::get_daily_stats(
+        state.db_pool.as_ref().expect("DB pool not initialized"),
+        query.limit,
+    );
+    let source_result = RealityCheckRepository::get_source_stats(
+        state.db_pool.as_ref().expect("DB pool not initialized"),
+    );
+    let rank_result = RealityCheckRepository::get_rank_stats(
+        state.db_pool.as_ref().expect("DB pool not initialized"),
+    );
 
     let (daily, source, rank) = tokio::join!(daily_result, source_result, rank_result);
 
@@ -301,7 +308,12 @@ async fn get_snapshots(
         .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok())
         .unwrap_or_else(|| Utc::now().naive_utc().date());
 
-    match RealityCheckRepository::get_snapshots(state.db_pool.as_ref().expect("DB pool not initialized"), snapshot_date).await {
+    match RealityCheckRepository::get_snapshots(
+        state.db_pool.as_ref().expect("DB pool not initialized"),
+        snapshot_date,
+    )
+    .await
+    {
         Ok(snapshots) => {
             info!(
                 "Fetched {} snapshots for {}",

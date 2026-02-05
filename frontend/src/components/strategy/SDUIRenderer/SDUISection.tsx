@@ -63,10 +63,14 @@ export const SDUISection: Component<SDUISectionProps> = (props) => {
   // 섹션의 필수 여부에 따른 접힘 가능 여부
   const canCollapse = createMemo(() => props.section.collapsible);
 
-  // 조건부 필드 필터링
+  // 조건부 및 hidden 필드 필터링
   const visibleFields = createMemo(() => {
     return props.section.fields.filter((field) => {
+      // hidden 필드는 표시하지 않음
+      if (field.hidden) return false;
+      // 조건이 없으면 표시
       if (!field.condition) return true;
+      // 조건 평가
       return evaluateCondition(field.condition, props.values);
     });
   });

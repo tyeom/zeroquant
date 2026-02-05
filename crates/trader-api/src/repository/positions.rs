@@ -107,7 +107,7 @@ impl PositionRepository {
         )
         .bind(&input.exchange)
         .bind(input.symbol_id)
-        .bind(&input.side)
+        .bind(input.side)
         .bind(input.quantity)
         .bind(input.entry_price)
         .bind(&input.strategy_id)

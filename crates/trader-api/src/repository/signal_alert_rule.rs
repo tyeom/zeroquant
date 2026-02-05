@@ -2,10 +2,10 @@
 //!
 //! 알림 규칙 CRUD 및 필터 조건 관리를 제공합니다.
 
-use sqlx::PgPool;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::error::{ApiErrorResponse, ApiResult};
@@ -83,11 +83,15 @@ impl SignalAlertRuleRepository {
 
     /// 규칙 생성.
     pub async fn create(&self, req: CreateAlertRuleRequest) -> ApiResult<SignalAlertRule> {
-        let filter_json = serde_json::to_value(&req.filter_conditions)
-            .map_err(|e| (
+        let filter_json = serde_json::to_value(&req.filter_conditions).map_err(|e| {
+            (
                 StatusCode::BAD_REQUEST,
-                Json(ApiErrorResponse::new("SERIALIZATION_ERROR", format!("Failed to serialize filter: {}", e)))
-            ))?;
+                Json(ApiErrorResponse::new(
+                    "SERIALIZATION_ERROR",
+                    format!("Failed to serialize filter: {}", e),
+                )),
+            )
+        })?;
 
         let rule = sqlx::query_as!(
             SignalAlertRule,
@@ -108,13 +112,16 @@ impl SignalAlertRuleRepository {
                 if db_err.is_unique_violation() {
                     return (
                         StatusCode::CONFLICT,
-                        Json(ApiErrorResponse::new("DUPLICATE_RULE", format!("Rule '{}' already exists", req.rule_name)))
+                        Json(ApiErrorResponse::new(
+                            "DUPLICATE_RULE",
+                            format!("Rule '{}' already exists", req.rule_name),
+                        )),
                     );
                 }
             }
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiErrorResponse::new("DB_ERROR", e.to_string()))
+                Json(ApiErrorResponse::new("DB_ERROR", e.to_string())),
             )
         })?;
 
@@ -168,14 +175,21 @@ impl SignalAlertRuleRepository {
         )
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiErrorResponse::new("DB_ERROR", e.to_string()))
-        ))?
-        .ok_or_else(|| (
-            StatusCode::NOT_FOUND,
-            Json(ApiErrorResponse::new("NOT_FOUND", format!("Rule {} not found", id)))
-        ))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiErrorResponse::new("DB_ERROR", e.to_string())),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ApiErrorResponse::new(
+                    "NOT_FOUND",
+                    format!("Rule {} not found", id),
+                )),
+            )
+        })?;
 
         Ok(rule)
     }
@@ -193,20 +207,31 @@ impl SignalAlertRuleRepository {
         )
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiErrorResponse::new("DB_ERROR", e.to_string()))
-        ))?
-        .ok_or_else(|| (
-            StatusCode::NOT_FOUND,
-            Json(ApiErrorResponse::new("NOT_FOUND", format!("Rule '{}' not found", name)))
-        ))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiErrorResponse::new("DB_ERROR", e.to_string())),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ApiErrorResponse::new(
+                    "NOT_FOUND",
+                    format!("Rule '{}' not found", name),
+                )),
+            )
+        })?;
 
         Ok(rule)
     }
 
     /// 규칙 수정.
-    pub async fn update(&self, id: Uuid, req: UpdateAlertRuleRequest) -> ApiResult<SignalAlertRule> {
+    pub async fn update(
+        &self,
+        id: Uuid,
+        req: UpdateAlertRuleRequest,
+    ) -> ApiResult<SignalAlertRule> {
         // 기존 규칙 조회
         let existing = self.find_by_id(id).await?;
 
@@ -215,11 +240,15 @@ impl SignalAlertRuleRepository {
         let description = req.description.or(existing.description);
         let enabled = req.enabled.unwrap_or(existing.enabled);
         let filter_json = if let Some(filter) = req.filter_conditions {
-            serde_json::to_value(&filter)
-                .map_err(|e| (
+            serde_json::to_value(&filter).map_err(|e| {
+                (
                     StatusCode::BAD_REQUEST,
-                    Json(ApiErrorResponse::new("SERIALIZATION_ERROR", format!("Failed to serialize filter: {}", e)))
-                ))?
+                    Json(ApiErrorResponse::new(
+                        "SERIALIZATION_ERROR",
+                        format!("Failed to serialize filter: {}", e),
+                    )),
+                )
+            })?
         } else {
             existing.filter_conditions
         };
@@ -246,13 +275,16 @@ impl SignalAlertRuleRepository {
                 if db_err.is_unique_violation() {
                     return (
                         StatusCode::CONFLICT,
-                        Json(ApiErrorResponse::new("DUPLICATE_RULE", format!("Rule '{}' already exists", rule_name)))
+                        Json(ApiErrorResponse::new(
+                            "DUPLICATE_RULE",
+                            format!("Rule '{}' already exists", rule_name),
+                        )),
                     );
                 }
             }
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiErrorResponse::new("DB_ERROR", e.to_string()))
+                Json(ApiErrorResponse::new("DB_ERROR", e.to_string())),
             )
         })?;
 
@@ -270,15 +302,20 @@ impl SignalAlertRuleRepository {
         )
         .execute(&self.pool)
         .await
-        .map_err(|e| (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiErrorResponse::new("DB_ERROR", e.to_string()))
-        ))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiErrorResponse::new("DB_ERROR", e.to_string())),
+            )
+        })?;
 
         if result.rows_affected() == 0 {
             return Err((
                 StatusCode::NOT_FOUND,
-                Json(ApiErrorResponse::new("NOT_FOUND", format!("Rule {} not found", id)))
+                Json(ApiErrorResponse::new(
+                    "NOT_FOUND",
+                    format!("Rule {} not found", id),
+                )),
             ));
         }
 
@@ -289,14 +326,16 @@ impl SignalAlertRuleRepository {
     pub async fn get_enabled_filters(&self) -> ApiResult<Vec<SignalAlertFilter>> {
         let rules = self.list(true).await?;
 
-        let filters: Result<Vec<_>, _> = rules
-            .iter()
-            .map(|r| r.to_filter())
-            .collect();
+        let filters: Result<Vec<_>, _> = rules.iter().map(|r| r.to_filter()).collect();
 
-        filters.map_err(|e| (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiErrorResponse::new("DESERIALIZATION_ERROR", format!("Failed to deserialize filter: {}", e)))
-        ))
+        filters.map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiErrorResponse::new(
+                    "DESERIALIZATION_ERROR",
+                    format!("Failed to deserialize filter: {}", e),
+                )),
+            )
+        })
     }
 }

@@ -105,8 +105,12 @@ impl ExchangeProvider for KisUsProvider {
             let symbol = Symbol::new(&holding.symbol, "USD", MarketType::Stock);
 
             // 포지션 생성 (현물은 매수만 가능)
-            let mut position =
-                StrategyPositionInfo::new(symbol.to_string(), Side::Buy, holding.quantity, holding.avg_price);
+            let mut position = StrategyPositionInfo::new(
+                symbol.to_string(),
+                Side::Buy,
+                holding.quantity,
+                holding.avg_price,
+            );
 
             // 현재가 및 손익 업데이트
             position.update_price(holding.current_price);

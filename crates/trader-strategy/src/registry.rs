@@ -4,7 +4,7 @@
 //! `inventory` crate를 사용하여 전략 메타데이터를 자동 등록합니다.
 
 use serde::{Deserialize, Serialize};
-use trader_core::MarketType;
+use trader_core::{MarketType, StrategyUISchema};
 
 /// 전략 카테고리
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -22,7 +22,7 @@ pub enum StrategyCategory {
 /// 전략 메타데이터 (컴파일 타임 상수)
 ///
 /// 각 전략은 `register_strategy!` 매크로를 통해 자동으로 등록됩니다.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct StrategyMeta {
     /// 전략 ID (영문, snake_case)
     pub id: &'static str,
@@ -56,6 +56,31 @@ pub struct StrategyMeta {
 
     /// 팩토리 함수 (Box<dyn Strategy> 생성)
     pub factory: fn() -> Box<dyn crate::Strategy>,
+
+    /// UI 스키마 팩토리 함수 (SDUI 지원)
+    ///
+    /// Config 타입에 `#[derive(StrategyConfig)]` 매크로가 적용된 경우,
+    /// `Config::ui_schema()`를 호출하여 SDUI 스키마를 반환합니다.
+    /// None인 경우 기본 스키마가 사용됩니다.
+    pub ui_schema_factory: Option<fn() -> StrategyUISchema>,
+}
+
+impl std::fmt::Debug for StrategyMeta {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StrategyMeta")
+            .field("id", &self.id)
+            .field("aliases", &self.aliases)
+            .field("name", &self.name)
+            .field("description", &self.description)
+            .field("default_timeframe", &self.default_timeframe)
+            .field("secondary_timeframes", &self.secondary_timeframes)
+            .field("default_tickers", &self.default_tickers)
+            .field("category", &self.category)
+            .field("supported_markets", &self.supported_markets)
+            .field("factory", &"<fn>")
+            .field("ui_schema_factory", &self.ui_schema_factory.map(|_| "<fn>"))
+            .finish()
+    }
 }
 
 impl StrategyMeta {

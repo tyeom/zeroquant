@@ -518,7 +518,7 @@ mod tests {
             dec!(55000),
             dec!(50000),
         );
-        
+
         assert_eq!(order.stop_type, StopType::FixedTakeProfit);
         assert_eq!(order.side, Side::Sell);
         assert_eq!(order.trigger_price, dec!(55000));

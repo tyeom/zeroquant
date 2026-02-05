@@ -48,20 +48,22 @@ pub async fn get_strategy_schema(
         )
     })?;
 
-    // 전략 인스턴스 생성 (TODO: Strategy trait에 ui_schema() 메서드 추가 필요)
-    let _strategy = (strategy_meta.factory)();
-
-    // TODO: Strategy trait에 ui_schema() 메서드 추가 필요
-    // 현재는 기본 스키마 반환
     let composer = SchemaComposer::with_default_registry();
 
-    // 임시로 기본 스키마 생성
-    let schema = trader_core::StrategyUISchema::new(
-        strategy_meta.id,
-        strategy_meta.name,
-        format!("{:?}", strategy_meta.category),
-    )
-    .with_description(strategy_meta.description.to_string());
+    // Config에 #[derive(StrategyConfig)] 매크로가 적용된 경우 전체 스키마 사용
+    // 그렇지 않으면 기본 메타데이터로 스키마 생성
+    let schema = if let Some(schema_factory) = strategy_meta.ui_schema_factory {
+        // 매크로로 생성된 전체 스키마 (필드 정보 포함)
+        schema_factory()
+    } else {
+        // 기본 스키마 (메타데이터만)
+        trader_core::StrategyUISchema::new(
+            strategy_meta.id,
+            strategy_meta.name,
+            format!("{:?}", strategy_meta.category),
+        )
+        .with_description(strategy_meta.description.to_string())
+    };
 
     let json = composer.compose(&schema);
 
@@ -145,27 +147,15 @@ pub async fn get_fragment_detail(
         )
     })?;
 
-    // Fragment를 JSON으로 변환
-    let json = json!({
-        "id": fragment.id,
-        "name": fragment.name,
-        "description": fragment.description,
-        "category": format!("{:?}", fragment.category),
-        "dependencies": fragment.dependencies,
-        "fields": fragment.fields.iter().map(|field| {
-            json!({
-                "name": field.name,
-                "type": format!("{:?}", field.field_type).to_lowercase(),
-                "label": field.label,
-                "description": field.description,
-                "default": field.default,
-                "min": field.min,
-                "max": field.max,
-                "options": field.options,
-                "condition": field.condition,
-                "required": field.required,
-            })
-        }).collect::<Vec<_>>(),
+    // Fragment를 직접 serde 직렬화
+    // serde 속성(rename_all, rename 등)이 올바르게 적용됨
+    // (예: MultiSelect → "multi_select", MultiTimeframe → "multi_timeframe")
+    let json = serde_json::to_value(fragment).unwrap_or_else(|_| {
+        json!({
+            "id": fragment.id,
+            "name": fragment.name,
+            "error": "Serialization failed"
+        })
     });
 
     Ok(Json(json))

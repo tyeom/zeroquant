@@ -188,7 +188,7 @@ impl SevenFactorCalculator {
                 // 중립 구간 - RSI 그대로 사용
                 rsi
             };
-            score = score + rsi_score;
+            score += rsi_score;
             factors += 1;
         }
 
@@ -196,7 +196,7 @@ impl SevenFactorCalculator {
         if let Some(ret_5d) = input.return_5d {
             // -10% ~ +10% 범위를 0-100으로 매핑
             let ret_score = Self::normalize_range(ret_5d, dec!(-10), dec!(10), dec!(0), dec!(100));
-            score = score + ret_score;
+            score += ret_score;
             factors += 1;
         }
 
@@ -204,12 +204,14 @@ impl SevenFactorCalculator {
         if let Some(ret_20d) = input.return_20d {
             // -20% ~ +20% 범위를 0-100으로 매핑
             let ret_score = Self::normalize_range(ret_20d, dec!(-20), dec!(20), dec!(0), dec!(100));
-            score = score + ret_score;
+            score += ret_score;
             factors += 1;
         }
 
         if factors > 0 {
-            (score / Decimal::from(factors + 1)).min(dec!(100)).max(dec!(0))
+            (score / Decimal::from(factors + 1))
+                .min(dec!(100))
+                .max(dec!(0))
         } else {
             dec!(50)
         }
@@ -227,7 +229,7 @@ impl SevenFactorCalculator {
         if let Some(per) = input.per {
             if per > dec!(0) {
                 let per_score = Self::normalize_range(per, dec!(5), dec!(30), dec!(100), dec!(0));
-                score = score + per_score;
+                score += per_score;
                 factors += 1;
             }
         }
@@ -236,8 +238,9 @@ impl SevenFactorCalculator {
         // PBR 0.5 → 100점, PBR 1.5 → 50점, PBR 3.0+ → 0점
         if let Some(pbr) = input.pbr {
             if pbr > dec!(0) {
-                let pbr_score = Self::normalize_range(pbr, dec!(0.5), dec!(3.0), dec!(100), dec!(0));
-                score = score + pbr_score;
+                let pbr_score =
+                    Self::normalize_range(pbr, dec!(0.5), dec!(3.0), dec!(100), dec!(0));
+                score += pbr_score;
                 factors += 1;
             }
         }
@@ -246,8 +249,9 @@ impl SevenFactorCalculator {
         // PSR 0.5 → 100점, PSR 3.0 → 50점, PSR 10+ → 0점
         if let Some(psr) = input.psr {
             if psr > dec!(0) {
-                let psr_score = Self::normalize_range(psr, dec!(0.5), dec!(10.0), dec!(100), dec!(0));
-                score = score + psr_score;
+                let psr_score =
+                    Self::normalize_range(psr, dec!(0.5), dec!(10.0), dec!(100), dec!(0));
+                score += psr_score;
                 factors += 1;
             }
         }
@@ -270,7 +274,7 @@ impl SevenFactorCalculator {
         // ROE 5% → 25점, ROE 15% → 75점, ROE 25%+ → 100점
         if let Some(roe) = input.roe {
             let roe_score = Self::normalize_range(roe, dec!(0), dec!(25), dec!(0), dec!(100));
-            score = score + roe_score;
+            score += roe_score;
             factors += 1;
         }
 
@@ -278,7 +282,7 @@ impl SevenFactorCalculator {
         // ROA 2% → 25점, ROA 8% → 75점, ROA 15%+ → 100점
         if let Some(roa) = input.roa {
             let roa_score = Self::normalize_range(roa, dec!(0), dec!(15), dec!(0), dec!(100));
-            score = score + roa_score;
+            score += roa_score;
             factors += 1;
         }
 
@@ -286,14 +290,14 @@ impl SevenFactorCalculator {
         // 영업이익률 5% → 25점, 15% → 75점, 25%+ → 100점
         if let Some(margin) = input.operating_margin {
             let margin_score = Self::normalize_range(margin, dec!(0), dec!(25), dec!(0), dec!(100));
-            score = score + margin_score;
+            score += margin_score;
             factors += 1;
         }
 
         // 순이익률 점수
         if let Some(npm) = input.net_profit_margin {
             let npm_score = Self::normalize_range(npm, dec!(0), dec!(20), dec!(0), dec!(100));
-            score = score + npm_score;
+            score += npm_score;
             factors += 1;
         }
 
@@ -327,7 +331,7 @@ impl SevenFactorCalculator {
 
         // 거래량 백분위 (그대로 점수로 사용)
         if let Some(vol_pct) = input.volume_percentile {
-            score = score + vol_pct;
+            score += vol_pct;
             factors += 1;
         }
 
@@ -335,8 +339,9 @@ impl SevenFactorCalculator {
         // 1억 → 30점, 10억 → 70점, 50억+ → 100점
         if let Some(amount) = input.avg_volume_amount {
             let amount_billion = amount / dec!(100_000_000); // 억 단위로 변환
-            let amount_score = Self::normalize_range(amount_billion, dec!(1), dec!(50), dec!(30), dec!(100));
-            score = score + amount_score;
+            let amount_score =
+                Self::normalize_range(amount_billion, dec!(1), dec!(50), dec!(30), dec!(100));
+            score += amount_score;
             factors += 1;
         }
 
@@ -357,16 +362,18 @@ impl SevenFactorCalculator {
         // 매출 성장률 (YoY)
         // 0% → 30점, 15% → 70점, 30%+ → 100점
         if let Some(rev_growth) = input.revenue_growth_yoy {
-            let rev_score = Self::normalize_range(rev_growth, dec!(-10), dec!(30), dec!(0), dec!(100));
-            score = score + rev_score;
+            let rev_score =
+                Self::normalize_range(rev_growth, dec!(-10), dec!(30), dec!(0), dec!(100));
+            score += rev_score;
             factors += 1;
         }
 
         // 이익 성장률 (YoY)
         // 0% → 30점, 20% → 70점, 50%+ → 100점
         if let Some(earn_growth) = input.earnings_growth_yoy {
-            let earn_score = Self::normalize_range(earn_growth, dec!(-20), dec!(50), dec!(0), dec!(100));
-            score = score + earn_score;
+            let earn_score =
+                Self::normalize_range(earn_growth, dec!(-20), dec!(50), dec!(0), dec!(100));
+            score += earn_score;
             factors += 1;
         }
 
@@ -382,7 +389,9 @@ impl SevenFactorCalculator {
     /// 52주 가격 위치와 최근 추세 기반.
     fn calculate_sentiment(input: &SevenFactorInput) -> Decimal {
         // 52주 고점/저점 대비 현재 위치
-        if let (Some(high), Some(low), Some(current)) = (input.week_52_high, input.week_52_low, input.current_price) {
+        if let (Some(high), Some(low), Some(current)) =
+            (input.week_52_high, input.week_52_low, input.current_price)
+        {
             if high > low && high > dec!(0) {
                 // 0 = 52주 저점, 100 = 52주 고점
                 let range = high - low;
@@ -451,7 +460,10 @@ mod tests {
             ..Default::default()
         };
         let scores = SevenFactorCalculator::calculate(&input);
-        assert!(scores.norm_momentum > dec!(50), "과매도 RSI는 반등 기대로 50점 이상이어야 함");
+        assert!(
+            scores.norm_momentum > dec!(50),
+            "과매도 RSI는 반등 기대로 50점 이상이어야 함"
+        );
     }
 
     #[test]
@@ -476,7 +488,10 @@ mod tests {
             ..Default::default()
         };
         let scores = SevenFactorCalculator::calculate(&input);
-        assert!(scores.norm_quality > dec!(60), "높은 ROE/ROA는 높은 품질 점수");
+        assert!(
+            scores.norm_quality > dec!(60),
+            "높은 ROE/ROA는 높은 품질 점수"
+        );
     }
 
     #[test]
@@ -487,7 +502,10 @@ mod tests {
             ..Default::default()
         };
         let scores = SevenFactorCalculator::calculate(&input);
-        assert!(scores.norm_volatility > dec!(70), "낮은 ATR%는 높은 안정성 점수");
+        assert!(
+            scores.norm_volatility > dec!(70),
+            "낮은 ATR%는 높은 안정성 점수"
+        );
     }
 
     #[test]
@@ -499,7 +517,10 @@ mod tests {
             ..Default::default()
         };
         let scores = SevenFactorCalculator::calculate(&input);
-        assert!(scores.norm_growth > dec!(70), "높은 성장률은 높은 성장 점수");
+        assert!(
+            scores.norm_growth > dec!(70),
+            "높은 성장률은 높은 성장 점수"
+        );
     }
 
     #[test]
@@ -512,7 +533,10 @@ mod tests {
             ..Default::default()
         };
         let scores = SevenFactorCalculator::calculate(&input);
-        assert!(scores.norm_sentiment > dec!(70), "52주 저점 근처는 반등 기대로 높은 심리 점수");
+        assert!(
+            scores.norm_sentiment > dec!(70),
+            "52주 저점 근처는 반등 기대로 높은 심리 점수"
+        );
     }
 
     #[test]

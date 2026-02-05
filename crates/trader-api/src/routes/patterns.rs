@@ -190,17 +190,13 @@ async fn detect_all_patterns(
     let mut detection = ml_service.detect_patterns(&query.symbol, &query.timeframe, &klines);
 
     // 최소 신뢰도 필터링
-    detection.candlestick_patterns = detection
+    detection
         .candlestick_patterns
-        .into_iter()
-        .filter(|p| p.confidence >= query.min_confidence as f32)
-        .collect();
+        .retain(|p| p.confidence >= query.min_confidence as f32);
 
-    detection.chart_patterns = detection
+    detection
         .chart_patterns
-        .into_iter()
-        .filter(|p| p.confidence >= query.min_confidence as f32)
-        .collect();
+        .retain(|p| p.confidence >= query.min_confidence as f32);
 
     Json(detection)
 }

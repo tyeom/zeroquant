@@ -24,7 +24,9 @@ use rust_decimal::Decimal;
 use serde::Deserialize;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
-use trader_core::{ExecutionHistory, ExecutionRecord, OrderStatusType, RoundMethod, Side, TickSizeProvider};
+use trader_core::{
+    ExecutionHistory, ExecutionRecord, OrderStatusType, RoundMethod, Side, TickSizeProvider,
+};
 
 /// KIS API Rate Limit 에러 메시지 코드.
 /// KIS는 HTTP 500과 함께 이 코드를 반환합니다.
@@ -1087,10 +1089,10 @@ impl KisKrClient {
                 ("ODNO", ""),
                 ("INQR_DVSN_3", "00"), // 00=전체, 01=현금, 02=신용
                 ("INQR_DVSN_1", ""),
-                ("INQR_DVSN_2", ""), // Python 레퍼런스에 있음
+                ("INQR_DVSN_2", ""), // 조회 구분 2
                 ("CTX_AREA_FK100", ctx_area_fk100),
                 ("CTX_AREA_NK100", ctx_area_nk100),
-                ("EXCG_ID_DVSN_CD", "KRX"), // 거래소 구분 코드 (Python 레퍼런스)
+                ("EXCG_ID_DVSN_CD", "KRX"), // 거래소 구분 코드
             ])
             .send()
             .await
@@ -1127,13 +1129,13 @@ impl KisKrClient {
             });
         }
 
-        // 연속 조회 키 trim (Python 모듈과 동일하게 처리)
+        // 연속 조회 키 trim
         // KIS API 응답에 공백 패딩이 포함되어 있으므로 제거 필요
         let ctx_fk = resp.ctx_area_fk100.trim().to_string();
         let ctx_nk = resp.ctx_area_nk100.trim().to_string();
 
         // 연속 조회 가능 여부 확인
-        // Python 로직: NKKey가 비어있지 않고, 실제 데이터가 있으면 연속 조회
+        // NKKey가 비어있지 않고, 실제 데이터가 있으면 연속 조회
         let has_more = !ctx_nk.is_empty() && !resp.output1.is_empty();
 
         debug!(

@@ -16,6 +16,7 @@ use std::fmt;
 /// - **Downtrend**: 하락 / 약세
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[derive(Default)]
 pub enum MarketRegime {
     /// 강한 상승 추세
     ///
@@ -36,6 +37,7 @@ pub enum MarketRegime {
     ///
     /// **조건**:
     /// - -5% <= 60일 상대강도 <= 5%
+    #[default]
     Sideways,
 
     /// 바닥 반등 시도
@@ -122,11 +124,6 @@ impl fmt::Display for MarketRegime {
     }
 }
 
-impl Default for MarketRegime {
-    fn default() -> Self {
-        Self::Sideways
-    }
-}
 
 #[cfg(test)]
 mod tests {

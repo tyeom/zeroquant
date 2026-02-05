@@ -66,7 +66,7 @@ impl MomentumCalculator {
     /// RSI = 100 - (100 / (1 + RS))
     /// RS = 평균 상승폭 / 평균 하락폭
     ///
-    /// Python 코드와 동일한 EWM (지수 가중 이동평균) 방식 사용.
+    /// EWM (지수 가중 이동평균) 방식을 사용하여 표준 RSI 계산.
     ///
     /// # 인자
     /// * `prices` - 가격 데이터 (종가)
@@ -118,7 +118,6 @@ impl MomentumCalculator {
             .collect();
 
         // EWM (Exponential Weighted Mean) 계산
-        // Python: ewm(com=(period - 1), min_periods=period)
         // com = (period - 1) 이면 alpha = 1 / period
         let alpha = Decimal::ONE / Decimal::from(period);
         let one_minus_alpha = Decimal::ONE - alpha;
@@ -268,7 +267,6 @@ impl MomentumCalculator {
 
     /// 다기간 모멘텀 점수 계산.
     ///
-    /// Python 전략 코드의 모멘텀 계산 방식을 따릅니다:
     /// 모멘텀 = Σ((현재가 - N일전 가격) / N일전 가격) / 기간 수
     ///
     /// 예: lookback_periods = [20, 60, 120, 240] (1, 3, 6, 12개월)

@@ -1,26 +1,23 @@
-//! Infinity Bot (무한매수봇) Strategy
+//! Infinity Bot (무한매수봇) Strategy v2.0
 //!
-//! 양방향 이동평균 무한매수봇 전략입니다.
+//! ## 핵심 아이디어
 //!
-//! ## 전략 개요
+//! 피라미드 구조로 하락 시 분할 매수하고,
+//! 평균 단가 대비 목표 수익률 달성 시 익절하는 전략입니다.
 //!
-//! 50라운드 피라미드 구조로 하락 시 분할 매수하고,
-//! 이동평균 모멘텀이 돌아오면 익절하는 전략입니다.
+//! ## 진입 조건 (MarketRegime 기반)
 //!
-//! ## 핵심 로직
+//! 1. **적극 진입**: StrongUptrend, BottomBounce
+//! 2. **조건부 진입**: Correction (MA 상회 시)
+//! 3. **보수적 진입**: Sideways (양봉 + 모멘텀 양수)
+//! 4. **진입 금지**: Downtrend
 //!
-//! 1. **라운드별 진입 조건**:
-//!    - 1-5라운드: 무조건 매수 (모멘텀 양호 시)
-//!    - 6-20라운드: MA 확인 필요
-//!    - 21-30라운드: MA + 양봉 확인
-//!    - 31-40라운드: MA + 양봉 + 이평 상승 추세
-//!    - 40라운드 이상: MA 반전 시 절반 손절
+//! ## 스크리닝 연동
 //!
-//! 2. **익절 조건**: 평균 단가 대비 목표 수익률 달성
-//!
-//! 3. **물타기**: MA 변곡점에서 추가 매수
+//! - `GlobalScore`: 최소 점수 필터
+//! - `MarketRegime`: 진입 조건 결정
+//! - `RouteState`: Attack/Armed 시 적극 진입
 
-use crate::strategies::common::deserialize_ticker;
 use crate::Strategy;
 use async_trait::async_trait;
 use rust_decimal::Decimal;
@@ -30,80 +27,84 @@ use serde_json::{json, Value};
 use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 use trader_core::{
-    domain::{RouteState, StrategyContext},
-    MarketData, MarketDataType, MarketType, Order, Position, Side, Signal, SignalType,
+    domain::{MarketRegime, RouteState, StrategyContext},
+    MarketData, MarketDataType, Order, Position, Side, Signal, SignalType,
 };
+use trader_strategy_macro::StrategyConfig;
 
-/// 라운드 상태
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RoundInfo {
-    pub round: usize,
-    pub entry_price: Decimal,
-    pub quantity: Decimal,
-    pub timestamp: i64,
-}
+use crate::strategies::common::ExitConfig;
+
+// ============================================================================
+// 설정 (Config)
+// ============================================================================
 
 /// Infinity Bot 설정
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, StrategyConfig)]
+#[strategy(
+    id = "infinity_bot",
+    name = "무한매수봇",
+    description = "피라미드 구조로 하락 시 분할 매수하고 평균 단가 대비 목표 수익률 달성 시 익절",
+    category = "Daily"
+)]
 pub struct InfinityBotConfig {
     /// 대상 티커
-    #[serde(deserialize_with = "deserialize_ticker")]
-    pub ticker:  String,
+    #[serde(default = "default_ticker")]
+    #[schema(label = "대상 티커", field_type = "symbol", default = "005930")]
+    pub ticker: String,
 
     /// 총 투자 금액
     #[serde(default = "default_total_amount")]
+    #[schema(label = "총 투자 금액", min = 100000, max = 1000000000, default = 10000000)]
     pub total_amount: Decimal,
 
     /// 최대 라운드 수
     #[serde(default = "default_max_rounds")]
+    #[schema(label = "최대 라운드 수", min = 1, max = 100, default = 50)]
     pub max_rounds: usize,
 
-    /// 라운드당 투자 금액 비율 (%)
-    #[serde(default = "default_round_amount_pct")]
-    pub round_amount_pct: Decimal,
+    /// 라운드당 투자 비율 (%)
+    #[serde(default = "default_round_pct")]
+    #[schema(label = "라운드당 투자 비율 (%)", min = 0.5, max = 20, default = 2)]
+    pub round_pct: Decimal,
 
     /// 추가 매수 트리거 하락률 (%)
     #[serde(default = "default_dip_trigger")]
+    #[schema(label = "추가 매수 트리거 하락률 (%)", min = 0.5, max = 20, default = 2)]
     pub dip_trigger_pct: Decimal,
 
     /// 익절 목표 수익률 (%)
     #[serde(default = "default_take_profit")]
+    #[schema(label = "익절 목표 수익률 (%)", min = 0.5, max = 50, default = 3)]
     pub take_profit_pct: Decimal,
 
-    /// 손절 기준 (40라운드 이후)
-    #[serde(default = "default_stop_loss")]
-    pub stop_loss_pct: Decimal,
+    /// 이동평균 기간
+    #[serde(default = "default_ma_period")]
+    #[schema(label = "이동평균 기간", min = 5, max = 200, default = 20)]
+    pub ma_period: usize,
 
-    /// 이동평균 기간 (단기)
-    #[serde(default = "default_short_ma")]
-    pub short_ma_period: usize,
-
-    /// 이동평균 기간 (중기)
-    #[serde(default = "default_mid_ma")]
-    pub mid_ma_period: usize,
-
-    /// 이동평균 기간 (장기)
-    #[serde(default = "default_long_ma")]
-    pub long_ma_period: usize,
-
-    /// 모멘텀 가중치 (장기, 중기, 단기)
-    #[serde(default = "default_momentum_weights")]
-    pub momentum_weights: [Decimal; 3],
-
-    /// 최소 GlobalScore (기본값: 50)
+    /// 최소 GlobalScore
     #[serde(default = "default_min_global_score")]
+    #[schema(label = "최소 GlobalScore", min = 0, max = 100, default = 50)]
     pub min_global_score: Decimal,
+
+    /// 청산 설정 (손절/익절/트레일링 스탑).
+    #[serde(default)]
+    #[fragment("risk.exit_config")]
+    pub exit_config: ExitConfig,
 }
 
+fn default_ticker() -> String {
+    "005930".to_string()
+}
 fn default_total_amount() -> Decimal {
     dec!(10000000)
 }
 fn default_max_rounds() -> usize {
     50
 }
-fn default_round_amount_pct() -> Decimal {
+fn default_round_pct() -> Decimal {
     dec!(2)
 }
 fn default_dip_trigger() -> Decimal {
@@ -112,20 +113,8 @@ fn default_dip_trigger() -> Decimal {
 fn default_take_profit() -> Decimal {
     dec!(3)
 }
-fn default_stop_loss() -> Decimal {
-    dec!(20)
-}
-fn default_short_ma() -> usize {
-    10
-}
-fn default_mid_ma() -> usize {
-    100
-}
-fn default_long_ma() -> usize {
-    200
-}
-fn default_momentum_weights() -> [Decimal; 3] {
-    [dec!(0.3), dec!(0.2), dec!(0.3)]
+fn default_ma_period() -> usize {
+    20
 }
 fn default_min_global_score() -> Decimal {
     dec!(50)
@@ -137,71 +126,80 @@ impl Default for InfinityBotConfig {
             ticker: "005930".to_string(),
             total_amount: default_total_amount(),
             max_rounds: default_max_rounds(),
-            round_amount_pct: default_round_amount_pct(),
+            round_pct: default_round_pct(),
             dip_trigger_pct: default_dip_trigger(),
             take_profit_pct: default_take_profit(),
-            stop_loss_pct: default_stop_loss(),
-            short_ma_period: default_short_ma(),
-            mid_ma_period: default_mid_ma(),
-            long_ma_period: default_long_ma(),
-            momentum_weights: default_momentum_weights(),
+            ma_period: default_ma_period(),
             min_global_score: default_min_global_score(),
+            exit_config: ExitConfig::default(),
         }
     }
 }
 
-/// Infinity Bot 상태
+// ============================================================================
+// 라운드 정보
+// ============================================================================
+
+/// 개별 라운드 정보
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoundInfo {
+    pub round: usize,
+    pub entry_price: Decimal,
+    pub quantity: Decimal,
+    pub timestamp: i64,
+}
+
+// ============================================================================
+// 전략 상태
+// ============================================================================
+
+/// 전략 상태
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct InfinityBotState {
     /// 현재 라운드
     pub current_round: usize,
     /// 라운드 히스토리
     pub rounds: Vec<RoundInfo>,
-    /// 총 투자 금액
-    pub total_invested: Decimal,
+    /// 평균 진입가
+    pub avg_price: Option<Decimal>,
     /// 총 수량
     pub total_quantity: Decimal,
-    /// 평균 매입가
-    pub avg_price: Decimal,
-    /// 마지막 매수 가격
-    pub last_buy_price: Option<Decimal>,
-    /// 사이클 완료 횟수
-    pub completed_cycles: usize,
-    /// 누적 수익
-    pub cumulative_profit: Decimal,
+    /// 총 투자 금액
+    pub invested_amount: Decimal,
 }
 
-impl Default for InfinityBotState {
-    fn default() -> Self {
-        Self {
-            current_round: 0,
-            rounds: Vec::new(),
-            total_invested: Decimal::ZERO,
-            total_quantity: Decimal::ZERO,
-            avg_price: Decimal::ZERO,
-            last_buy_price: None,
-            completed_cycles: 0,
-            cumulative_profit: Decimal::ZERO,
+impl InfinityBotState {
+    /// 평균 단가 계산
+    fn calculate_avg_price(&self) -> Option<Decimal> {
+        if self.total_quantity.is_zero() {
+            return None;
         }
+        Some(self.invested_amount / self.total_quantity)
+    }
+
+    /// 현재 수익률 계산
+    fn current_return(&self, current_price: Decimal) -> Option<Decimal> {
+        let avg = self.avg_price?;
+        if avg.is_zero() {
+            return None;
+        }
+        Some((current_price - avg) / avg * dec!(100))
     }
 }
 
-/// Infinity Bot 전략
+// ============================================================================
+// 전략 구현
+// ============================================================================
+
+/// Infinity Bot Strategy
 pub struct InfinityBotStrategy {
     config: Option<InfinityBotConfig>,
-    ticker: Option<String>,
-    context: Option<Arc<RwLock<StrategyContext>>>,
     state: InfinityBotState,
+    context: Option<Arc<RwLock<StrategyContext>>>,
     /// 가격 히스토리
     prices: VecDeque<Decimal>,
-    /// 이동평균값 캐시
-    short_ma: Option<Decimal>,
-    mid_ma: Option<Decimal>,
-    long_ma: Option<Decimal>,
-    /// 이전 MA 값 (추세 판단용)
-    prev_short_ma: Option<Decimal>,
-    /// 마지막 캔들이 양봉인지
-    last_candle_bullish: bool,
+    /// 마지막 진입 가격 (물타기용)
+    last_entry_price: Option<Decimal>,
     initialized: bool,
 }
 
@@ -209,21 +207,74 @@ impl InfinityBotStrategy {
     pub fn new() -> Self {
         Self {
             config: None,
-            ticker: None,
-            context: None,
             state: InfinityBotState::default(),
+            context: None,
             prices: VecDeque::new(),
-            short_ma: None,
-            mid_ma: None,
-            long_ma: None,
-            prev_short_ma: None,
-            last_candle_bullish: false,
+            last_entry_price: None,
             initialized: false,
         }
     }
 
+    // ========================================================================
+    // 스크리닝 연동 헬퍼
+    // ========================================================================
+
+    /// GlobalScore 확인
+    fn check_global_score(&self) -> bool {
+        let config = match &self.config {
+            Some(c) => c,
+            None => return true,
+        };
+
+        let ctx = match self.context.as_ref() {
+            Some(c) => c,
+            None => return true,
+        };
+
+        let ctx_lock = match ctx.try_read() {
+            Ok(l) => l,
+            Err(_) => return true,
+        };
+
+        if let Some(score) = ctx_lock.get_global_score(&config.ticker) {
+            if score.overall_score < config.min_global_score {
+                debug!(
+                    ticker = %config.ticker,
+                    score = %score.overall_score,
+                    min = %config.min_global_score,
+                    "GlobalScore 미달"
+                );
+                return false;
+            }
+        }
+        true
+    }
+
+    /// MarketRegime 확인
+    fn get_regime(&self) -> Option<MarketRegime> {
+        let config = self.config.as_ref()?;
+        let ctx = self.context.as_ref()?;
+        let ctx_lock = ctx.try_read().ok()?;
+        ctx_lock.get_market_regime(&config.ticker).copied()
+    }
+
+    /// RouteState 확인
+    fn get_route_state(&self) -> Option<RouteState> {
+        let config = self.config.as_ref()?;
+        let ctx = self.context.as_ref()?;
+        let ctx_lock = ctx.try_read().ok()?;
+        ctx_lock.get_route_state(&config.ticker).copied()
+    }
+
+    // ========================================================================
+    // 핵심 로직
+    // ========================================================================
+
     /// 이동평균 계산
-    fn calculate_ma(&self, period: usize) -> Option<Decimal> {
+    fn calculate_ma(&self) -> Option<Decimal> {
+        let config = self.config.as_ref()?;
+        let period = config.ma_period;
+
         if self.prices.len() < period {
             return None;
         }
@@ -232,354 +283,114 @@ impl InfinityBotStrategy {
         Some(sum / Decimal::from(period))
     }
 
-    /// 가중 모멘텀 스코어 계산
-    fn calculate_momentum_score(&self) -> Decimal {
-        let config = match &self.config {
-            Some(c) => c,
-            None => return Decimal::ZERO,
-        };
-
-        let long_momentum = self.calculate_period_momentum(config.long_ma_period);
-        let mid_momentum = self.calculate_period_momentum(config.mid_ma_period);
-        let short_momentum = self.calculate_period_momentum(config.short_ma_period);
-
-        long_momentum * config.momentum_weights[0]
-            + mid_momentum * config.momentum_weights[1]
-            + short_momentum * config.momentum_weights[2]
+    /// 현재 가격이 MA 위인지
+    fn is_above_ma(&self, price: Decimal) -> bool {
+        self.calculate_ma().map(|ma| price > ma).unwrap_or(false)
     }
 
-    /// 기간별 모멘텀 계산
-    fn calculate_period_momentum(&self, period: usize) -> Decimal {
-        if self.prices.len() < period {
-            return Decimal::ZERO;
-        }
-
-        let current = *self.prices.front().unwrap();
-        let past = *self.prices.get(period - 1).unwrap();
-
-        if past > Decimal::ZERO {
-            (current - past) / past * dec!(100)
-        } else {
-            Decimal::ZERO
-        }
-    }
-
-    /// RouteState와 GlobalScore를 체크하여 진입 가능 여부 반환.
-    ///
-    /// # 진입 조건
-    ///
-    /// - RouteState::Attack: 적극 진입 가능
-    /// - RouteState::Armed: 조건부 허용
-    /// - RouteState::Overheat/Wait/Neutral: 진입 금지
-    /// - GlobalScore >= min_global_score: 진입 허용
-    fn can_enter(&self) -> bool {
-        let Some(config) = self.config.as_ref() else {
+    /// 모멘텀 확인 (최근 5일 수익률)
+    fn has_positive_momentum(&self) -> bool {
+        if self.prices.len() < 6 {
             return false;
-        };
-        let ticker = &config.ticker;
-
-        let Some(ctx) = self.context.as_ref() else {
-            warn!("StrategyContext not available - entry blocked");
-            return false;
-        };
-
-        let Ok(ctx_lock) = ctx.try_read() else {
-            warn!("Failed to acquire context lock - entry blocked");
-            return false;
-        };
-
-        // RouteState 체크
-        if let Some(route_state) = ctx_lock.get_route_state(ticker) {
-            match route_state {
-                RouteState::Overheat | RouteState::Wait | RouteState::Neutral => {
-                    debug!(
-                        ticker = %ticker,
-                        route_state = ?route_state,
-                        "RouteState blocks entry"
-                    );
-                    return false;
-                }
-                RouteState::Armed => {
-                    debug!(ticker = %ticker, "RouteState::Armed - conditional entry");
-                }
-                RouteState::Attack => {
-                    debug!(ticker = %ticker, "RouteState::Attack - aggressive entry");
-                }
-            }
         }
 
-        // GlobalScore 체크
-        if let Some(score) = ctx_lock.get_global_score(ticker) {
-            if score.overall_score < config.min_global_score {
-                debug!(
-                    ticker = %ticker,
-                    score = %score.overall_score,
-                    min_required = %config.min_global_score,
-                    "Low GlobalScore - skip entry"
-                );
-                return false;
-            }
-            debug!(
-                ticker = %ticker,
-                score = %score.overall_score,
-                "GlobalScore pass"
-            );
+        let current = self.prices.front().copied().unwrap_or(Decimal::ZERO);
+        let past = self.prices.get(5).copied().unwrap_or(Decimal::ZERO);
+
+        if past.is_zero() {
+            return false;
         }
 
-        true
+        current > past
     }
 
-    /// 라운드별 진입 조건 확인
-    fn can_enter_round(&self, round: usize, current_price: Decimal) -> bool {
-        let momentum = self.calculate_momentum_score();
+    /// MarketRegime 기반 진입 가능 여부
+    fn can_enter(&self, price: Decimal) -> bool {
+        let regime = self.get_regime();
 
-        match round {
-            1..=5 => {
-                // 1-5라운드: 모멘텀 양호 시 무조건 매수
-                momentum > dec!(-5)
+        // RouteState가 Attack/Armed면 적극 진입
+        if let Some(route) = self.get_route_state() {
+            if route == RouteState::Attack || route == RouteState::Armed {
+                debug!(route = ?route, "RouteState 적극 모드 - 진입 허용");
+                return true;
             }
-            6..=20 => {
-                // 6-20라운드: MA 확인 필요
-                if let Some(short_ma) = self.short_ma {
-                    current_price > short_ma || momentum > Decimal::ZERO
-                } else {
-                    false
-                }
-            }
-            21..=30 => {
-                // 21-30라운드: MA + 양봉 확인
-                if let Some(short_ma) = self.short_ma {
-                    self.last_candle_bullish
-                        && (current_price > short_ma || momentum > Decimal::ZERO)
-                } else {
-                    false
-                }
-            }
-            31..=40 => {
-                // 31-40라운드: MA + 양봉 + 이평 상승 추세
-                let ma_rising = self
-                    .prev_short_ma
-                    .zip(self.short_ma)
-                    .map(|(prev, curr)| curr > prev)
-                    .unwrap_or(false);
+        }
 
-                self.last_candle_bullish && ma_rising
+        match regime {
+            Some(MarketRegime::StrongUptrend) | Some(MarketRegime::BottomBounce) => {
+                debug!(regime = ?regime, "적극 진입 구간");
+                true
             }
-            _ => {
-                // 40라운드 이상: 매우 보수적
-                let ma_rising = self
-                    .prev_short_ma
-                    .zip(self.short_ma)
-                    .map(|(prev, curr)| curr > prev)
-                    .unwrap_or(false);
-
-                self.last_candle_bullish && ma_rising && momentum > Decimal::ZERO
+            Some(MarketRegime::Correction) => {
+                // MA 상회 시 진입
+                let above_ma = self.is_above_ma(price);
+                debug!(regime = ?regime, above_ma, "조건부 진입 구간");
+                above_ma
+            }
+            Some(MarketRegime::Sideways) => {
+                // 양봉 + 모멘텀 양수
+                let positive = self.has_positive_momentum();
+                debug!(regime = ?regime, positive_momentum = positive, "보수적 진입 구간");
+                positive
+            }
+            Some(MarketRegime::Downtrend) => {
+                debug!(regime = ?regime, "Downtrend - 진입 금지");
+                false
+            }
+            None => {
+                // Context 없으면 MA 조건만 확인
+                self.is_above_ma(price)
             }
         }
     }
 
-    /// 추가 매수 필요 여부 확인
-    fn should_add_position(&self, current_price: Decimal) -> bool {
+    /// 물타기 가능 여부 (하락률 체크)
+    fn can_add_position(&self, current_price: Decimal) -> bool {
         let config = match &self.config {
             Some(c) => c,
             None => return false,
         };
 
+        // 최대 라운드 체크
         if self.state.current_round >= config.max_rounds {
             return false;
         }
 
-        if let Some(last_price) = self.state.last_buy_price {
+        // 마지막 진입가 대비 하락률
+        if let Some(last_price) = self.last_entry_price {
+            if last_price.is_zero() {
+                return false;
+            }
             let drop_pct = (last_price - current_price) / last_price * dec!(100);
             drop_pct >= config.dip_trigger_pct
         } else {
-            // 첫 매수
+            // 첫 진입
             true
         }
     }
 
-    /// 익절 확인
+    /// 익절 조건 확인
     fn should_take_profit(&self, current_price: Decimal) -> bool {
         let config = match &self.config {
             Some(c) => c,
             None => return false,
         };
 
-        if self.state.avg_price == Decimal::ZERO {
-            return false;
+        if let Some(return_pct) = self.state.current_return(current_price) {
+            return_pct >= config.take_profit_pct
+        } else {
+            false
         }
-
-        let profit_pct = (current_price - self.state.avg_price) / self.state.avg_price * dec!(100);
-        profit_pct >= config.take_profit_pct
     }
 
-    /// 손절 확인 (40라운드 이상)
-    fn should_stop_loss(&self, current_price: Decimal) -> bool {
-        let config = match &self.config {
-            Some(c) => c,
-            None => return false,
-        };
-
-        if self.state.current_round < 40 || self.state.avg_price == Decimal::ZERO {
-            return false;
-        }
-
-        let loss_pct = (self.state.avg_price - current_price) / self.state.avg_price * dec!(100);
-        loss_pct >= config.stop_loss_pct
-    }
-
-    /// 라운드당 투자 금액 계산
-    fn get_round_amount(&self) -> Decimal {
+    /// 라운드당 투자 금액
+    fn round_amount(&self) -> Decimal {
         let config = match &self.config {
             Some(c) => c,
             None => return Decimal::ZERO,
         };
-        config.total_amount * config.round_amount_pct / dec!(100)
-    }
 
-    /// 평균가 재계산
-    fn update_avg_price(&mut self) {
-        if self.state.total_quantity > Decimal::ZERO {
-            self.state.avg_price = self.state.total_invested / self.state.total_quantity;
-        }
-    }
-
-    /// 사이클 리셋
-    fn reset_cycle(&mut self) {
-        self.state.current_round = 0;
-        self.state.rounds.clear();
-        self.state.total_invested = Decimal::ZERO;
-        self.state.total_quantity = Decimal::ZERO;
-        self.state.avg_price = Decimal::ZERO;
-        self.state.last_buy_price = None;
-    }
-
-    /// 신호 생성
-    fn generate_signals(
-        &mut self,
-        current_price: Decimal,
-        open_price: Decimal,
-        timestamp: i64,
-    ) -> Vec<Signal> {
-        let ticker = match &self.ticker {
-            Some(s) => s.clone(),
-            None => return Vec::new(),
-        };
-        let mut signals = Vec::new();
-
-        // 양봉 확인
-        self.last_candle_bullish = current_price > open_price;
-
-        // 1. 익절 확인
-        if self.state.total_quantity > Decimal::ZERO && self.should_take_profit(current_price) {
-            let profit = (current_price - self.state.avg_price) * self.state.total_quantity;
-            let _quantity = self.state.total_quantity;
-
-            self.state.cumulative_profit += profit;
-            self.state.completed_cycles += 1;
-            self.reset_cycle();
-
-            let signal = Signal::new("infinity_bot", ticker.clone(), Side::Sell, SignalType::Exit)
-                .with_strength(1.0)
-                .with_metadata("reason", json!("take_profit"))
-                .with_metadata("completed_cycles", json!(self.state.completed_cycles))
-                .with_metadata("profit", json!(profit.to_string()))
-                .with_metadata(
-                    "cumulative_profit",
-                    json!(self.state.cumulative_profit.to_string()),
-                );
-
-            signals.push(signal);
-            info!(
-                "[InfinityBot] 익절: 사이클 #{} 완료, 수익: {:.2}",
-                self.state.completed_cycles, profit
-            );
-            return signals;
-        }
-
-        // 2. 손절 확인 (40라운드 이상)
-        if self.state.current_round >= 40 && self.should_stop_loss(current_price) {
-            // 절반만 손절
-            let sell_quantity = self.state.total_quantity / dec!(2);
-            let loss = (self.state.avg_price - current_price) * sell_quantity;
-
-            self.state.total_quantity -= sell_quantity;
-            self.state.total_invested -= sell_quantity * self.state.avg_price;
-            self.state.cumulative_profit -= loss;
-
-            let signal = Signal::new(
-                "infinity_bot",
-                ticker.clone(),
-                Side::Sell,
-                SignalType::ReducePosition,
-            )
-            .with_strength(1.0)
-            .with_metadata("reason", json!("stop_loss_half"))
-            .with_metadata("current_round", json!(self.state.current_round))
-            .with_metadata("loss", json!(loss.to_string()))
-            .with_metadata(
-                "remaining_quantity",
-                json!(self.state.total_quantity.to_string()),
-            );
-
-            signals.push(signal);
-            warn!(
-                "[InfinityBot] 절반 손절: 라운드 {}, 손실: {:.2}",
-                self.state.current_round, loss
-            );
-            return signals;
-        }
-
-        // 3. 추가 매수 확인
-        if self.should_add_position(current_price) {
-            // StrategyContext 기반 필터링 (RouteState + GlobalScore)
-            if !self.can_enter() {
-                debug!("[InfinityBot] Entry blocked by StrategyContext filter");
-                return signals;
-            }
-
-            let next_round = self.state.current_round + 1;
-
-            if self.can_enter_round(next_round, current_price) {
-                let invest_amount = self.get_round_amount();
-                let quantity = invest_amount / current_price;
-
-                self.state.current_round = next_round;
-                self.state.total_invested += invest_amount;
-                self.state.total_quantity += quantity;
-                self.state.last_buy_price = Some(current_price);
-                self.update_avg_price();
-
-                self.state.rounds.push(RoundInfo {
-                    round: next_round,
-                    entry_price: current_price,
-                    quantity,
-                    timestamp,
-                });
-
-                let signal =
-                    Signal::new("infinity_bot", ticker.clone(), Side::Buy, SignalType::Entry)
-                        .with_strength(1.0)
-                        .with_metadata("round", json!(next_round))
-                        .with_metadata("avg_price", json!(self.state.avg_price.to_string()))
-                        .with_metadata(
-                            "total_invested",
-                            json!(self.state.total_invested.to_string()),
-                        )
-                        .with_metadata(
-                            "momentum_score",
-                            json!(self.calculate_momentum_score().to_string()),
-                        );
-
-                signals.push(signal);
-                info!(
-                    "[InfinityBot] 라운드 {} 매수: 평균가 {:.4}",
-                    next_round, self.state.avg_price
-                );
-            }
-        }
-
-        signals
+        config.total_amount * config.round_pct / dec!(100)
     }
 }
 
@@ -589,43 +400,42 @@ impl Default for InfinityBotStrategy {
     }
 }
 
+// ============================================================================
+// Strategy Trait 구현
+// ============================================================================
+
 #[async_trait]
 impl Strategy for InfinityBotStrategy {
     fn name(&self) -> &str {
-        "Infinity Bot"
+        "InfinityBot"
     }
 
     fn version(&self) -> &str {
-        "1.0.0"
+        "2.0.0"
     }
 
     fn description(&self) -> &str {
-        "50라운드 피라미드 물타기 전략, 이동평균 모멘텀 기반 익절"
+        "피라미드 물타기 + MarketRegime 기반 진입 전략"
     }
 
     async fn initialize(
         &mut self,
         config: Value,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let ib_config: InfinityBotConfig = serde_json::from_value(config)?;
+        let cfg: InfinityBotConfig = serde_json::from_value(config)?;
 
         info!(
-            ticker = %ib_config.ticker,
-            max_rounds = %ib_config.max_rounds,
-            take_profit_pct = %ib_config.take_profit_pct,
-            "Initializing Infinity Bot strategy"
+            ticker = %cfg.ticker,
+            max_rounds = cfg.max_rounds,
+            take_profit = %cfg.take_profit_pct,
+            "InfinityBot 전략 초기화"
         );
 
-        self.ticker = Some(ib_config.ticker.clone());
-        self.config = Some(ib_config);
+        self.config = Some(cfg);
         self.state = InfinityBotState::default();
         self.prices.clear();
-        self.short_ma = None;
-        self.mid_ma = None;
-        self.long_ma = None;
-        self.prev_short_ma = None;
-        self.last_candle_bullish = false;
-        self.initialized = true;
+        self.last_entry_price = None;
+        self.initialized = false;
 
         Ok(())
     }
@@ -634,42 +444,126 @@ impl Strategy for InfinityBotStrategy {
         &mut self,
         data: &MarketData,
     ) -> Result<Vec<Signal>, Box<dyn std::error::Error + Send + Sync>> {
-        if !self.initialized {
-            return Ok(vec![]);
-        }
-
         let config = match &self.config {
-            Some(c) => c,
+            Some(c) => c.clone(),
             None => return Ok(vec![]),
         };
 
-        // 티커 확인
-        if data.ticker.to_string() != config.ticker {
+        // 해당 티커인지 확인
+        if !data.ticker.starts_with(&config.ticker) {
             return Ok(vec![]);
         }
 
-        // 가격 및 시간 추출
-        let (current_price, open_price, timestamp) = match &data.data {
-            MarketDataType::Kline(kline) => (kline.close, kline.open, kline.close_time.timestamp()),
-            MarketDataType::Ticker(ticker) => (ticker.last, ticker.last, 0i64),
-            MarketDataType::Trade(trade) => (trade.price, trade.price, trade.timestamp.timestamp()),
+        // 가격 추출
+        let price = match &data.data {
+            MarketDataType::Kline(k) => k.close,
+            MarketDataType::Ticker(t) => t.last,
+            MarketDataType::Trade(t) => t.price,
             _ => return Ok(vec![]),
         };
 
         // 가격 히스토리 업데이트
-        self.prices.push_front(current_price);
+        self.prices.push_front(price);
         if self.prices.len() > 250 {
             self.prices.pop_back();
         }
 
-        // 이동평균 업데이트
-        self.prev_short_ma = self.short_ma;
-        self.short_ma = self.calculate_ma(config.short_ma_period);
-        self.mid_ma = self.calculate_ma(config.mid_ma_period);
-        self.long_ma = self.calculate_ma(config.long_ma_period);
+        // 초기화 체크
+        if !self.initialized && self.prices.len() >= config.ma_period {
+            self.initialized = true;
+            info!("InfinityBot 초기화 완료");
+        }
 
-        // 신호 생성
-        let signals = self.generate_signals(current_price, open_price, timestamp);
+        if !self.initialized {
+            return Ok(vec![]);
+        }
+
+        let mut signals = vec![];
+        let timestamp = data.timestamp.timestamp();
+
+        // 1. 익절 조건 확인 (보유 중일 때)
+        if !self.state.total_quantity.is_zero() && self.should_take_profit(price) {
+            let return_pct = self.state.current_return(price).unwrap_or(Decimal::ZERO);
+
+            info!(
+                ticker = %config.ticker,
+                return_pct = %return_pct,
+                rounds = self.state.current_round,
+                "익절 조건 충족"
+            );
+
+            let signal = Signal::new(
+                "infinity_bot",
+                config.ticker.clone(),
+                Side::Sell,
+                SignalType::Exit,
+            )
+            .with_strength(1.0)
+            .with_metadata("action", json!("take_profit"))
+            .with_metadata("return_pct", json!(return_pct.to_string()))
+            .with_metadata("rounds", json!(self.state.current_round));
+
+            // 상태 초기화
+            self.state = InfinityBotState::default();
+            self.last_entry_price = None;
+
+            return Ok(vec![signal]);
+        }
+
+        // 2. GlobalScore 필터
+        if !self.check_global_score() {
+            return Ok(vec![]);
+        }
+
+        // 3. 진입/물타기 조건 확인
+        if self.can_add_position(price) && self.can_enter(price) {
+            let round = self.state.current_round + 1;
+            let amount = self.round_amount();
+            let quantity = if price.is_zero() {
+                Decimal::ZERO
+            } else {
+                amount / price
+            };
+
+            // 상태 업데이트
+            self.state.current_round = round;
+            self.state.rounds.push(RoundInfo {
+                round,
+                entry_price: price,
+                quantity,
+                timestamp,
+            });
+            self.state.total_quantity += quantity;
+            self.state.invested_amount += amount;
+            self.state.avg_price = self.state.calculate_avg_price();
+            self.last_entry_price = Some(price);
+
+            info!(
+                ticker = %config.ticker,
+                round,
+                price = %price,
+                quantity = %quantity,
+                avg_price = ?self.state.avg_price,
+                "라운드 진입"
+            );
+
+            let signal = Signal::new(
+                "infinity_bot",
+                config.ticker.clone(),
+                Side::Buy,
+                SignalType::Entry,
+            )
+            .with_strength(1.0)
+            .with_metadata("action", json!("round_entry"))
+            .with_metadata("round", json!(round))
+            .with_metadata("quantity", json!(quantity.to_string()))
+            .with_metadata(
+                "avg_price",
+                json!(self.state.avg_price.map(|d| d.to_string())),
+            );
+
+            signals.push(signal);
+        }
 
         Ok(signals)
     }
@@ -678,16 +572,12 @@ impl Strategy for InfinityBotStrategy {
         &mut self,
         order: &Order,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let fill_price = order
-            .average_fill_price
-            .or(order.price)
-            .unwrap_or(Decimal::ZERO);
-
         info!(
-            "[InfinityBot] 주문 체결: {:?} {} @ {} (라운드 {})",
-            order.side, order.quantity, fill_price, self.state.current_round
+            ticker = %order.ticker,
+            side = ?order.side,
+            qty = %order.quantity,
+            "InfinityBot 주문 체결"
         );
-
         Ok(())
     }
 
@@ -696,37 +586,61 @@ impl Strategy for InfinityBotStrategy {
         position: &Position,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         debug!(
-            quantity = %position.quantity,
-            pnl = %position.realized_pnl,
-            "Position updated"
+            ticker = %position.ticker,
+            qty = %position.quantity,
+            "InfinityBot 포지션 업데이트"
         );
-
         Ok(())
     }
 
     async fn shutdown(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        info!("Infinity Bot strategy shutdown");
+        info!(
+            rounds = self.state.current_round,
+            total_qty = %self.state.total_quantity,
+            "InfinityBot 종료"
+        );
         self.initialized = false;
         Ok(())
+    }
+
+    fn set_context(&mut self, context: Arc<RwLock<StrategyContext>>) {
+        self.context = Some(context);
+        debug!("StrategyContext 주입 완료");
     }
 
     fn get_state(&self) -> Value {
         json!({
             "config": self.config,
             "state": self.state,
-            "short_ma": self.short_ma,
-            "mid_ma": self.mid_ma,
-            "long_ma": self.long_ma,
-            "momentum_score": self.calculate_momentum_score(),
             "initialized": self.initialized,
+            "prices_count": self.prices.len(),
+            "last_entry_price": self.last_entry_price.map(|d| d.to_string()),
         })
     }
-
-    fn set_context(&mut self, context: Arc<RwLock<StrategyContext>>) {
-        self.context = Some(context);
-        info!("StrategyContext injected into Infinity Bot strategy");
-    }
 }
+
+// ============================================================================
+// 레지스트리 등록
+// ============================================================================
+
+use crate::register_strategy;
+
+register_strategy! {
+    id: "infinity_bot",
+    aliases: ["무한매수봇", "infinity"],
+    name: "인피니티봇",
+    description: "피라미드 물타기 + MarketRegime 기반 진입 전략",
+    timeframe: "1d",
+    tickers: ["005930"],
+    category: Realtime,
+    markets: [Stock],
+    type: InfinityBotStrategy,
+    config: InfinityBotConfig
+}
+
+// ============================================================================
+// 테스트
+// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -737,60 +651,54 @@ mod tests {
         let config = InfinityBotConfig::default();
         assert_eq!(config.max_rounds, 50);
         assert_eq!(config.take_profit_pct, dec!(3));
+        assert_eq!(config.dip_trigger_pct, dec!(2));
         assert_eq!(config.min_global_score, dec!(50));
+    }
+
+    #[test]
+    fn test_state_avg_price() {
+        let mut state = InfinityBotState::default();
+
+        // 첫 진입: 1000원에 10주
+        state.invested_amount = dec!(10000);
+        state.total_quantity = dec!(10);
+        state.avg_price = state.calculate_avg_price();
+        assert_eq!(state.avg_price, Some(dec!(1000)));
+
+        // 물타기: 800원에 10주 추가
+        state.invested_amount += dec!(8000);
+        state.total_quantity += dec!(10);
+        state.avg_price = state.calculate_avg_price();
+        assert_eq!(state.avg_price, Some(dec!(900)));
+    }
+
+    #[test]
+    fn test_current_return() {
+        let mut state = InfinityBotState::default();
+        state.invested_amount = dec!(10000);
+        state.total_quantity = dec!(10);
+        state.avg_price = Some(dec!(1000));
+
+        // 10% 수익
+        let ret = state.current_return(dec!(1100));
+        assert_eq!(ret, Some(dec!(10)));
+
+        // 5% 손실
+        let ret = state.current_return(dec!(950));
+        assert_eq!(ret, Some(dec!(-5)));
     }
 
     #[tokio::test]
     async fn test_initialization() {
         let mut strategy = InfinityBotStrategy::new();
-
         let config = json!({
             "ticker": "005930",
             "max_rounds": 30,
-            "take_profit_pct": "5"
+            "take_profit_pct": 5
         });
 
         strategy.initialize(config).await.unwrap();
-        assert!(strategy.initialized);
-    }
-
-    #[test]
-    fn test_strategy_creation() {
-        let strategy = InfinityBotStrategy::new();
-        assert_eq!(strategy.name(), "Infinity Bot");
-    }
-
-    #[test]
-    fn test_round_amount() {
-        let mut strategy = InfinityBotStrategy::new();
-        strategy.config = Some(InfinityBotConfig {
-            total_amount: dec!(10000000),
-            round_amount_pct: dec!(2),
-            ..Default::default()
-        });
-        assert_eq!(strategy.get_round_amount(), dec!(200000));
-    }
-
-    #[test]
-    fn test_initial_state() {
-        let strategy = InfinityBotStrategy::new();
+        assert!(strategy.config.is_some());
         assert_eq!(strategy.state.current_round, 0);
-        assert_eq!(strategy.state.total_invested, Decimal::ZERO);
-        assert_eq!(strategy.state.completed_cycles, 0);
     }
-}
-
-// 전략 레지스트리에 자동 등록
-use crate::register_strategy;
-
-register_strategy! {
-    id: "infinity_bot",
-    aliases: [],
-    name: "무한매수",
-    description: "가격 하락 시 자동으로 분할 매수하는 물타기 전략입니다.",
-    timeframe: "1m",
-    tickers: [],
-    category: Realtime,
-    markets: [Crypto],
-    type: InfinityBotStrategy
 }

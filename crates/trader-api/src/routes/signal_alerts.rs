@@ -44,10 +44,15 @@ pub async fn create_alert_rule(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreateAlertRuleRequest>,
 ) -> ApiResult<Json<SignalAlertRule>> {
-    let db_pool = state.db_pool.as_ref().ok_or_else(|| (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ApiErrorResponse::new("DATABASE_ERROR", "Database not available")),
-    ))?;
+    let db_pool = state.db_pool.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiErrorResponse::new(
+                "DATABASE_ERROR",
+                "Database not available",
+            )),
+        )
+    })?;
 
     let repo = SignalAlertRuleRepository::new(db_pool.clone());
     let rule = repo.create(req).await?;
@@ -60,10 +65,15 @@ pub async fn list_alert_rules(
     State(state): State<Arc<AppState>>,
     Query(query): Query<ListAlertRulesQuery>,
 ) -> ApiResult<Json<ListAlertRulesResponse>> {
-    let db_pool = state.db_pool.as_ref().ok_or_else(|| (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ApiErrorResponse::new("DATABASE_ERROR", "Database not available")),
-    ))?;
+    let db_pool = state.db_pool.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiErrorResponse::new(
+                "DATABASE_ERROR",
+                "Database not available",
+            )),
+        )
+    })?;
 
     let repo = SignalAlertRuleRepository::new(db_pool.clone());
     let rules = repo.list(query.enabled_only).await?;
@@ -79,10 +89,15 @@ pub async fn get_alert_rule(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<SignalAlertRule>> {
-    let db_pool = state.db_pool.as_ref().ok_or_else(|| (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ApiErrorResponse::new("DATABASE_ERROR", "Database not available")),
-    ))?;
+    let db_pool = state.db_pool.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiErrorResponse::new(
+                "DATABASE_ERROR",
+                "Database not available",
+            )),
+        )
+    })?;
 
     let repo = SignalAlertRuleRepository::new(db_pool.clone());
     let rule = repo.find_by_id(id).await?;
@@ -96,10 +111,15 @@ pub async fn update_alert_rule(
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateAlertRuleRequest>,
 ) -> ApiResult<Json<SignalAlertRule>> {
-    let db_pool = state.db_pool.as_ref().ok_or_else(|| (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ApiErrorResponse::new("DATABASE_ERROR", "Database not available")),
-    ))?;
+    let db_pool = state.db_pool.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiErrorResponse::new(
+                "DATABASE_ERROR",
+                "Database not available",
+            )),
+        )
+    })?;
 
     let repo = SignalAlertRuleRepository::new(db_pool.clone());
     let rule = repo.update(id, req).await?;
@@ -112,10 +132,15 @@ pub async fn delete_alert_rule(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<StatusCode> {
-    let db_pool = state.db_pool.as_ref().ok_or_else(|| (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ApiErrorResponse::new("DATABASE_ERROR", "Database not available")),
-    ))?;
+    let db_pool = state.db_pool.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiErrorResponse::new(
+                "DATABASE_ERROR",
+                "Database not available",
+            )),
+        )
+    })?;
 
     let repo = SignalAlertRuleRepository::new(db_pool.clone());
     repo.delete(id).await?;

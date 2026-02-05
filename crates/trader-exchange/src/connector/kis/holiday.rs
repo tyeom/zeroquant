@@ -272,8 +272,7 @@ impl HolidayChecker {
         let minute = kst_now.minute();
 
         // 09:00 ~ 15:30
-        let is_open =
-            (hour == 9 && minute >= 0) || (hour >= 10 && hour < 15) || (hour == 15 && minute <= 30);
+        let is_open = hour == 9 || (10..15).contains(&hour) || (hour == 15 && minute <= 30);
 
         Ok(is_open)
     }
@@ -296,11 +295,11 @@ impl HolidayChecker {
 
         if include_extended {
             // 확장 거래시간 포함: 04:00 ~ 20:00
-            let is_open = hour >= 4 && hour < 20;
+            let is_open = (4..20).contains(&hour);
             Ok(is_open)
         } else {
             // 정규 거래시간만: 09:30 ~ 16:00
-            let is_open = (hour == 9 && minute >= 30) || (hour >= 10 && hour < 16);
+            let is_open = (hour == 9 && minute >= 30) || (10..16).contains(&hour);
             Ok(is_open)
         }
     }
@@ -314,7 +313,7 @@ impl HolidayChecker {
             if !self.is_kr_holiday(date).await? {
                 return Ok(date);
             }
-            date = date + chrono::Duration::days(1);
+            date += chrono::Duration::days(1);
         }
 
         Err(ExchangeError::ApiError {
@@ -332,7 +331,7 @@ impl HolidayChecker {
             if !self.is_us_holiday(date).await? {
                 return Ok(date);
             }
-            date = date + chrono::Duration::days(1);
+            date += chrono::Duration::days(1);
         }
 
         Err(ExchangeError::ApiError {

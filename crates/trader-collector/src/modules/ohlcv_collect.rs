@@ -11,6 +11,7 @@
 use crate::{CollectionStats, CollectorConfig, Result};
 use chrono::{NaiveDate, Utc};
 use rust_decimal::Decimal;
+use serde_json;
 use sqlx::PgPool;
 use std::time::Instant;
 use trader_analytics::{
@@ -20,7 +21,6 @@ use trader_analytics::{
 use trader_core::{CredentialEncryptor, Kline, MarketType, Symbol, Timeframe};
 use trader_data::cache::historical::CachedHistoricalDataProvider;
 use trader_data::provider::krx_api::KrxApiClient;
-use serde_json;
 use uuid::Uuid;
 
 /// OHLCV 데이터 수집 및 지표 동시 업데이트
@@ -71,22 +71,65 @@ pub async fn collect_ohlcv(
         }
         None => {
             // DB에서 활성화된 심볼 조회 (STOCK, ETF만)
-            // 국내(KR) + 해외(US 등) 모든 시장 포함
+            // target_markets가 설정된 경우 해당 시장만, 아니면 전체 시장
             // stale_hours가 지정되면 해당 시간 이전에 업데이트된 심볼만 선택 (증분 수집)
+            let target_markets = &config.ohlcv_collect.target_markets;
+            let market_filter = if target_markets.is_empty() {
+                None
+            } else {
+                Some(target_markets.clone())
+            };
+
             let rows: Vec<(Uuid, String, String)> = if let Some(hours) = stale_hours {
                 let stale_threshold = Utc::now() - chrono::Duration::hours(hours as i64);
+                if let Some(ref markets) = market_filter {
+                    sqlx::query_as(
+                        r#"
+                        SELECT si.id, si.ticker, si.market
+                        FROM symbol_info si
+                        LEFT JOIN symbol_global_score sgs ON si.id = sgs.symbol_info_id
+                        WHERE si.is_active = true
+                          AND si.symbol_type IN ('STOCK', 'ETF')
+                          AND si.market = ANY($1)
+                          AND (sgs.updated_at IS NULL OR sgs.updated_at < $2)
+                        ORDER BY
+                          CASE si.market WHEN 'KR' THEN 1 WHEN 'US' THEN 2 ELSE 3 END,
+                          si.ticker
+                        "#,
+                    )
+                    .bind(markets)
+                    .bind(stale_threshold)
+                    .fetch_all(pool)
+                    .await?
+                } else {
+                    sqlx::query_as(
+                        r#"
+                        SELECT si.id, si.ticker, si.market
+                        FROM symbol_info si
+                        LEFT JOIN symbol_global_score sgs ON si.id = sgs.symbol_info_id
+                        WHERE si.is_active = true
+                          AND si.symbol_type IN ('STOCK', 'ETF')
+                          AND (sgs.updated_at IS NULL OR sgs.updated_at < $1)
+                        ORDER BY si.market, si.ticker
+                        "#,
+                    )
+                    .bind(stale_threshold)
+                    .fetch_all(pool)
+                    .await?
+                }
+            } else if let Some(ref markets) = market_filter {
                 sqlx::query_as(
                     r#"
-                    SELECT si.id, si.ticker, si.market
-                    FROM symbol_info si
-                    LEFT JOIN symbol_global_score sgs ON si.id = sgs.symbol_info_id
-                    WHERE si.is_active = true
-                      AND si.symbol_type IN ('STOCK', 'ETF')
-                      AND (sgs.updated_at IS NULL OR sgs.updated_at < $1)
-                    ORDER BY si.market, si.ticker
+                    SELECT id, ticker, market FROM symbol_info
+                    WHERE is_active = true
+                      AND symbol_type IN ('STOCK', 'ETF')
+                      AND market = ANY($1)
+                    ORDER BY
+                      CASE market WHEN 'KR' THEN 1 WHEN 'US' THEN 2 ELSE 3 END,
+                      ticker
                     "#,
                 )
-                .bind(stale_threshold)
+                .bind(markets)
                 .fetch_all(pool)
                 .await?
             } else {
@@ -102,14 +145,21 @@ pub async fn collect_ohlcv(
                 .await?
             };
 
+            let market_desc = if target_markets.is_empty() {
+                "전체 시장".to_string()
+            } else {
+                target_markets.join(", ")
+            };
+
             if stale_hours.is_some() {
                 tracing::info!(
                     count = rows.len(),
                     stale_hours = stale_hours,
-                    "증분 수집: 업데이트 필요한 심볼 조회 완료 (전체 시장)"
+                    markets = %market_desc,
+                    "증분 수집: 업데이트 필요한 심볼 조회 완료"
                 );
             } else {
-                tracing::info!(count = rows.len(), "활성 심볼 조회 완료 (STOCK/ETF, 전체 시장)");
+                tracing::info!(count = rows.len(), markets = %market_desc, "활성 심볼 조회 완료 (STOCK/ETF)");
             }
             rows
         }
@@ -129,8 +179,14 @@ pub async fn collect_ohlcv(
         .map_err(|e| crate::error::CollectorError::Other(Box::new(e)))?;
 
     // 시장별 심볼 분류
-    let kr_symbols: Vec<_> = target_symbols.iter().filter(|(_, _, m)| m == "KR").collect();
-    let foreign_symbols: Vec<_> = target_symbols.iter().filter(|(_, _, m)| m != "KR").collect();
+    let kr_symbols: Vec<_> = target_symbols
+        .iter()
+        .filter(|(_, _, m)| m == "KR")
+        .collect();
+    let foreign_symbols: Vec<_> = target_symbols
+        .iter()
+        .filter(|(_, _, m)| m != "KR")
+        .collect();
 
     tracing::info!(
         total = target_symbols.len(),
@@ -153,30 +209,36 @@ pub async fn collect_ohlcv(
         None
     };
 
+    // 진행률 출력 설정
+    let total_count = target_symbols.len();
+    let progress_interval = std::cmp::max(1, total_count / 20); // 5%마다 출력
+
+    tracing::info!(
+        total = total_count,
+        "OHLCV 수집 시작 - 총 {}개 심볼", total_count
+    );
+
     // 심볼별 수집
     for (idx, (symbol_info_id, ticker, market)) in target_symbols.iter().enumerate() {
         stats.total += 1;
+        let current = idx + 1;
+        let percent = (current * 100) / total_count;
+        let remaining = total_count - current;
 
-        tracing::debug!(
-            ticker = ticker,
-            market = market,
-            progress = format!("{}/{}", idx + 1, target_symbols.len()),
-            "수집 시작"
-        );
+        // 진행률 출력 (매 5%마다 또는 마지막)
+        if idx % progress_interval == 0 || current == total_count {
+            tracing::info!(
+                "[{}/{}] ({}%) 남은 수: {} - 현재: {} ({})",
+                current, total_count, percent, remaining, ticker, market
+            );
+        }
 
         // 시장에 따라 데이터 소스 선택
         // - KR: KRX API 우선, 실패 시 Yahoo fallback
         // - 해외 (US, JP 등): Yahoo Finance
         let klines_result = if market == "KR" {
             // 국내: KRX API 시도 후 Yahoo fallback
-            fetch_kr_klines(
-                &krx_client,
-                &yahoo_provider,
-                ticker,
-                start_date,
-                end_date,
-            )
-            .await
+            fetch_kr_klines(&krx_client, &yahoo_provider, ticker, start_date, end_date).await
         } else {
             // 해외: Yahoo Finance
             yahoo_provider
@@ -207,7 +269,11 @@ pub async fn collect_ohlcv(
                     .await;
                 }
 
-                tracing::info!(ticker = ticker, klines = klines.len(), "수집 및 지표 업데이트 완료");
+                tracing::info!(
+                    ticker = ticker,
+                    klines = klines.len(),
+                    "수집 및 지표 업데이트 완료"
+                );
             }
             Ok(_) => {
                 // 데이터 없음
@@ -223,10 +289,7 @@ pub async fn collect_ohlcv(
                     || error_str.contains("empty data set")
                 {
                     stats.errors += 1;
-                    tracing::warn!(
-                        ticker = ticker,
-                        "상장폐지 감지 - 자동 비활성화"
-                    );
+                    tracing::warn!(ticker = ticker, "상장폐지 감지 - 자동 비활성화");
 
                     // is_active = false로 업데이트
                     if let Err(update_err) = sqlx::query(
@@ -262,6 +325,7 @@ pub async fn collect_ohlcv(
 }
 
 /// 개별 심볼의 지표 계산 및 DB 업데이트 (RouteState, MarketRegime, TTM Squeeze, GlobalScore)
+#[allow(clippy::too_many_arguments)]
 async fn update_indicators_for_symbol(
     pool: &PgPool,
     symbol_info_id: Uuid,

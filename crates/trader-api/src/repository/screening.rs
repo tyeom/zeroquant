@@ -153,9 +153,9 @@ pub struct ScreeningFilter {
     pub min_distance_from_52w_low: Option<Decimal>,  // 52주 저가 대비 상승률
 
     // 구조적 피처 필터
-    pub min_low_trend: Option<f64>,          // Higher Low 강도 (-1.0 ~ 1.0)
-    pub min_vol_quality: Option<f64>,        // 거래량 품질 (-1.0 ~ 1.0)
-    pub min_breakout_score: Option<f64>,     // 돌파 가능성 점수 (0 ~ 100)
+    pub min_low_trend: Option<f64>,   // Higher Low 강도 (-1.0 ~ 1.0)
+    pub min_vol_quality: Option<f64>, // 거래량 품질 (-1.0 ~ 1.0)
+    pub min_breakout_score: Option<f64>, // 돌파 가능성 점수 (0 ~ 100)
     pub only_alive_consolidation: Option<bool>, // "살아있는 횡보"만 필터링
 
     // RouteState 필터
@@ -246,7 +246,7 @@ impl ScreeningRepository {
                 sgs.grade,
                 sgs.confidence
             FROM v_symbol_with_fundamental sf
-            LEFT JOIN mv_latest_prices lp ON lp.symbol = sf.yahoo_symbol OR lp.symbol = sf.ticker
+            LEFT JOIN mv_latest_prices lp ON lp.symbol = sf.ticker
             LEFT JOIN symbol_global_score sgs ON sgs.symbol_info_id = sf.id
             WHERE sf.is_active = true
             "#,
@@ -295,14 +295,26 @@ impl ScreeningRepository {
 
     /// 동적 WHERE 조건 추가
     fn add_filter_conditions(builder: &mut QueryBuilder<sqlx::Postgres>, filter: &ScreeningFilter) {
-        // 시장 필터
+        // 시장 필터 (KR-KOSPI 형식 지원)
         if let Some(ref market) = filter.market {
-            builder.push(" AND sf.market = ");
-            builder.push_bind(market.clone());
+            // "KR-KOSPI", "KR-KOSDAQ" 등 하이픈 구분 형식 파싱
+            if let Some((market_code, exchange_code)) = market.split_once('-') {
+                builder.push(" AND sf.market = ");
+                builder.push_bind(market_code.to_string());
+                builder.push(" AND sf.exchange = ");
+                builder.push_bind(exchange_code.to_string());
+            } else {
+                // 단순 시장 코드 (KR, US 등)
+                builder.push(" AND sf.market = ");
+                builder.push_bind(market.clone());
+            }
         }
-        if let Some(ref exchange) = filter.exchange {
-            builder.push(" AND sf.exchange = ");
-            builder.push_bind(exchange.clone());
+        // 별도 거래소 필터 (market에 하이픈이 없을 때만 적용)
+        if filter.market.as_ref().map_or(true, |m| !m.contains('-')) {
+            if let Some(ref exchange) = filter.exchange {
+                builder.push(" AND sf.exchange = ");
+                builder.push_bind(exchange.clone());
+            }
         }
         if let Some(ref sector) = filter.sector {
             builder.push(" AND sf.sector ILIKE ");
@@ -545,10 +557,10 @@ impl ScreeningRepository {
                 }
             }
 
-            if filter.only_alive_consolidation.unwrap_or(false) {
-                if !features.is_alive_consolidation() {
-                    pass = false;
-                }
+            if filter.only_alive_consolidation.unwrap_or(false)
+                && !features.is_alive_consolidation()
+            {
+                pass = false;
             }
 
             // 참고: RouteState, MarketRegime, TTM Squeeze 필터링은 SQL 레벨에서 처리됨
@@ -566,10 +578,12 @@ impl ScreeningRepository {
                 // route_state, regime, ttm_squeeze는 SQL 쿼리에서 이미 설정됨 (DB 캐시 값)
 
                 // MACD 계산 (candles가 있을 때만)
-                let macd_candles = candles_for_calc
-                    .as_ref()
-                    .cloned()
-                    .or_else(|| data_provider.get_klines(&symbol, Timeframe::D1, 50).now_or_never()?.ok());
+                let macd_candles = candles_for_calc.as_ref().cloned().or_else(|| {
+                    data_provider
+                        .get_klines(&symbol, Timeframe::D1, 50)
+                        .now_or_never()?
+                        .ok()
+                });
 
                 if let Some(ref candles) = macd_candles {
                     if candles.len() >= 35 {
@@ -581,14 +595,20 @@ impl ScreeningRepository {
                             // 최신 MACD 값 (마지막 인덱스)
                             if let Some(latest) = macd_results.last() {
                                 candidate.macd = latest.macd.map(|d| d.to_f64().unwrap_or(0.0));
-                                candidate.macd_signal = latest.signal.map(|d| d.to_f64().unwrap_or(0.0));
-                                candidate.macd_histogram = latest.histogram.map(|d| d.to_f64().unwrap_or(0.0));
+                                candidate.macd_signal =
+                                    latest.signal.map(|d| d.to_f64().unwrap_or(0.0));
+                                candidate.macd_histogram =
+                                    latest.histogram.map(|d| d.to_f64().unwrap_or(0.0));
 
                                 // 골든크로스/데드크로스 감지 (최근 2개 봉 비교)
                                 if macd_results.len() >= 2 {
                                     let prev = &macd_results[macd_results.len() - 2];
-                                    if let (Some(curr_macd), Some(curr_sig), Some(prev_macd), Some(prev_sig)) =
-                                        (latest.macd, latest.signal, prev.macd, prev.signal)
+                                    if let (
+                                        Some(curr_macd),
+                                        Some(curr_sig),
+                                        Some(prev_macd),
+                                        Some(prev_sig),
+                                    ) = (latest.macd, latest.signal, prev.macd, prev.signal)
                                     {
                                         // 골든크로스: 이전에 MACD < Signal, 현재 MACD > Signal
                                         if prev_macd < prev_sig && curr_macd > curr_sig {
@@ -611,7 +631,8 @@ impl ScreeningRepository {
                     trigger_calculator.calculate(candles).ok()
                 } else {
                     // candles가 없으면 다시 조회 시도
-                    if let Ok(candles) = data_provider.get_klines(&symbol, Timeframe::D1, 50).await {
+                    if let Ok(candles) = data_provider.get_klines(&symbol, Timeframe::D1, 50).await
+                    {
                         trigger_calculator.calculate(&candles).ok()
                     } else {
                         None
@@ -664,10 +685,28 @@ impl ScreeningRepository {
         // 2. 시장 전체 평균 수익률 계산
         // 3. 상대강도(RS) = 섹터 수익률 / 시장 수익률
         // 4. 종합 점수 = RS * 0.6 + 단순수익 * 0.4
-        
+
         let lookback_date = Utc::now() - Duration::days(days.into());
-        
-        let query = r#"
+
+        // KR-KOSPI 형식 파싱
+        let (market_code, exchange_code) = match market {
+            Some(m) if m.contains('-') => {
+                let parts: Vec<&str> = m.split('-').collect();
+                (Some(parts[0].to_string()), Some(parts[1].to_string()))
+            }
+            Some(m) => (Some(m.to_string()), None),
+            None => (None, None),
+        };
+
+        // 동적 market/exchange 조건
+        let market_condition = match (&market_code, &exchange_code) {
+            (Some(_), Some(_)) => "AND sf.market = $2 AND sf.exchange = $3",
+            (Some(_), None) => "AND sf.market = $2",
+            _ => "",
+        };
+
+        let query = format!(
+            r#"
             WITH sector_prices AS (
                 -- 섹터별 종목의 시작/종료 가격 계산
                 SELECT
@@ -684,12 +723,12 @@ impl ScreeningRepository {
                         ORDER BY o.open_time DESC
                     ) as end_price
                 FROM v_symbol_with_fundamental sf
-                JOIN ohlcv o ON (o.symbol = sf.yahoo_symbol OR o.symbol = sf.ticker)
+                JOIN ohlcv o ON o.symbol = sf.ticker
                 WHERE o.timeframe = '1d'
                   AND o.open_time >= $1
                   AND sf.sector IS NOT NULL
                   AND sf.sector != ''
-                  AND ($2::text IS NULL OR sf.market = $2)
+                  {}
             ),
             sector_returns AS (
                 -- 섹터별 종목 수익률 계산 (중복 제거)
@@ -742,13 +781,34 @@ impl ScreeningRepository {
             FROM sector_avg_returns s
             CROSS JOIN market_avg m
             ORDER BY composite_score DESC
-        "#;
+        "#,
+            market_condition
+        );
 
-        let results = sqlx::query_as::<_, SectorRsResult>(query)
-            .bind(lookback_date)
-            .bind(market)
-            .fetch_all(pool)
-            .await?;
+        // 파라미터 바인딩 (market/exchange 조건에 따라 다름)
+        let results = match (&market_code, &exchange_code) {
+            (Some(m), Some(e)) => {
+                sqlx::query_as::<_, SectorRsResult>(&query)
+                    .bind(lookback_date)
+                    .bind(m)
+                    .bind(e)
+                    .fetch_all(pool)
+                    .await?
+            }
+            (Some(m), None) => {
+                sqlx::query_as::<_, SectorRsResult>(&query)
+                    .bind(lookback_date)
+                    .bind(m)
+                    .fetch_all(pool)
+                    .await?
+            }
+            _ => {
+                sqlx::query_as::<_, SectorRsResult>(&query)
+                    .bind(lookback_date)
+                    .fetch_all(pool)
+                    .await?
+            }
+        };
 
         // 순위 추가
         let ranked: Vec<SectorRsResult> = results
@@ -868,7 +928,7 @@ impl ScreeningRepository {
                 sort_order: Some("asc".to_string()),
                 ..Default::default()
             },
-            // 기본: 전체 목록
+            // 전체: 필터 없이 모든 종목 조회 (basic, all, 또는 알 수 없는 값)
             _ => ScreeningFilter {
                 market: market.map(String::from),
                 limit: Some(100),
@@ -986,6 +1046,11 @@ impl ScreeningRepository {
     /// 사용 가능한 프리셋 목록 반환
     pub fn available_presets() -> Vec<ScreeningPreset> {
         vec![
+            ScreeningPreset {
+                id: "basic".to_string(),
+                name: "전체".to_string(),
+                description: "필터 없이 모든 종목 조회".to_string(),
+            },
             ScreeningPreset {
                 id: "value".to_string(),
                 name: "가치주".to_string(),
@@ -1114,11 +1179,10 @@ impl ScreeningRepository {
         request: CreatePresetRequest,
     ) -> Result<ScreeningPresetRecord, sqlx::Error> {
         // 현재 최대 sort_order 조회
-        let max_order: Option<i32> = sqlx::query_scalar(
-            "SELECT MAX(sort_order) FROM screening_preset",
-        )
-        .fetch_one(pool)
-        .await?;
+        let max_order: Option<i32> =
+            sqlx::query_scalar("SELECT MAX(sort_order) FROM screening_preset")
+                .fetch_one(pool)
+                .await?;
 
         let next_order = max_order.unwrap_or(-1) + 1;
 
@@ -1142,22 +1206,22 @@ impl ScreeningRepository {
     /// 프리셋 삭제 (기본 프리셋은 삭제 불가)
     pub async fn delete_preset(pool: &PgPool, id: Uuid) -> Result<bool, sqlx::Error> {
         // 기본 프리셋 여부 확인
-        let is_default: Option<bool> = sqlx::query_scalar(
-            "SELECT is_default FROM screening_preset WHERE id = $1",
-        )
-        .bind(id)
-        .fetch_optional(pool)
-        .await?
-        .flatten();
+        let is_default: Option<bool> =
+            sqlx::query_scalar("SELECT is_default FROM screening_preset WHERE id = $1")
+                .bind(id)
+                .fetch_optional(pool)
+                .await?
+                .flatten();
 
         if is_default == Some(true) {
             return Ok(false); // 기본 프리셋은 삭제 불가
         }
 
-        let result = sqlx::query("DELETE FROM screening_preset WHERE id = $1 AND is_default = false")
-            .bind(id)
-            .execute(pool)
-            .await?;
+        let result =
+            sqlx::query("DELETE FROM screening_preset WHERE id = $1 AND is_default = false")
+                .bind(id)
+                .execute(pool)
+                .await?;
 
         Ok(result.rows_affected() > 0)
     }

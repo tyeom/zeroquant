@@ -123,7 +123,9 @@ pub struct FetchDatasetResponse {
 /// 정렬 컬럼.
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum SortColumn {
+    #[default]
     Time,
     Open,
     High,
@@ -132,15 +134,9 @@ pub enum SortColumn {
     Volume,
 }
 
-impl Default for SortColumn {
-    fn default() -> Self {
-        Self::Time
-    }
-}
-
 impl SortColumn {
     /// DB 컬럼명으로 변환.
-    fn to_db_column(&self) -> &'static str {
+    fn to_db_column(self) -> &'static str {
         match self {
             Self::Time => "open_time",
             Self::Open => "open",
@@ -155,19 +151,15 @@ impl SortColumn {
 /// 정렬 방향.
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum SortOrder {
     Asc,
+    #[default]
     Desc,
 }
 
-impl Default for SortOrder {
-    fn default() -> Self {
-        Self::Desc
-    }
-}
-
 impl SortOrder {
-    fn to_sql(&self) -> &'static str {
+    fn to_sql(self) -> &'static str {
         match self {
             Self::Asc => "ASC",
             Self::Desc => "DESC",
@@ -282,7 +274,7 @@ pub async fn list_datasets(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ApiError::new(
                     "CACHE_STATS_ERROR",
-                    &format!("캐시 통계 조회 실패: {}", e),
+                    format!("캐시 통계 조회 실패: {}", e),
                 )),
             ))
         }
@@ -380,7 +372,7 @@ pub async fn fetch_dataset(
                 StatusCode::BAD_GATEWAY,
                 Json(ApiError::new(
                     "FETCH_ERROR",
-                    &format!("데이터 다운로드 실패: {}", e),
+                    format!("데이터 다운로드 실패: {}", e),
                 )),
             ))
         }
@@ -399,7 +391,7 @@ fn parse_date_range(
             StatusCode::BAD_REQUEST,
             Json(ApiError::new(
                 "INVALID_START_DATE",
-                &format!("시작 날짜 형식 오류 (YYYY-MM-DD): {}", e),
+                format!("시작 날짜 형식 오류 (YYYY-MM-DD): {}", e),
             )),
         )
     })?;
@@ -409,7 +401,7 @@ fn parse_date_range(
             StatusCode::BAD_REQUEST,
             Json(ApiError::new(
                 "INVALID_END_DATE",
-                &format!("종료 날짜 형식 오류 (YYYY-MM-DD): {}", e),
+                format!("종료 날짜 형식 오류 (YYYY-MM-DD): {}", e),
             )),
         )
     })?;
@@ -436,7 +428,7 @@ fn parse_start_date(req: &FetchDatasetRequest) -> Result<NaiveDate, (StatusCode,
             StatusCode::BAD_REQUEST,
             Json(ApiError::new(
                 "INVALID_START_DATE",
-                &format!("시작 날짜 형식 오류 (YYYY-MM-DD): {}", e),
+                format!("시작 날짜 형식 오류 (YYYY-MM-DD): {}", e),
             )),
         )
     })
@@ -454,7 +446,7 @@ fn calculate_effective_limit(
                     StatusCode::BAD_REQUEST,
                     Json(ApiError::new(
                         "INVALID_START_DATE",
-                        &format!("시작 날짜 형식 오류 (YYYY-MM-DD): {}", e),
+                        format!("시작 날짜 형식 오류 (YYYY-MM-DD): {}", e),
                     )),
                 )
             })?;
@@ -463,7 +455,7 @@ fn calculate_effective_limit(
                     StatusCode::BAD_REQUEST,
                     Json(ApiError::new(
                         "INVALID_END_DATE",
-                        &format!("종료 날짜 형식 오류 (YYYY-MM-DD): {}", e),
+                        format!("종료 날짜 형식 오류 (YYYY-MM-DD): {}", e),
                     )),
                 )
             })?;
@@ -488,7 +480,7 @@ fn calculate_effective_limit(
                     StatusCode::BAD_REQUEST,
                     Json(ApiError::new(
                         "INVALID_START_DATE",
-                        &format!("시작 날짜 형식 오류 (YYYY-MM-DD): {}", e),
+                        format!("시작 날짜 형식 오류 (YYYY-MM-DD): {}", e),
                     )),
                 )
             })?;
@@ -503,7 +495,7 @@ fn calculate_effective_limit(
                     StatusCode::BAD_REQUEST,
                     Json(ApiError::new(
                         "INVALID_END_DATE",
-                        &format!("종료 날짜 형식 오류 (YYYY-MM-DD): {}", e),
+                        format!("종료 날짜 형식 오류 (YYYY-MM-DD): {}", e),
                     )),
                 )
             })?;
@@ -545,7 +537,7 @@ pub async fn get_candles(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("DB_ERROR", &format!("심볼 조회 실패: {}", e))),
+                Json(ApiError::new("DB_ERROR", format!("심볼 조회 실패: {}", e))),
             )
         })?
         .ok_or_else(|| {
@@ -553,20 +545,13 @@ pub async fn get_candles(
                 StatusCode::NOT_FOUND,
                 Json(ApiError::new(
                     "SYMBOL_NOT_FOUND",
-                    &format!("심볼을 찾을 수 없습니다: {}", symbol),
+                    format!("심볼을 찾을 수 없습니다: {}", symbol),
                 )),
             )
         })?;
 
-    let yahoo_symbol = symbol_info.yahoo_symbol.ok_or_else(|| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(ApiError::new(
-                "NO_YAHOO_SYMBOL",
-                &format!("Yahoo Finance 심볼이 설정되지 않음: {}", symbol),
-            )),
-        )
-    })?;
+    // OHLCV 테이블은 ticker로 조회 (yahoo_symbol은 API 호출 시에만 사용)
+    let ticker = &symbol_info.ticker;
     let tf_str = timeframe_to_db_string(&query.timeframe);
 
     // 정렬 조건이 기본값(time desc)이 아닌 경우 DB 직접 쿼리
@@ -580,7 +565,7 @@ pub async fn get_candles(
         // 전체 개수를 DB에서 조회 (캐시 제공자는 limit만큼만 반환하므로)
         let total_count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM ohlcv WHERE symbol = $1 AND timeframe = $2")
-                .bind(&yahoo_symbol)
+                .bind(ticker)
                 .bind(&tf_str)
                 .fetch_one(pool)
                 .await
@@ -632,7 +617,7 @@ pub async fn get_candles(
                     StatusCode::BAD_GATEWAY,
                     Json(ApiError::new(
                         "FETCH_ERROR",
-                        &format!("캔들 데이터 조회 실패: {}", e),
+                        format!("캔들 데이터 조회 실패: {}", e),
                     )),
                 ));
             }
@@ -652,7 +637,7 @@ pub async fn get_candles(
     "#;
 
     let total_count: i64 = sqlx::query_scalar(count_query)
-        .bind(&yahoo_symbol)
+        .bind(ticker)
         .bind(&tf_str)
         .fetch_one(pool)
         .await
@@ -662,7 +647,7 @@ pub async fn get_candles(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ApiError::new(
                     "DB_ERROR",
-                    &format!("데이터 조회 실패: {}", e),
+                    format!("데이터 조회 실패: {}", e),
                 )),
             )
         })?;
@@ -691,7 +676,7 @@ pub async fn get_candles(
     }
 
     let rows: Vec<OhlcvRow> = sqlx::query_as(&data_query)
-        .bind(&yahoo_symbol)
+        .bind(ticker)
         .bind(&tf_str)
         .bind(query.limit as i64)
         .bind(offset as i64)
@@ -703,7 +688,7 @@ pub async fn get_candles(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ApiError::new(
                     "DB_ERROR",
-                    &format!("데이터 조회 실패: {}", e),
+                    format!("데이터 조회 실패: {}", e),
                 )),
             )
         })?;
@@ -763,7 +748,7 @@ pub async fn delete_dataset(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("DB_ERROR", &format!("심볼 조회 실패: {}", e))),
+                Json(ApiError::new("DB_ERROR", format!("심볼 조회 실패: {}", e))),
             )
         })?
         .ok_or_else(|| {
@@ -771,23 +756,16 @@ pub async fn delete_dataset(
                 StatusCode::NOT_FOUND,
                 Json(ApiError::new(
                     "SYMBOL_NOT_FOUND",
-                    &format!("심볼을 찾을 수 없습니다: {}", symbol),
+                    format!("심볼을 찾을 수 없습니다: {}", symbol),
                 )),
             )
         })?;
 
-    let yahoo_symbol = symbol_info.yahoo_symbol.ok_or_else(|| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(ApiError::new(
-                "NO_YAHOO_SYMBOL",
-                &format!("Yahoo Finance 심볼이 설정되지 않음: {}", symbol),
-            )),
-        )
-    })?;
+    // OHLCV 테이블은 ticker로 조회 (yahoo_symbol은 API 호출 시에만 사용)
+    let ticker = &symbol_info.ticker;
 
     info!(
-        symbol = %yahoo_symbol,
+        symbol = %ticker,
         timeframe = ?query.timeframe,
         "데이터셋 삭제 요청"
     );
@@ -795,7 +773,7 @@ pub async fn delete_dataset(
     let deleted = if let Some(ref tf) = query.timeframe {
         // 특정 타임프레임만 삭제
         sqlx::query("DELETE FROM ohlcv WHERE symbol = $1 AND timeframe = $2")
-            .bind(&yahoo_symbol)
+            .bind(ticker)
             .bind(tf)
             .execute(pool)
             .await
@@ -803,21 +781,21 @@ pub async fn delete_dataset(
                 error!(error = %e, "캐시 삭제 실패");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ApiError::new("DELETE_ERROR", &format!("삭제 실패: {}", e))),
+                    Json(ApiError::new("DELETE_ERROR", format!("삭제 실패: {}", e))),
                 )
             })?
             .rows_affected()
     } else {
         // 모든 타임프레임 삭제
         sqlx::query("DELETE FROM ohlcv WHERE symbol = $1")
-            .bind(&yahoo_symbol)
+            .bind(ticker)
             .execute(pool)
             .await
             .map_err(|e| {
                 error!(error = %e, "캐시 삭제 실패");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ApiError::new("DELETE_ERROR", &format!("삭제 실패: {}", e))),
+                    Json(ApiError::new("DELETE_ERROR", format!("삭제 실패: {}", e))),
                 )
             })?
             .rows_affected()
@@ -826,13 +804,13 @@ pub async fn delete_dataset(
     // 메타데이터도 삭제
     if let Some(ref tf) = query.timeframe {
         let _ = sqlx::query("DELETE FROM ohlcv_metadata WHERE symbol = $1 AND timeframe = $2")
-            .bind(&yahoo_symbol)
+            .bind(ticker)
             .bind(tf)
             .execute(pool)
             .await;
     } else {
         let _ = sqlx::query("DELETE FROM ohlcv_metadata WHERE symbol = $1")
-            .bind(&yahoo_symbol)
+            .bind(ticker)
             .execute(pool)
             .await;
     }
@@ -1086,7 +1064,7 @@ pub async fn get_symbols_batch(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ApiError::new(
                     "QUERY_ERROR",
-                    &format!("심볼 조회 실패: {}", e),
+                    format!("심볼 조회 실패: {}", e),
                 )),
             )
         })?;
@@ -1249,7 +1227,7 @@ async fn get_failed_symbols(
             error!(error = %e, "실패 심볼 목록 조회 실패");
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("DB_ERROR", &e.to_string())),
+                Json(ApiError::new("DB_ERROR", e.to_string())),
             ))
         }
     }
@@ -1281,7 +1259,7 @@ async fn get_symbol_stats(
             error!(error = %e, "심볼 통계 조회 실패");
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("DB_ERROR", &e.to_string())),
+                Json(ApiError::new("DB_ERROR", e.to_string())),
             ))
         }
     }
@@ -1318,7 +1296,7 @@ async fn reactivate_symbols(
                 StatusCode::BAD_REQUEST,
                 Json(ApiError::new(
                     "INVALID_UUID",
-                    &format!("잘못된 UUID 형식: {}", e),
+                    format!("잘못된 UUID 형식: {}", e),
                 )),
             ));
         }
@@ -1348,7 +1326,7 @@ async fn reactivate_symbols(
             error!(error = %e, "심볼 재활성화 실패");
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("DB_ERROR", &e.to_string())),
+                Json(ApiError::new("DB_ERROR", e.to_string())),
             ))
         }
     }

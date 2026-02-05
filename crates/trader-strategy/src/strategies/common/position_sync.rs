@@ -36,7 +36,7 @@ use trader_core::{unrealized_pnl, Order, OrderStatusType, Side};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncedPosition {
     /// 포지션 심볼.
-    pub ticker:  String,
+    pub ticker: String,
     /// 포지션 방향.
     pub side: Side,
     /// 현재 수량.
@@ -55,7 +55,7 @@ pub struct SyncedPosition {
 
 impl SyncedPosition {
     /// 새 포지션 생성.
-    pub fn new(ticker:  String, side: Side, quantity: Decimal, entry_price: Decimal) -> Self {
+    pub fn new(ticker: String, side: Side, quantity: Decimal, entry_price: Decimal) -> Self {
         Self {
             ticker,
             side,
@@ -150,7 +150,7 @@ impl PositionSync {
     }
 
     /// 특정 심볼만 추적하도록 설정.
-    pub fn with_ticker(mut self, ticker:  String) -> Self {
+    pub fn with_ticker(mut self, ticker: String) -> Self {
         self.target_ticker = Some(ticker);
         self
     }

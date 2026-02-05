@@ -2,21 +2,31 @@
 //!
 //! 모든 활성 심볼에 대해 GlobalScore를 계산하여 symbol_global_score 테이블에 저장합니다.
 
-use rust_decimal::prelude::*;
 use rust_decimal::Decimal;
 use sqlx::PgPool;
 use std::time::Instant;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-use trader_analytics::{GlobalScorer, GlobalScorerParams};
+use trader_analytics::{GlobalScorer, GlobalScorerParams, IndicatorEngine, StructuralFeatures};
+use trader_analytics::indicators::AtrParams;
 use trader_core::{MarketType, Symbol, Timeframe};
 use trader_data::cache::historical::CachedHistoricalDataProvider;
 
+use super::checkpoint::{self, CheckpointStatus};
 use crate::config::CollectorConfig;
 use crate::error::CollectorError;
 use crate::stats::CollectionStats;
 use crate::Result;
+
+/// GlobalScore 동기화 옵션
+#[derive(Debug, Default)]
+pub struct GlobalScoreSyncOptions {
+    /// 중단점부터 재개
+    pub resume: bool,
+    /// N시간 이내 업데이트된 심볼 스킵
+    pub stale_hours: Option<u32>,
+}
 
 /// Global Score 동기화 실행.
 ///
@@ -35,6 +45,17 @@ pub async fn sync_global_scores(
     config: &CollectorConfig,
     symbols: Option<String>,
 ) -> Result<CollectionStats> {
+    let options = GlobalScoreSyncOptions::default();
+    sync_global_scores_with_options(pool, config, symbols, options).await
+}
+
+/// Global Score 동기화 실행 (옵션 포함).
+pub async fn sync_global_scores_with_options(
+    pool: &PgPool,
+    config: &CollectorConfig,
+    symbols: Option<String>,
+    options: GlobalScoreSyncOptions,
+) -> Result<CollectionStats> {
     let start = Instant::now();
     let mut stats = CollectionStats::new();
 
@@ -42,16 +63,46 @@ pub async fn sync_global_scores(
     let scorer = GlobalScorer::new();
     let data_provider = CachedHistoricalDataProvider::new(pool.clone());
 
+    // 체크포인트 로드 (resume 모드)
+    let resume_ticker = if options.resume {
+        match checkpoint::load_checkpoint(pool, "global_score_sync").await? {
+            Some(t) => {
+                info!(last_ticker = %t, "중단점부터 재개");
+                Some(t)
+            }
+            None => {
+                info!("이전 중단점 없음, 처음부터 시작");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     // 대상 심볼 결정
     let target_symbols = if let Some(ref tickers) = symbols {
         let ticker_list: Vec<&str> = tickers.split(',').map(|s| s.trim()).collect();
         get_symbols_by_tickers(pool, &ticker_list).await?
     } else {
-        get_all_active_symbols(pool, config.fundamental_collect.batch_size).await?
+        get_active_symbols_with_options(
+            pool,
+            config.fundamental_collect.batch_size,
+            resume_ticker.as_deref(),
+            options.stale_hours,
+        )
+        .await?
     };
 
     if target_symbols.is_empty() {
         info!("동기화할 심볼이 없습니다");
+        checkpoint::save_checkpoint(
+            pool,
+            "global_score_sync",
+            "",
+            0,
+            CheckpointStatus::Completed,
+        )
+        .await?;
         stats.elapsed = start.elapsed();
         return Ok(stats);
     }
@@ -59,19 +110,43 @@ pub async fn sync_global_scores(
     info!("GlobalScore 동기화 시작: {} 심볼", target_symbols.len());
     stats.total = target_symbols.len();
 
+    // 시작 상태 저장
+    checkpoint::save_checkpoint(pool, "global_score_sync", "", 0, CheckpointStatus::Running)
+        .await?;
+
     let delay = config.fundamental_collect.request_delay();
 
-    for (symbol_info_id, ticker, market) in target_symbols {
+    for (idx, (symbol_info_id, ticker, market)) in target_symbols.iter().enumerate() {
+        // 체크포인트 저장 (100개마다)
+        if (idx + 1) % 100 == 0 {
+            info!(
+                progress = format!("{}/{}", idx + 1, stats.total),
+                "GlobalScore 동기화 진행 중"
+            );
+            checkpoint::save_checkpoint(
+                pool,
+                "global_score_sync",
+                ticker,
+                (idx + 1) as i32,
+                CheckpointStatus::Running,
+            )
+            .await?;
+        }
+
         debug!(ticker = %ticker, market = %market, "GlobalScore 계산 중");
 
-        match calculate_and_save(pool, &scorer, &data_provider, symbol_info_id, &ticker, &market)
-            .await
+        match calculate_and_save(
+            pool,
+            &scorer,
+            &data_provider,
+            *symbol_info_id,
+            ticker,
+            market,
+        )
+        .await
         {
             Ok(true) => {
                 stats.success += 1;
-                if stats.success % 100 == 0 {
-                    info!("진행률: {}/{}", stats.success, stats.total);
-                }
             }
             Ok(false) => {
                 // 데이터 부족으로 스킵
@@ -86,6 +161,16 @@ pub async fn sync_global_scores(
         // Rate limiting
         tokio::time::sleep(delay).await;
     }
+
+    // 완료 상태 저장
+    checkpoint::save_checkpoint(
+        pool,
+        "global_score_sync",
+        "",
+        stats.total as i32,
+        CheckpointStatus::Completed,
+    )
+    .await?;
 
     stats.elapsed = start.elapsed();
     info!(
@@ -128,11 +213,65 @@ async fn calculate_and_save(
         return Ok(false);
     }
 
-    // 3. GlobalScore 계산
+    // 3. 가격/거래량 데이터 추출
+    let highs: Vec<Decimal> = candles.iter().map(|c| c.high).collect();
+    let lows: Vec<Decimal> = candles.iter().map(|c| c.low).collect();
+    let closes: Vec<Decimal> = candles.iter().map(|c| c.close).collect();
+    
+    let current_price = closes.last().copied();
+
+    // 4. 거래대금 계산 (유동성 점수용)
+    let avg_volume_amount = {
+        let total_amount: Decimal = candles
+            .iter()
+            .map(|c| c.volume * c.close)
+            .sum();
+        Some(total_amount / Decimal::from(candles.len()))
+    };
+
+    // 5. ATR 기반 목표가/손절가 계산 (2 ATR 목표, 1 ATR 손절)
+    let indicator_engine = IndicatorEngine::new();
+    let atr_params = AtrParams { period: 14 };
+    let atr_result = indicator_engine.atr(&highs, &lows, &closes, atr_params);
+    
+    let (target_price, stop_price) = if let Some(price) = current_price {
+        let latest_atr = atr_result
+            .ok()
+            .and_then(|v| v.last().copied().flatten())
+            .unwrap_or(price * Decimal::new(2, 2)); // 기본 2%
+        let target = Some(price + latest_atr * Decimal::from(2)); // +2 ATR
+        let stop = Some(price - latest_atr);                       // -1 ATR
+        (target, stop)
+    } else {
+        (None, None)
+    };
+
+    // 6. StructuralFeatures 계산 (ERS 점수용)
+    let structural_features = StructuralFeatures::from_candles(&candles, &indicator_engine).ok();
+
+    // 7. 거래대금 퍼센타일 계산 (시장 전체 기준)
+    // 일단 거래대금 기반으로 대략적 퍼센타일 추정
+    // 거래대금 1억 이하: 0.1, 10억: 0.3, 100억: 0.5, 1000억: 0.7, 1조 이상: 0.9
+    let volume_percentile = avg_volume_amount.map(|amt| {
+        let amt_f64 = amt.to_string().parse::<f64>().unwrap_or(0.0);
+        if amt_f64 >= 1_000_000_000_000.0 { 0.95 }      // 1조 이상
+        else if amt_f64 >= 100_000_000_000.0 { 0.8 }    // 1000억 이상
+        else if amt_f64 >= 10_000_000_000.0 { 0.6 }     // 100억 이상
+        else if amt_f64 >= 1_000_000_000.0 { 0.4 }      // 10억 이상
+        else if amt_f64 >= 100_000_000.0 { 0.2 }        // 1억 이상
+        else { 0.1 }                                     // 1억 미만
+    });
+
+    // 8. GlobalScore 계산
     let params = GlobalScorerParams {
         symbol: Some(symbol.to_string()),
         market_type: Some(market_type),
-        ..Default::default()
+        entry_price: current_price,
+        target_price,
+        stop_price,
+        avg_volume_amount,
+        volume_percentile,
+        structural_features,
     };
 
     let result = scorer
@@ -205,24 +344,52 @@ async fn get_symbols_by_tickers(
 }
 
 /// 전체 활성 심볼 조회.
-async fn get_all_active_symbols(
+#[allow(dead_code)]
+async fn get_all_active_symbols(pool: &PgPool, limit: i64) -> Result<Vec<(Uuid, String, String)>> {
+    get_active_symbols_with_options(pool, limit, None, None).await
+}
+
+/// 활성 심볼 조회 (resume, stale_hours 지원).
+async fn get_active_symbols_with_options(
     pool: &PgPool,
     limit: i64,
+    resume_ticker: Option<&str>,
+    stale_hours: Option<u32>,
 ) -> Result<Vec<(Uuid, String, String)>> {
-    let results = sqlx::query_as::<_, (Uuid, String, String)>(
+    let resume_condition = if let Some(t) = resume_ticker {
+        format!("AND si.ticker > '{}'", t)
+    } else {
+        String::new()
+    };
+
+    let stale_condition = if let Some(hours) = stale_hours {
+        format!(
+            "AND (sgs.updated_at IS NULL OR sgs.updated_at < NOW() - INTERVAL '{} hours')",
+            hours
+        )
+    } else {
+        String::new()
+    };
+
+    let query = format!(
         r#"
-        SELECT id, ticker, market
-        FROM symbol_info
-        WHERE is_active = true
-          AND market != 'CRYPTO'
-        ORDER BY ticker
+        SELECT si.id, si.ticker, si.market
+        FROM symbol_info si
+        LEFT JOIN symbol_global_score sgs ON si.id = sgs.symbol_info_id
+        WHERE si.is_active = true
+          AND si.market != 'CRYPTO'
+          {} {}
+        ORDER BY si.ticker
         LIMIT $1
         "#,
-    )
-    .bind(limit)
-    .fetch_all(pool)
-    .await
-    .map_err(CollectorError::Database)?;
+        resume_condition, stale_condition
+    );
+
+    let results = sqlx::query_as::<_, (Uuid, String, String)>(&query)
+        .bind(limit)
+        .fetch_all(pool)
+        .await
+        .map_err(CollectorError::Database)?;
 
     Ok(results)
 }

@@ -18,7 +18,9 @@ use tracing::{debug, error, info, warn};
 use trader_core::{OrderBook, Ticker};
 use trader_exchange::traits::{MarketEvent, MarketStream};
 
-use super::messages::{KlineData, OrderBookData, OrderBookLevel, ServerMessage, TickerData, TradeData};
+use super::messages::{
+    KlineData, OrderBookData, OrderBookLevel, ServerMessage, TickerData, TradeData,
+};
 use super::subscriptions::SharedSubscriptionManager;
 
 /// 거래소 데이터를 WebSocket 클라이언트에게 전달하는 어그리게이터.
@@ -79,7 +81,7 @@ impl MarketDataAggregator {
 
     /// Ticker 이벤트 처리.
     fn handle_ticker(&self, ticker: Ticker) {
-        let symbol = format!("{}", ticker.ticker);
+        let symbol = ticker.ticker.to_string();
         let timestamp = ticker.timestamp.timestamp_millis();
 
         // 24시간 변화율 계산 (이미 계산된 값 사용)
@@ -111,7 +113,7 @@ impl MarketDataAggregator {
 
     /// OrderBook 이벤트 처리.
     fn handle_orderbook(&self, orderbook: OrderBook) {
-        let symbol = format!("{}", orderbook.ticker);
+        let symbol = orderbook.ticker.to_string();
         let timestamp = orderbook.timestamp.timestamp_millis();
 
         let bids: Vec<OrderBookLevel> = orderbook
@@ -155,7 +157,7 @@ impl MarketDataAggregator {
 
     /// Trade 이벤트 처리.
     fn handle_trade(&self, trade: trader_core::TradeTick) {
-        let symbol = format!("{}", trade.ticker);
+        let symbol = trade.ticker.to_string();
         let timestamp = trade.timestamp.timestamp_millis();
 
         let trade_data = TradeData {
@@ -180,7 +182,6 @@ impl MarketDataAggregator {
             debug!("Broadcast error: {}", e);
         }
     }
-
 
     /// Kline(캔들스틱) 이벤트 처리.
     fn handle_kline(&self, kline: trader_core::Kline) {

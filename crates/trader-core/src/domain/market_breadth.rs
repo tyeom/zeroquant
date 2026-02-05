@@ -17,6 +17,7 @@ use std::fmt;
 /// - **Cold**: <= 35% 🧊 (냉각)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[derive(Default)]
 pub enum MarketTemperature {
     /// 과열 (>= 65%)
     ///
@@ -28,6 +29,7 @@ pub enum MarketTemperature {
     ///
     /// 정상적인 시장 상태입니다.
     /// 선별적 매수가 가능합니다.
+    #[default]
     Neutral,
 
     /// 냉각 (<= 35%)
@@ -122,11 +124,6 @@ impl fmt::Display for MarketTemperature {
     }
 }
 
-impl Default for MarketTemperature {
-    fn default() -> Self {
-        Self::Neutral
-    }
-}
 
 /// Market Breadth - 시장 폭 지표.
 ///

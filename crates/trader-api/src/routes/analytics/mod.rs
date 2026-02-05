@@ -48,11 +48,12 @@ use charts::{
 };
 use indicators::{
     calculate_indicators, get_atr_indicator, get_available_indicators, get_bollinger_indicator,
-    get_ema_indicator, get_macd_indicator, get_rsi_indicator, get_sma_indicator,
-    get_stochastic_indicator,
+    get_correlation, get_ema_indicator, get_keltner_indicator, get_macd_indicator,
+    get_obv_indicator, get_rsi_indicator, get_sma_indicator, get_stochastic_indicator,
+    get_supertrend_indicator, get_volume_profile, get_vwap_indicator,
 };
 use performance::get_performance;
-use sync::sync_equity_curve;
+use sync::{clear_equity_cache, sync_equity_curve};
 
 /// 포트폴리오 분석 라우터 생성.
 pub fn analytics_router() -> Router<Arc<AppState>> {
@@ -66,6 +67,8 @@ pub fn analytics_router() -> Router<Arc<AppState>> {
         .route("/monthly-returns", get(get_monthly_returns))
         // 자산 곡선 동기화
         .route("/sync-equity", axum::routing::post(sync_equity_curve))
+        // 자산 곡선 캐시 삭제
+        .route("/equity-cache", axum::routing::delete(clear_equity_cache))
         // 기술적 지표 엔드포인트
         .route("/indicators", get(get_available_indicators))
         .route("/indicators/sma", get(get_sma_indicator))
@@ -79,4 +82,10 @@ pub fn analytics_router() -> Router<Arc<AppState>> {
             "/indicators/calculate",
             axum::routing::post(calculate_indicators),
         )
+        .route("/indicators/volume-profile", get(get_volume_profile))
+        .route("/indicators/vwap", get(get_vwap_indicator))
+        .route("/indicators/keltner", get(get_keltner_indicator))
+        .route("/indicators/obv", get(get_obv_indicator))
+        .route("/indicators/supertrend", get(get_supertrend_indicator))
+        .route("/correlation", get(get_correlation))
 }

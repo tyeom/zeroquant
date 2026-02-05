@@ -29,7 +29,7 @@ pub enum Market {
 
 impl Market {
     /// 문자열에서 시장 파싱
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_uppercase().as_str() {
             "KR" | "KOREA" | "KRX" | "KOSPI" | "KOSDAQ" => Some(Self::KR),
             "US" | "USA" | "NYSE" | "NASDAQ" | "AMEX" => Some(Self::US),
@@ -38,6 +38,7 @@ impl Market {
     }
 
     /// Yahoo Finance 심볼 접미사 반환
+    #[allow(dead_code)]
     pub fn yahoo_suffix(&self) -> &'static str {
         match self {
             Self::KR => ".KS", // 코스피 (코스닥은 .KQ)
@@ -56,7 +57,7 @@ pub enum Interval {
 
 impl Interval {
     /// 문자열에서 간격 파싱
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "1d" | "d1" | "d" | "daily" => Some(Self::D1),
             "1w" | "w1" | "w" | "weekly" => Some(Self::W1),
@@ -66,7 +67,7 @@ impl Interval {
     }
 
     /// Yahoo Finance 간격 문자열 반환
-    pub fn to_yahoo_str(&self) -> &'static str {
+    pub fn to_yahoo_str(self) -> &'static str {
         match self {
             Self::D1 => "1d",
             Self::W1 => "1wk",
@@ -75,7 +76,8 @@ impl Interval {
     }
 
     /// KIS API 기간 유형 반환
-    pub fn to_kis_period(&self) -> &'static str {
+    #[allow(dead_code)]
+    pub fn to_kis_period(self) -> &'static str {
         match self {
             Self::D1 => "D",
             Self::W1 => "W",
@@ -219,6 +221,7 @@ impl DownloadConfig {
 }
 
 /// Yahoo Finance에서 데이터 다운로드
+#[allow(clippy::needless_range_loop)]
 async fn download_from_yahoo(config: &DownloadConfig) -> Result<Vec<OhlcvData>> {
     let client = Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
@@ -447,20 +450,20 @@ mod tests {
 
     #[test]
     fn test_market_parsing() {
-        assert_eq!(Market::from_str("KR"), Some(Market::KR));
-        assert_eq!(Market::from_str("korea"), Some(Market::KR));
-        assert_eq!(Market::from_str("US"), Some(Market::US));
-        assert_eq!(Market::from_str("nasdaq"), Some(Market::US));
-        assert_eq!(Market::from_str("invalid"), None);
+        assert_eq!(Market::parse("KR"), Some(Market::KR));
+        assert_eq!(Market::parse("korea"), Some(Market::KR));
+        assert_eq!(Market::parse("US"), Some(Market::US));
+        assert_eq!(Market::parse("nasdaq"), Some(Market::US));
+        assert_eq!(Market::parse("invalid"), None);
     }
 
     #[test]
     fn test_interval_parsing() {
-        assert!(matches!(Interval::from_str("1d"), Some(Interval::D1)));
-        assert!(matches!(Interval::from_str("daily"), Some(Interval::D1)));
-        assert!(matches!(Interval::from_str("1w"), Some(Interval::W1)));
-        assert!(matches!(Interval::from_str("1m"), Some(Interval::M1)));
-        assert!(Interval::from_str("invalid").is_none());
+        assert!(matches!(Interval::parse("1d"), Some(Interval::D1)));
+        assert!(matches!(Interval::parse("daily"), Some(Interval::D1)));
+        assert!(matches!(Interval::parse("1w"), Some(Interval::W1)));
+        assert!(matches!(Interval::parse("1m"), Some(Interval::M1)));
+        assert!(Interval::parse("invalid").is_none());
     }
 
     #[test]

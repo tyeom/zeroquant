@@ -20,6 +20,7 @@ use std::fmt;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa-support", derive(utoipa::ToSchema))]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[derive(Default)]
 pub enum RouteState {
     /// 진입 적기 (Attack)
     ///
@@ -65,6 +66,7 @@ pub enum RouteState {
     /// **조건**: 위 4가지 상태 조건 미충족
     ///
     /// **의미**: 명확한 신호 없음, 관망
+    #[default]
     Neutral,
 }
 
@@ -103,11 +105,11 @@ impl RouteState {
     /// 상태의 색상 코드를 반환합니다 (UI 표시용).
     pub fn color_code(self) -> &'static str {
         match self {
-            RouteState::Attack => "#22c55e", // 초록 (진입)
-            RouteState::Armed => "#eab308", // 노랑 (대기)
-            RouteState::Wait => "#3b82f6", // 파랑 (관찰)
+            RouteState::Attack => "#22c55e",   // 초록 (진입)
+            RouteState::Armed => "#eab308",    // 노랑 (대기)
+            RouteState::Wait => "#3b82f6",     // 파랑 (관찰)
             RouteState::Overheat => "#ef4444", // 빨강 (과열)
-            RouteState::Neutral => "#6b7280", // 회색 (중립)
+            RouteState::Neutral => "#6b7280",  // 회색 (중립)
         }
     }
 
@@ -136,11 +138,6 @@ impl fmt::Display for RouteState {
     }
 }
 
-impl Default for RouteState {
-    fn default() -> Self {
-        RouteState::Neutral
-    }
-}
 
 #[cfg(test)]
 mod tests {

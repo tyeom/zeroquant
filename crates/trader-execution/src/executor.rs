@@ -278,6 +278,7 @@ impl BracketOrderManager {
 /// `handle_fill_with_brackets()` 호출 후 반환되며,
 /// 호출자가 적절한 거래소에 주문을 제출하거나 취소해야 합니다.
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum BracketFillResult {
     /// 추가 작업 없음.
     None,
@@ -697,8 +698,8 @@ impl OrderExecutor {
         }
 
         // 진입 신호의 경우 설정에 따라 손절 및 익절 생성
-        if SignalConverter::is_entry_signal(&signal.signal_type) {
-            if self.config.auto_stop_loss || self.config.auto_take_profit {
+        if SignalConverter::is_entry_signal(&signal.signal_type)
+            && (self.config.auto_stop_loss || self.config.auto_take_profit) {
                 // 브라켓 주문 생성을 위한 임시 포지션 생성
                 let mock_position = Position::new(
                     "temp",
@@ -720,7 +721,6 @@ impl OrderExecutor {
                     result = result.with_take_profit(tp_order.to_order_request());
                 }
             }
-        }
 
         // 브라켓 주문 등록 (손절/익절이 있는 경우)
         if let Some(order_id) = result.order_id {
@@ -1046,13 +1046,7 @@ mod tests {
     }
 
     fn create_test_signal(side: Side, signal_type: SignalType) -> Signal {
-        Signal::new(
-            "test_strategy",
-            "BTC/USDT".to_string(),
-            side,
-            signal_type,
-        )
-        .with_strength(0.8)
+        Signal::new("test_strategy", "BTC/USDT".to_string(), side, signal_type).with_strength(0.8)
     }
 
     fn create_test_executor(default_quantity: Decimal) -> OrderExecutor {
@@ -1162,10 +1156,7 @@ mod tests {
         let result = ExecutionResult::success(signal_id, order)
             .with_order_id(order_id)
             .with_note("Test note")
-            .with_stop_loss(OrderRequest::market_sell(
-                "BTC/USDT".to_string(),
-                dec!(0.1),
-            ));
+            .with_stop_loss(OrderRequest::market_sell("BTC/USDT".to_string(), dec!(0.1)));
 
         assert!(result.success);
         assert!(result.order.is_some());

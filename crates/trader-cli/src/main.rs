@@ -282,10 +282,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             output,
             kosdaq,
         } => {
-            let market = Market::from_str(&market)
+            let market = Market::parse(&market)
                 .ok_or_else(|| format!("Invalid market: {}. Supported: KR, US", market))?;
 
-            let interval = Interval::from_str(&interval).ok_or_else(|| {
+            let interval = Interval::parse(&interval).ok_or_else(|| {
                 format!(
                     "Invalid interval: {}. Supported: 1d (daily), 1w (weekly), 1m (monthly)",
                     interval
@@ -346,7 +346,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         Commands::List { market } => {
-            let market = Market::from_str(&market)
+            let market = Market::parse(&market)
                 .ok_or_else(|| format!("Invalid market: {}. Supported: KR, US", market))?;
 
             print_available_symbols(market);
@@ -359,7 +359,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             to,
             kosdaq,
         } => {
-            let market = Market::from_str(&market)
+            let market = Market::parse(&market)
                 .ok_or_else(|| format!("Invalid market: {}. Supported: KR, US", market))?;
 
             let interval = Interval::D1; // Import는 일봉 기본
@@ -411,10 +411,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             kosdaq,
             db_url,
         } => {
-            let market = Market::from_str(&market)
+            let market = Market::parse(&market)
                 .ok_or_else(|| format!("Invalid market: {}. Supported: KR, US", market))?;
 
-            let interval = Interval::from_str(&interval).ok_or_else(|| {
+            let interval = Interval::parse(&interval).ok_or_else(|| {
                 format!(
                     "Invalid interval: {}. Supported: 1d (daily), 1w (weekly), 1m (monthly)",
                     interval
@@ -470,7 +470,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } => {
             use commands::list_symbols::{list_symbols, ListSymbolsConfig, OutputFormat};
 
-            let output_format = OutputFormat::from_str(&format)?;
+            let output_format = OutputFormat::parse(&format)?;
 
             let config = ListSymbolsConfig {
                 market: market.clone(),
@@ -540,7 +540,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Ok(());
             }
 
-            let market = Market::from_str(&market)
+            let market = Market::parse(&market)
                 .ok_or_else(|| format!("Invalid market: {}. Supported: KR, US", market))?;
 
             let start_date = from.as_ref().map(|d| parse_date(d)).transpose()?;
@@ -575,7 +575,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("초기 자본: {}", initial_capital);
 
             match commands::backtest::run_backtest(backtest_config).await {
-                Ok(report) => {
+                Ok(_report) => {
                     info!("✅ Backtest completed successfully");
                     if let Some(out) = output {
                         println!("\n📁 결과 저장됨: {}", out);

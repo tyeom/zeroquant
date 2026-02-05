@@ -29,8 +29,9 @@
 //! // on_multi_timeframe_data()가 호출됩니다.
 //! ```
 
-use crate::strategies::common::deserialize_ticker;
+use crate::strategies::common::{deserialize_ticker, ExitConfig};
 use crate::{register_strategy, Strategy};
+use trader_strategy_macro::StrategyConfig;
 use async_trait::async_trait;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -46,46 +47,67 @@ use trader_core::{
 };
 
 /// 다중 타임프레임 RSI 전략 설정.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, StrategyConfig)]
+#[strategy(
+    id = "rsi_multi_tf",
+    name = "다중 타임프레임 RSI 전략",
+    description = "일봉/1시간봉/5분봉 RSI 조합 전략",
+    category = "Intraday"
+)]
 pub struct RsiMultiTfConfig {
     /// 거래할 티커
     #[serde(deserialize_with = "deserialize_ticker")]
+    #[schema(label = "거래 종목")]
     pub ticker: String,
 
     /// 거래 금액 (호가 통화 기준)
+    #[schema(label = "거래 금액", min = 100, max = 100000000)]
     pub amount: Decimal,
 
     /// 일봉 RSI 추세 필터 임계값 (기본: 50)
     #[serde(default = "default_daily_trend_threshold")]
+    #[schema(label = "일봉 RSI 임계값", min = 30, max = 70)]
     pub daily_trend_threshold: Decimal,
 
     /// 1시간봉 과매도 임계값 (기본: 30)
     #[serde(default = "default_h1_oversold")]
+    #[schema(label = "1시간봉 과매도 임계값", min = 10, max = 40)]
     pub h1_oversold_threshold: Decimal,
 
     /// 5분봉 과매도 임계값 (기본: 30)
     #[serde(default = "default_m5_oversold")]
+    #[schema(label = "5분봉 과매도 임계값", min = 10, max = 40)]
     pub m5_oversold_threshold: Decimal,
 
     /// 과매수 청산 임계값 (기본: 70)
     #[serde(default = "default_overbought")]
+    #[schema(label = "과매수 청산 임계값", min = 60, max = 90)]
     pub overbought_threshold: Decimal,
 
     /// RSI 기간 (기본: 14)
     #[serde(default = "default_rsi_period")]
+    #[schema(label = "RSI 기간", min = 5, max = 50)]
     pub rsi_period: usize,
 
     /// 손절 비율 (%)
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(label = "손절 비율 (%)", min = 0.5, max = 20.0)]
     pub stop_loss_pct: Option<Decimal>,
 
     /// 익절 비율 (%)
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(label = "익절 비율 (%)", min = 1.0, max = 50.0)]
     pub take_profit_pct: Option<Decimal>,
 
     /// 거래 후 쿨다운 기간 (Primary 캔들 수)
     #[serde(default = "default_cooldown")]
+    #[schema(label = "쿨다운 캔들 수", min = 0, max = 20)]
     pub cooldown_candles: usize,
+
+    /// 청산 설정 (손절/익절/트레일링 스탑).
+    #[serde(default)]
+    #[fragment("risk.exit_config")]
+    pub exit_config: ExitConfig,
 }
 
 fn default_daily_trend_threshold() -> Decimal {
@@ -117,9 +139,10 @@ impl Default for RsiMultiTfConfig {
             m5_oversold_threshold: dec!(30),
             overbought_threshold: dec!(70),
             rsi_period: 14,
-            stop_loss_pct: Some(dec!(2)), // 2% 손절
+            stop_loss_pct: Some(dec!(2)),   // 2% 손절
             take_profit_pct: Some(dec!(4)), // 4% 익절
             cooldown_candles: 3,
+            exit_config: ExitConfig::default(),
         }
     }
 }
@@ -239,10 +262,10 @@ impl RsiMultiTfStrategy {
         }
 
         // 첫 번째 평균
-        let initial_avg_gain: Decimal = gains.iter().take(period).sum::<Decimal>()
-            / Decimal::from(period);
-        let initial_avg_loss: Decimal = losses.iter().take(period).sum::<Decimal>()
-            / Decimal::from(period);
+        let initial_avg_gain: Decimal =
+            gains.iter().take(period).sum::<Decimal>() / Decimal::from(period);
+        let initial_avg_loss: Decimal =
+            losses.iter().take(period).sum::<Decimal>() / Decimal::from(period);
 
         // Wilder's Smoothing
         let mut avg_gain = initial_avg_gain;
@@ -296,17 +319,16 @@ impl RsiMultiTfStrategy {
         );
 
         // 모든 RSI 값이 있어야 함
-        let (daily_rsi, hourly_rsi, m5_rsi, m5_prev_rsi) =
-            match (daily, hourly, m5, m5_prev) {
-                (Some(d), Some(h), Some(m), Some(mp)) => (d, h, m, mp),
-                _ => {
-                    debug!(
-                        "RSI 값 부족: daily={:?}, hourly={:?}, m5={:?}, m5_prev={:?}",
-                        daily, hourly, m5, m5_prev
-                    );
-                    return false;
-                }
-            };
+        let (daily_rsi, hourly_rsi, m5_rsi, m5_prev_rsi) = match (daily, hourly, m5, m5_prev) {
+            (Some(d), Some(h), Some(m), Some(mp)) => (d, h, m, mp),
+            _ => {
+                debug!(
+                    "RSI 값 부족: daily={:?}, hourly={:?}, m5={:?}, m5_prev={:?}",
+                    daily, hourly, m5, m5_prev
+                );
+                return false;
+            }
+        };
 
         // 조건 1: 일봉 RSI > 50 (상승 추세)
         let daily_trend_ok = daily_rsi > config.daily_trend_threshold;
@@ -315,14 +337,12 @@ impl RsiMultiTfStrategy {
         let hourly_oversold = hourly_rsi < config.h1_oversold_threshold;
 
         // 조건 3: 5분봉 RSI 반등 (30 이하에서 30 이상으로 교차)
-        let m5_bounce = m5_prev_rsi <= config.m5_oversold_threshold
-            && m5_rsi > config.m5_oversold_threshold;
+        let m5_bounce =
+            m5_prev_rsi <= config.m5_oversold_threshold && m5_rsi > config.m5_oversold_threshold;
 
         debug!(
             "매수 조건 체크: daily_trend={} ({}), h1_oversold={} ({}), m5_bounce={} ({} -> {})",
-            daily_trend_ok, daily_rsi,
-            hourly_oversold, hourly_rsi,
-            m5_bounce, m5_prev_rsi, m5_rsi
+            daily_trend_ok, daily_rsi, hourly_oversold, hourly_rsi, m5_bounce, m5_prev_rsi, m5_rsi
         );
 
         daily_trend_ok && hourly_oversold && m5_bounce
@@ -425,7 +445,7 @@ impl Strategy for RsiMultiTfStrategy {
                 .with_primary(Timeframe::M5)
                 .with_timeframe(Timeframe::M5, 100)   // Primary: 5분봉 100개
                 .with_timeframe(Timeframe::H1, 24)    // Secondary: 1시간봉 24개
-                .with_timeframe(Timeframe::D1, 30),   // Secondary: 일봉 30개
+                .with_timeframe(Timeframe::D1, 30), // Secondary: 일봉 30개
         )
     }
 
@@ -487,7 +507,11 @@ impl Strategy for RsiMultiTfStrategy {
         self.current_price = Some(kline.close);
 
         // M5 RSI 계산 (히스토리를 clone하여 borrow 충돌 방지)
-        let history_clone = self.candle_history.get(&Timeframe::M5).cloned().unwrap_or_default();
+        let history_clone = self
+            .candle_history
+            .get(&Timeframe::M5)
+            .cloned()
+            .unwrap_or_default();
         self.rsi_values.m5_prev = self.rsi_values.m5;
         self.rsi_values.m5 = self.calculate_rsi(&history_clone, config.rsi_period);
 
@@ -531,7 +555,11 @@ impl Strategy for RsiMultiTfStrategy {
         self.current_price = Some(kline.close);
 
         // M5 RSI 업데이트 (히스토리를 clone하여 borrow 충돌 방지)
-        let history_clone = self.candle_history.get(&Timeframe::M5).cloned().unwrap_or_default();
+        let history_clone = self
+            .candle_history
+            .get(&Timeframe::M5)
+            .cloned()
+            .unwrap_or_default();
         self.rsi_values.m5_prev = self.rsi_values.m5;
         self.rsi_values.m5 = self.calculate_rsi(&history_clone, config.rsi_period);
 
@@ -738,7 +766,8 @@ register_strategy! {
     tickers: [],
     category: Intraday,
     markets: [Crypto, Stock],
-    type: RsiMultiTfStrategy
+    type: RsiMultiTfStrategy,
+    config: RsiMultiTfConfig
 }
 
 #[cfg(test)]
@@ -750,13 +779,17 @@ mod tests {
         Kline {
             ticker: "BTC/USDT".to_string(),
             timeframe: Timeframe::M5,
-            open_time: Utc.with_ymd_and_hms(2024, 1, 1, open_time_hour, 0, 0).unwrap(),
+            open_time: Utc
+                .with_ymd_and_hms(2024, 1, 1, open_time_hour, 0, 0)
+                .unwrap(),
             open: close,
             high: close + dec!(10),
             low: close - dec!(10),
             close,
             volume: dec!(1000),
-            close_time: Utc.with_ymd_and_hms(2024, 1, 1, open_time_hour, 5, 0).unwrap(),
+            close_time: Utc
+                .with_ymd_and_hms(2024, 1, 1, open_time_hour, 5, 0)
+                .unwrap(),
             quote_volume: None,
             num_trades: None,
         }
@@ -792,9 +825,21 @@ mod tests {
 
         // 상승 추세 데이터
         let closes = vec![
-            dec!(100), dec!(101), dec!(102), dec!(103), dec!(104),
-            dec!(105), dec!(106), dec!(107), dec!(108), dec!(109),
-            dec!(110), dec!(111), dec!(112), dec!(113), dec!(114),
+            dec!(100),
+            dec!(101),
+            dec!(102),
+            dec!(103),
+            dec!(104),
+            dec!(105),
+            dec!(106),
+            dec!(107),
+            dec!(108),
+            dec!(109),
+            dec!(110),
+            dec!(111),
+            dec!(112),
+            dec!(113),
+            dec!(114),
             dec!(115),
         ];
 

@@ -1,31 +1,42 @@
-import { createSignal, For, Show } from 'solid-js'
+/**
+ * 전략 추가 모달 (SDUI 기반)
+ *
+ * 새로운 SDUI API를 사용하여 전략 목록과 설정 폼을 렌더링합니다.
+ */
+import { createSignal, createResource, For, Show } from 'solid-js'
 import { X, ChevronRight, Search, RefreshCw, AlertCircle, Clock } from 'lucide-solid'
-import { createStrategy } from '../api/client'
-import type { BacktestStrategy, MultiTimeframeConfig, Timeframe } from '../api/client'
-import { DynamicForm } from './DynamicForm'
+import { createStrategy, getStrategySchema } from '../api/client'
+import type { StrategyMetaItem, MultiTimeframeConfig, Timeframe } from '../api/client'
+import { SDUIRenderer } from './strategy/SDUIRenderer/SDUIRenderer'
 import { useToast } from './Toast'
 import { getDefaultTimeframe } from '../utils/format'
 import { MultiTimeframeSelector } from './strategy/MultiTimeframeSelector'
+
+// ==================== Props ====================
 
 export interface AddStrategyModalProps {
   open: boolean
   onClose: () => void
   onSuccess: () => void
-  templates: BacktestStrategy[]
+  /** 전략 메타데이터 목록 (SDUI API에서 가져온 데이터) */
+  templates: StrategyMetaItem[]
   templatesLoading?: boolean
 }
+
+// ==================== 컴포넌트 ====================
 
 export function AddStrategyModal(props: AddStrategyModalProps) {
   const toast = useToast()
 
   // 모달 상태
   const [modalStep, setModalStep] = createSignal<'select' | 'configure'>('select')
-  const [selectedStrategy, setSelectedStrategy] = createSignal<BacktestStrategy | null>(null)
-  const [strategyParams, setStrategyParams] = createSignal<Record<string, unknown>>({})
-  const [formErrors, setFormErrors] = createSignal<Record<string, string>>({})
+  const [selectedStrategy, setSelectedStrategy] = createSignal<StrategyMetaItem | null>(null)
   const [customName, setCustomName] = createSignal('')
   const [searchQuery, setSearchQuery] = createSignal('')
   const [selectedCategory, setSelectedCategory] = createSignal<string | null>(null)
+
+  // SDUI 폼 값 (SDUIRenderer에서 전달받음)
+  const [formValues, setFormValues] = createSignal<Record<string, unknown>>({})
 
   // 다중 타임프레임 설정 상태
   const [multiTfConfig, setMultiTfConfig] = createSignal<MultiTimeframeConfig | null>(null)
@@ -51,9 +62,6 @@ export function AddStrategyModal(props: AddStrategyModalProps) {
     // 카테고리 필터
     if (selectedCategory()) {
       templates = templates.filter(s => s.category === selectedCategory())
-    } else {
-      // "전체" 탭 선택 시 "사용자정의" 카테고리 제외
-      templates = templates.filter(s => s.category !== '사용자정의')
     }
 
     // 검색 필터
@@ -61,8 +69,7 @@ export function AddStrategyModal(props: AddStrategyModalProps) {
     if (query) {
       templates = templates.filter(s =>
         s.name.toLowerCase().includes(query) ||
-        s.description.toLowerCase().includes(query) ||
-        s.tags?.some(t => t.toLowerCase().includes(query))
+        s.description.toLowerCase().includes(query)
       )
     }
 
@@ -70,28 +77,20 @@ export function AddStrategyModal(props: AddStrategyModalProps) {
   }
 
   // 전략 선택
-  const selectStrategy = (template: BacktestStrategy) => {
+  const selectStrategy = (template: StrategyMetaItem) => {
     setSelectedStrategy(template)
-
-    // 기본값으로 파라미터 초기화
-    const initialParams: Record<string, unknown> = { ...(template.default_params || {}) }
-
-    // ui_schema의 default_value도 적용 (default_params에 없는 필드의 경우)
-    if (template.ui_schema) {
-      for (const field of template.ui_schema.fields) {
-        if (initialParams[field.key] === undefined && field.default_value !== undefined) {
-          initialParams[field.key] = field.default_value
-        }
-      }
-    }
-
-    setStrategyParams(initialParams)
-    setFormErrors({})
     setCustomName(template.name)
+    setFormValues({})
 
     // 다중 타임프레임 설정 초기화
-    if (template.isMultiTimeframe && template.defaultMultiTimeframeConfig) {
-      setMultiTfConfig(template.defaultMultiTimeframeConfig)
+    if (template.isMultiTimeframe && template.secondaryTimeframes.length > 0) {
+      setMultiTfConfig({
+        primary: template.defaultTimeframe as Timeframe,
+        secondary: template.secondaryTimeframes.map(tf => ({
+          timeframe: tf as Timeframe,
+          candle_count: 100,
+        })),
+      })
       setEnableMultiTf(true)
     } else {
       setMultiTfConfig(null)
@@ -101,70 +100,13 @@ export function AddStrategyModal(props: AddStrategyModalProps) {
     setModalStep('configure')
   }
 
-  // 파라미터 변경 처리
-  const handleParamChange = (key: string, value: unknown) => {
-    setStrategyParams(prev => ({ ...prev, [key]: value }))
-    // 에러 초기화
-    setFormErrors(prev => {
-      const next = { ...prev }
-      delete next[key]
-      return next
-    })
+  // 폼 값 변경 핸들러 (SDUIRenderer에서 호출)
+  const handleFormChange = (values: Record<string, unknown>) => {
+    setFormValues(values)
   }
 
-  // 폼 유효성 검사
-  const validateForm = (): boolean => {
-    const template = selectedStrategy()
-    if (!template?.ui_schema) return true
-
-    const errors: Record<string, string> = {}
-    const params = strategyParams()
-
-    for (const field of template.ui_schema.fields) {
-      const value = params[field.key]
-
-      // 필수 필드 검사
-      if (field.validation.required) {
-        if (value === undefined || value === null || value === '') {
-          errors[field.key] = '필수 항목입니다'
-          continue
-        }
-        if (Array.isArray(value) && value.length === 0) {
-          errors[field.key] = '최소 하나 이상 선택해주세요'
-          continue
-        }
-      }
-
-      // 숫자 범위 검사
-      if (field.field_type === 'number' || field.field_type === 'range') {
-        const numValue = value as number
-        if (field.validation.min !== undefined && numValue < field.validation.min) {
-          errors[field.key] = `최소값은 ${field.validation.min}입니다`
-        }
-        if (field.validation.max !== undefined && numValue > field.validation.max) {
-          errors[field.key] = `최대값은 ${field.validation.max}입니다`
-        }
-      }
-
-      // 심볼 개수 검사
-      if (field.field_type === 'symbol_picker' && Array.isArray(value)) {
-        if (field.validation.min_items && value.length < field.validation.min_items) {
-          errors[field.key] = `최소 ${field.validation.min_items}개를 선택해주세요`
-        }
-        if (field.validation.max_items && value.length > field.validation.max_items) {
-          errors[field.key] = `최대 ${field.validation.max_items}개까지 선택 가능합니다`
-        }
-      }
-    }
-
-    setFormErrors(errors)
-    return Object.keys(errors).length === 0
-  }
-
-  // 전략 생성
-  const handleCreateStrategy = async () => {
-    if (!validateForm()) return
-
+  // 전략 생성 (SDUIRenderer의 onSubmit에서 호출)
+  const handleCreateStrategy = async (values: Record<string, unknown>) => {
     const template = selectedStrategy()
     if (!template) return
 
@@ -175,9 +117,9 @@ export function AddStrategyModal(props: AddStrategyModalProps) {
       const response = await createStrategy({
         strategy_type: template.id,
         name: customName() || template.name,
-        parameters: strategyParams(),
+        parameters: values,
         // 다중 타임프레임 설정 (활성화된 경우만)
-        multiTimeframeConfig: enableMultiTf() && multiTfConfig() ? multiTfConfig() : undefined,
+        multiTimeframeConfig: enableMultiTf() && multiTfConfig() ? multiTfConfig()! : undefined,
       })
 
       console.log('Strategy created:', response)
@@ -204,8 +146,7 @@ export function AddStrategyModal(props: AddStrategyModalProps) {
     // 상태 초기화
     setModalStep('select')
     setSelectedStrategy(null)
-    setStrategyParams({})
-    setFormErrors({})
+    setFormValues({})
     setCustomName('')
     setSearchQuery('')
     setSelectedCategory(null)
@@ -218,8 +159,7 @@ export function AddStrategyModal(props: AddStrategyModalProps) {
   const goBack = () => {
     setModalStep('select')
     setSelectedStrategy(null)
-    setStrategyParams({})
-    setFormErrors({})
+    setFormValues({})
     setCustomName('')
     setMultiTfConfig(null)
     setEnableMultiTf(false)
@@ -335,9 +275,9 @@ export function AddStrategyModal(props: AddStrategyModalProps) {
                               {template.name}
                             </h3>
                             <div class="flex gap-1">
-                              <Show when={template.execution_schedule}>
-                                <span class="px-2 py-0.5 text-xs bg-blue-500/20 text-blue-400 rounded">
-                                  {template.schedule_detail || template.execution_schedule}
+                              <Show when={template.isMultiTimeframe}>
+                                <span class="px-2 py-0.5 text-xs bg-purple-500/20 text-purple-400 rounded">
+                                  Multi-TF
                                 </span>
                               </Show>
                               <Show when={template.category}>
@@ -351,13 +291,14 @@ export function AddStrategyModal(props: AddStrategyModalProps) {
                             {template.description}
                           </p>
                           <div class="flex flex-wrap gap-1">
-                            <For each={template.tags?.slice(0, 3)}>
-                              {(tag) => (
-                                <span class="px-2 py-0.5 text-xs bg-[var(--color-bg)] text-[var(--color-text-muted)] rounded">
-                                  #{tag}
-                                </span>
-                              )}
-                            </For>
+                            <span class="px-2 py-0.5 text-xs bg-[var(--color-bg)] text-[var(--color-text-muted)] rounded">
+                              기본 TF: {template.defaultTimeframe}
+                            </span>
+                            <Show when={template.supportedMarkets.length > 0}>
+                              <span class="px-2 py-0.5 text-xs bg-[var(--color-bg)] text-[var(--color-text-muted)] rounded">
+                                {template.supportedMarkets.join(', ')}
+                              </span>
+                            </Show>
                           </div>
                         </button>
                       )}
@@ -375,52 +316,29 @@ export function AddStrategyModal(props: AddStrategyModalProps) {
               </div>
             </Show>
 
-            {/* 2단계: 파라미터 설정 */}
+            {/* 2단계: 파라미터 설정 (SDUI 기반) */}
             <Show when={modalStep() === 'configure' && selectedStrategy()}>
               <div class="p-6 space-y-6">
                 {/* 전략 정보 카드 */}
                 <div class="p-4 bg-[var(--color-surface)] rounded-lg space-y-3">
-                  {/* 실행 스케줄 배지 */}
-                  <Show when={selectedStrategy()?.execution_schedule}>
-                    <div class="flex items-center gap-2">
-                      <span class="px-2 py-1 text-xs bg-blue-500/20 text-blue-400 rounded-lg font-medium">
-                        ⏰ {selectedStrategy()?.schedule_detail || selectedStrategy()?.execution_schedule}
+                  {/* 카테고리 배지 */}
+                  <div class="flex items-center gap-2">
+                    <Show when={selectedStrategy()?.isMultiTimeframe}>
+                      <span class="px-2 py-1 text-xs bg-purple-500/20 text-purple-400 rounded-lg font-medium">
+                        Multi-TF
                       </span>
-                      <Show when={selectedStrategy()?.category}>
-                        <span class="px-2 py-1 text-xs bg-[var(--color-primary)]/20 text-[var(--color-primary)] rounded-lg font-medium">
-                          {selectedStrategy()?.category}
-                        </span>
-                      </Show>
-                    </div>
-                  </Show>
+                    </Show>
+                    <Show when={selectedStrategy()?.category}>
+                      <span class="px-2 py-1 text-xs bg-[var(--color-primary)]/20 text-[var(--color-primary)] rounded-lg font-medium">
+                        {selectedStrategy()?.category}
+                      </span>
+                    </Show>
+                  </div>
 
                   {/* 설명 */}
                   <p class="text-sm text-[var(--color-text-muted)]">
                     {selectedStrategy()?.description}
                   </p>
-
-                  {/* 작동 방식 */}
-                  <Show when={selectedStrategy()?.how_it_works}>
-                    <div class="pt-3 border-t border-[var(--color-surface-light)]">
-                      <h4 class="text-xs font-semibold text-[var(--color-text)] mb-1.5">작동 방식</h4>
-                      <p class="text-xs text-[var(--color-text-muted)] leading-relaxed">
-                        {selectedStrategy()?.how_it_works}
-                      </p>
-                    </div>
-                  </Show>
-
-                  {/* 태그 */}
-                  <Show when={selectedStrategy()?.tags?.length}>
-                    <div class="flex flex-wrap gap-1 pt-2">
-                      <For each={selectedStrategy()?.tags}>
-                        {(tag) => (
-                          <span class="px-2 py-0.5 text-xs bg-[var(--color-bg)] text-[var(--color-text-muted)] rounded">
-                            #{tag}
-                          </span>
-                        )}
-                      </For>
-                    </div>
-                  </Show>
                 </div>
 
                 {/* 전략 이름 커스터마이징 */}
@@ -440,35 +358,6 @@ export function AddStrategyModal(props: AddStrategyModalProps) {
                   </p>
                 </div>
 
-                {/* 타임프레임 선택 */}
-                <div>
-                  <label class="block text-sm font-medium text-[var(--color-text)] mb-2">
-                    타임프레임
-                  </label>
-                  <select
-                    value={(strategyParams() as Record<string, unknown>).timeframe as string || getDefaultTimeframe(selectedStrategy()?.id || '')}
-                    onChange={(e) => handleParamChange('timeframe', e.currentTarget.value)}
-                    class="w-full px-4 py-2.5 bg-[var(--color-surface)] border border-[var(--color-surface-light)] rounded-lg text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
-                  >
-                    <optgroup label="실시간/분봉">
-                      <option value="1m">1분 (실시간)</option>
-                      <option value="5m">5분</option>
-                      <option value="15m">15분</option>
-                      <option value="30m">30분</option>
-                      <option value="1h">1시간</option>
-                      <option value="4h">4시간</option>
-                    </optgroup>
-                    <optgroup label="일봉/주봉">
-                      <option value="1d">일봉</option>
-                      <option value="1w">주봉</option>
-                      <option value="1M">월봉</option>
-                    </optgroup>
-                  </select>
-                  <p class="mt-1 text-xs text-[var(--color-text-muted)]">
-                    전략 실행에 사용할 캔들 주기를 선택하세요.
-                  </p>
-                </div>
-
                 {/* 다중 타임프레임 설정 (지원 전략만) */}
                 <Show when={selectedStrategy()?.isMultiTimeframe}>
                   <div class="p-4 bg-[var(--color-surface)] border border-[var(--color-surface-light)] rounded-lg">
@@ -485,10 +374,10 @@ export function AddStrategyModal(props: AddStrategyModalProps) {
                             const enabled = e.currentTarget.checked
                             setEnableMultiTf(enabled)
                             if (enabled && !multiTfConfig()) {
-                              // 기본값 설정: 현재 선택된 타임프레임을 Primary로
-                              const currentTf = (strategyParams().timeframe as Timeframe) || '5m'
+                              // 기본값 설정
+                              const defaultTf = selectedStrategy()?.defaultTimeframe as Timeframe || '1d'
                               setMultiTfConfig({
-                                primary: currentTf,
+                                primary: defaultTf,
                                 secondary: [],
                               })
                             }
@@ -500,7 +389,7 @@ export function AddStrategyModal(props: AddStrategyModalProps) {
                     </div>
                     <Show when={enableMultiTf()}>
                       <MultiTimeframeSelector
-                        primaryTimeframe={multiTfConfig()?.primary || '5m'}
+                        primaryTimeframe={multiTfConfig()?.primary || '1d'}
                         secondaryTimeframes={(multiTfConfig()?.secondary || []).map(s => s.timeframe)}
                         onPrimaryChange={(tf) => {
                           setMultiTfConfig(prev => prev ? {
@@ -517,7 +406,7 @@ export function AddStrategyModal(props: AddStrategyModalProps) {
                           setMultiTfConfig(prev => prev ? {
                             ...prev,
                             secondary: tfs.map(tf => ({ timeframe: tf, candle_count: 100 })),
-                          } : { primary: '5m', secondary: tfs.map(tf => ({ timeframe: tf, candle_count: 100 })) })
+                          } : { primary: '1d', secondary: tfs.map(tf => ({ timeframe: tf, candle_count: 100 })) })
                         }}
                         maxSecondary={3}
                       />
@@ -528,61 +417,27 @@ export function AddStrategyModal(props: AddStrategyModalProps) {
                   </div>
                 </Show>
 
-                {/* 동적 폼 */}
-                <Show
-                  when={selectedStrategy()?.ui_schema}
-                  fallback={
-                    <div class="text-center py-8 text-[var(--color-text-muted)]">
-                      <p>이 전략은 추가 설정이 필요하지 않습니다</p>
-                    </div>
-                  }
-                >
-                  <DynamicForm
-                    schema={selectedStrategy()!.ui_schema!}
-                    values={strategyParams()}
-                    onChange={handleParamChange}
-                    errors={formErrors()}
-                  />
-                </Show>
+                {/* SDUI 렌더러 (동적 폼) */}
+                <SDUIRenderer
+                  strategyId={selectedStrategy()!.id}
+                  onChange={handleFormChange}
+                  onSubmit={handleCreateStrategy}
+                  onCancel={goBack}
+                  submitLabel={isCreating() ? '생성 중...' : '전략 생성'}
+                  cancelLabel="뒤로"
+                  loadingMessage="전략 설정을 불러오는 중..."
+                />
               </div>
             </Show>
           </div>
 
-          {/* 푸터 */}
-          <div class="flex items-center justify-between p-6 border-t border-[var(--color-surface-light)]">
-            {/* 에러 메시지 */}
-            <Show when={createError()}>
-              <div class="flex items-center gap-2 text-red-500 text-sm">
-                <AlertCircle class="w-4 h-4" />
-                <span>{createError()}</span>
-              </div>
-            </Show>
-            <Show when={!createError()}>
-              <div />
-            </Show>
-
-            <div class="flex items-center gap-3">
-              <button
-                onClick={closeModal}
-                class="px-4 py-2 text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
-                disabled={isCreating()}
-              >
-                취소
-              </button>
-              <Show when={modalStep() === 'configure'}>
-                <button
-                  onClick={handleCreateStrategy}
-                  disabled={isCreating()}
-                  class="px-6 py-2 bg-[var(--color-primary)] text-white rounded-lg font-medium hover:bg-[var(--color-primary)]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                >
-                  <Show when={isCreating()}>
-                    <RefreshCw class="w-4 h-4 animate-spin" />
-                  </Show>
-                  {isCreating() ? '생성 중...' : '전략 생성'}
-                </button>
-              </Show>
+          {/* 에러 메시지 (푸터) */}
+          <Show when={createError()}>
+            <div class="flex items-center gap-2 p-4 border-t border-[var(--color-surface-light)] bg-red-500/10">
+              <AlertCircle class="w-4 h-4 text-red-500" />
+              <span class="text-sm text-red-500">{createError()}</span>
             </div>
-          </div>
+          </Show>
         </div>
       </div>
     </Show>

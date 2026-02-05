@@ -259,17 +259,11 @@ mod tests {
 
     #[test]
     fn test_trigger_strength_classification() {
-        let strong = TriggerResult::new(vec![
-            TriggerType::SqueezeBreak,
-            TriggerType::BoxBreakout,
-        ]);
+        let strong = TriggerResult::new(vec![TriggerType::SqueezeBreak, TriggerType::BoxBreakout]);
         assert!(strong.is_strong());
         assert_eq!(strong.strength_label(), "강함");
 
-        let moderate = TriggerResult::new(vec![
-            TriggerType::BoxBreakout,
-            TriggerType::MomentumUp,
-        ]);
+        let moderate = TriggerResult::new(vec![TriggerType::BoxBreakout, TriggerType::MomentumUp]);
         assert!(moderate.is_moderate());
         assert_eq!(moderate.strength_label(), "중간");
 

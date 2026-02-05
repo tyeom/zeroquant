@@ -262,7 +262,11 @@ pub struct PositionAdjustment {
 
 impl PositionAdjustment {
     /// 새 포지션 조정 권장 사항 생성.
-    pub fn new(position_id: Uuid, adjustment_type: AdjustmentType, reason: impl Into<String>) -> Self {
+    pub fn new(
+        position_id: Uuid,
+        adjustment_type: AdjustmentType,
+        reason: impl Into<String>,
+    ) -> Self {
         Self {
             position_id,
             adjustment_type,
@@ -322,14 +326,12 @@ impl PositionAdjustment {
 
     /// 손절 조정 생성.
     pub fn stop_loss(position_id: Uuid, reason: impl Into<String>) -> Self {
-        Self::new(position_id, AdjustmentType::StopLoss, reason)
-            .as_urgent()
+        Self::new(position_id, AdjustmentType::StopLoss, reason).as_urgent()
     }
 
     /// 익절 조정 생성.
     pub fn take_profit(position_id: Uuid, ratio: Decimal, reason: impl Into<String>) -> Self {
-        Self::new(position_id, AdjustmentType::TakeProfit, reason)
-            .with_ratio(ratio)
+        Self::new(position_id, AdjustmentType::TakeProfit, reason).with_ratio(ratio)
     }
 
     /// 조정이 필요한지 확인.

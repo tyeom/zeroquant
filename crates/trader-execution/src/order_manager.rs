@@ -713,7 +713,8 @@ mod tests {
     #[test]
     fn test_create_order() {
         let mut manager = OrderManager::new();
-        let request = OrderRequest::market_buy("BTC/USDT".to_string(), dec!(0.1)).with_strategy("grid");
+        let request =
+            OrderRequest::market_buy("BTC/USDT".to_string(), dec!(0.1)).with_strategy("grid");
 
         let order = manager.create_order(request, "binance").unwrap();
 

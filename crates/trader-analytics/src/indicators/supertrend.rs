@@ -123,21 +123,19 @@ impl SuperTrendIndicator {
             let basic_lower = hl_avg - params.multiplier * atr_val;
 
             // 최종 밴드 계산 (이전 종가 기준 조정)
-            let final_upper = if i == 0 {
-                basic_upper
-            } else if basic_upper < prev_upper_band || close[i - 1] > prev_upper_band {
-                basic_upper
-            } else {
-                prev_upper_band
-            };
+            let final_upper =
+                if i == 0 || basic_upper < prev_upper_band || close[i - 1] > prev_upper_band {
+                    basic_upper
+                } else {
+                    prev_upper_band
+                };
 
-            let final_lower = if i == 0 {
-                basic_lower
-            } else if basic_lower > prev_lower_band || close[i - 1] < prev_lower_band {
-                basic_lower
-            } else {
-                prev_lower_band
-            };
+            let final_lower =
+                if i == 0 || basic_lower > prev_lower_band || close[i - 1] < prev_lower_band {
+                    basic_lower
+                } else {
+                    prev_lower_band
+                };
 
             // 추세 방향 결정
             let is_uptrend = if i == 0 {
@@ -149,11 +147,7 @@ impl SuperTrendIndicator {
             };
 
             // SuperTrend 값
-            let supertrend = if is_uptrend {
-                final_lower
-            } else {
-                final_upper
-            };
+            let supertrend = if is_uptrend { final_lower } else { final_upper };
 
             // 시그널 감지
             let buy_signal = i > 0 && is_uptrend && !prev_is_uptrend;

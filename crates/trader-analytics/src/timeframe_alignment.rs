@@ -68,10 +68,10 @@ impl TimeframeAligner {
     /// # 반환
     ///
     /// 완료된 캔들에 대한 참조 벡터 (시간순 정렬 유지)
-    pub fn get_aligned_klines<'a>(
-        klines: &'a [Kline],
+    pub fn get_aligned_klines(
+        klines: &[Kline],
         reference_time: DateTime<Utc>,
-    ) -> Vec<&'a Kline> {
+    ) -> Vec<&Kline> {
         klines
             .iter()
             .filter(|k| Self::is_valid_at(k, reference_time))
@@ -88,10 +88,10 @@ impl TimeframeAligner {
     /// # 반환
     ///
     /// 가장 최근 완료된 캔들에 대한 참조, 없으면 `None`
-    pub fn find_latest_completed<'a>(
-        klines: &'a [Kline],
+    pub fn find_latest_completed(
+        klines: &[Kline],
         reference_time: DateTime<Utc>,
-    ) -> Option<&'a Kline> {
+    ) -> Option<&Kline> {
         // 역순으로 탐색하여 첫 번째 유효한 캔들 반환
         klines
             .iter()
@@ -160,7 +160,7 @@ impl TimeframeAligner {
     ///
     /// 해당 캔들이 완료되는 시점
     pub fn get_candle_close_time(time: DateTime<Utc>, timeframe: Timeframe) -> DateTime<Utc> {
-        use chrono::{Duration, Timelike};
+        
 
         let duration = timeframe.duration();
         let duration_secs = duration.as_secs() as i64;

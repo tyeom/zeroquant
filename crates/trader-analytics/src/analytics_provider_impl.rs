@@ -35,6 +35,7 @@ use crate::{
 ///
 /// 현재는 `default_timeframe`을 사용하여 단일 타임프레임만 지원합니다.
 /// 1.4.2 구현 시 `fetch_*_multi_tf()` 메서드를 추가하여 다중 타임프레임을 지원할 예정입니다.
+#[allow(dead_code)]
 pub struct AnalyticsProviderImpl {
     /// 캔들 데이터 제공자
     data_provider: Arc<CachedHistoricalDataProvider>,
@@ -85,7 +86,9 @@ impl AnalyticsProviderImpl {
         self.data_provider
             .get_klines(ticker, self.default_timeframe, limit)
             .await
-            .map_err(|e| AnalyticsError::DataFetch(format!("Failed to fetch candles for {}: {}", ticker, e)))
+            .map_err(|e| {
+                AnalyticsError::DataFetch(format!("Failed to fetch candles for {}: {}", ticker, e))
+            })
     }
 
     /// 다중 타임프레임 캔들 데이터 로드 (Phase 1.4.2).
@@ -180,7 +183,10 @@ impl AnalyticsProviderImpl {
         &self,
         tickers: &[&str],
         config: &trader_core::domain::MultiTimeframeConfig,
-    ) -> Result<std::collections::HashMap<String, Vec<(Timeframe, Vec<trader_core::Kline>)>>, AnalyticsError> {
+    ) -> Result<
+        std::collections::HashMap<String, Vec<(Timeframe, Vec<trader_core::Kline>)>>,
+        AnalyticsError,
+    > {
         use futures::future::join_all;
 
         let futures: Vec<_> = tickers
@@ -229,16 +235,14 @@ impl AnalyticsProvider for AnalyticsProviderImpl {
 
         for ticker in tickers {
             match self.get_candles(ticker, 60).await {
-                Ok(candles) => {
-                    match self.route_state_calc.calculate(&candles) {
-                        Ok(state) => {
-                            results.insert(ticker.to_string(), state);
-                        }
-                        Err(e) => {
-                            warn!(ticker = ticker, error = %e, "RouteState calculation failed");
-                        }
+                Ok(candles) => match self.route_state_calc.calculate(&candles) {
+                    Ok(state) => {
+                        results.insert(ticker.to_string(), state);
                     }
-                }
+                    Err(e) => {
+                        warn!(ticker = ticker, error = %e, "RouteState calculation failed");
+                    }
+                },
                 Err(e) => {
                     warn!(ticker = ticker, error = %e, "Failed to fetch candles for RouteState");
                 }
@@ -294,16 +298,14 @@ impl AnalyticsProvider for AnalyticsProviderImpl {
 
         for ticker in tickers {
             match self.get_candles(ticker, 80).await {
-                Ok(candles) => {
-                    match self.market_regime_calc.calculate(&candles) {
-                        Ok(regime_result) => {
-                            results.insert(ticker.to_string(), regime_result.regime);
-                        }
-                        Err(e) => {
-                            warn!(ticker = ticker, error = %e, "MarketRegime calculation failed");
-                        }
+                Ok(candles) => match self.market_regime_calc.calculate(&candles) {
+                    Ok(regime_result) => {
+                        results.insert(ticker.to_string(), regime_result.regime);
                     }
-                }
+                    Err(e) => {
+                        warn!(ticker = ticker, error = %e, "MarketRegime calculation failed");
+                    }
+                },
                 Err(e) => {
                     warn!(ticker = ticker, error = %e, "Failed to fetch candles for MarketRegime");
                 }

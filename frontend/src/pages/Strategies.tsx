@@ -3,8 +3,8 @@ import { createStore } from 'solid-js/store'
 import { useNavigate } from '@solidjs/router'
 import { Play, Pause, Settings, TrendingUp, TrendingDown, RefreshCw, X, BarChart3, Activity, Trash2, Copy } from 'lucide-solid'
 import { PageLoader, ErrorState, EmptyState, FilterPanel, Button, Card, CardContent } from '../components/ui'
-import { getStrategies, startStrategy, stopStrategy, getBacktestStrategies, deleteStrategy, cloneStrategy } from '../api/client'
-import type { Strategy } from '../types'
+import { getStrategies, startStrategy, stopStrategy, getStrategyMeta, deleteStrategy, cloneStrategy } from '../api/client'
+import type { Strategy, StrategyMetaItem } from '../api/client'
 import { useToast } from '../components/Toast'
 import { formatCurrency, getDefaultTimeframe } from '../utils/format'
 import { AddStrategyModal } from '../components/AddStrategyModal'
@@ -49,9 +49,9 @@ export function Strategies() {
   const [modals, setModals] = createStore<ModalState>(initialModalState)
   const [ui, setUI] = createStore<UIState>(initialUIState)
 
-  // 전략 템플릿 목록 가져오기
+  // 전략 템플릿 목록 가져오기 (SDUI API 사용)
   const [strategyTemplates] = createResource(async () => {
-    const response = await getBacktestStrategies()
+    const response = await getStrategyMeta()
     return response.strategies
   })
 

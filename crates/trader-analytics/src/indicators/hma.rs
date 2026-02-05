@@ -92,9 +92,8 @@ impl HmaIndicator {
         // 4. WMA(sqrt(n)) 적용
         let mut result = Vec::with_capacity(prices.len());
         for i in 0..prices.len() {
-            if i < period - 1 {
-                result.push(None);
-            } else if i < period - 1 + sqrt_period - 1 {
+            // period - 1 + sqrt_period - 1 보다 작으면 계산 불가
+            if i < period - 1 + sqrt_period - 1 {
                 result.push(None);
             } else {
                 // WMA(sqrt(n)) 계산

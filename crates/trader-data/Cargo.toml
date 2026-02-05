@@ -48,5 +48,8 @@ reqwest = { workspace = true }
 yahoo_finance_api = "4.1"
 time = "0.3"
 
+# HTML Parsing (for Naver Finance)
+scraper = "0.22"
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

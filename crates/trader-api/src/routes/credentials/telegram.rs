@@ -68,7 +68,7 @@ pub async fn get_telegram_settings(
         error!("텔레그램 설정 조회 실패: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("DB_ERROR", &format!("조회 실패: {}", e))),
+            Json(ApiError::new("DB_ERROR", format!("조회 실패: {}", e))),
         )
     })?;
 
@@ -212,9 +212,9 @@ pub async fn save_telegram_settings(
     )
     .bind(settings_id)
     .bind(&encrypted_bot_token)
-    .bind(&nonce_token.to_vec())
+    .bind(nonce_token.to_vec())
     .bind(&encrypted_chat_id)
-    .bind(&nonce_chat.to_vec())
+    .bind(nonce_chat.to_vec())
     .bind(&notification_settings_json)
     .execute(pool)
     .await
@@ -222,7 +222,7 @@ pub async fn save_telegram_settings(
         error!("텔레그램 설정 저장 실패: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("DB_ERROR", &format!("저장 실패: {}", e))),
+            Json(ApiError::new("DB_ERROR", format!("저장 실패: {}", e))),
         )
     })?;
 
@@ -271,7 +271,7 @@ pub async fn delete_telegram_settings(
             error!("텔레그램 설정 조회 실패: {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("DB_ERROR", &format!("조회 실패: {}", e))),
+                Json(ApiError::new("DB_ERROR", format!("조회 실패: {}", e))),
             )
         })?;
 
@@ -283,7 +283,7 @@ pub async fn delete_telegram_settings(
             error!("텔레그램 설정 삭제 실패: {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("DB_ERROR", &format!("삭제 실패: {}", e))),
+                Json(ApiError::new("DB_ERROR", format!("삭제 실패: {}", e))),
             )
         })?;
 
@@ -361,7 +361,7 @@ pub async fn test_telegram_settings(
         error!("텔레그램 설정 조회 실패: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("DB_ERROR", &format!("조회 실패: {}", e))),
+            Json(ApiError::new("DB_ERROR", format!("조회 실패: {}", e))),
         )
     })?;
 

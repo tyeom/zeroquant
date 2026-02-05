@@ -58,7 +58,7 @@ use std::sync::Arc;
 use time::OffsetDateTime;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, instrument, warn};
-use trader_core::{CredentialEncryptor, Kline, MarketType, Timeframe};
+use trader_core::{CredentialEncryptor, Kline, Timeframe};
 
 // =============================================================================
 // 상장폐지 감지 상수 및 함수
@@ -167,26 +167,20 @@ impl CachedHistoricalDataProvider {
         limit: usize,
     ) -> Result<Vec<Kline>> {
         // SymbolResolver를 통해 데이터 소스 심볼 조회
-        let (source_symbol, quote_currency, market_type) = self.resolve_symbol(symbol).await?;
-        let lock_key = format!("{}:{}", source_symbol, timeframe_to_string(timeframe));
+        let (ticker, _yahoo_symbol, _market) = self.resolve_symbol(symbol).await?;
+        let lock_key = format!("{}:{}", ticker, timeframe_to_string(timeframe));
 
         // 1. 동시성 제어: Lock 획득
         let lock = self.get_or_create_lock(&lock_key).await;
         let _guard = lock.write().await;
 
         // 2. 캐시 상태 확인
-        let cached_count = self
-            .cache
-            .get_cached_count(&source_symbol, timeframe)
-            .await?;
-        let last_cached_time = self
-            .cache
-            .get_last_cached_time(&source_symbol, timeframe)
-            .await?;
+        let cached_count = self.cache.get_cached_count(&ticker, timeframe).await?;
+        let last_cached_time = self.cache.get_last_cached_time(&ticker, timeframe).await?;
 
         // 3. 업데이트 필요 여부 판단 (시장 시간 고려)
         let needs_update = self.should_update(
-            &source_symbol,
+            &ticker,
             timeframe,
             cached_count as usize,
             limit,
@@ -197,22 +191,22 @@ impl CachedHistoricalDataProvider {
         if needs_update {
             debug!(
                 canonical = %symbol,
-                source_symbol = %source_symbol,
+                ticker = %ticker,
                 timeframe = %timeframe_to_string(timeframe),
                 cached = cached_count,
                 requested = limit,
                 "캐시 업데이트 시작"
             );
 
-            // 원본 심볼로 데이터 소스 선택, source_symbol로 캐시 저장
+            // 원본 심볼로 데이터 소스 선택, ticker로 캐시 저장
             match self
-                .fetch_and_cache(symbol, &source_symbol, timeframe, limit, last_cached_time)
+                .fetch_and_cache(symbol, &ticker, timeframe, limit, last_cached_time)
                 .await
             {
                 Ok(fetched) => {
                     info!(
                         canonical = %symbol,
-                        source_symbol = %source_symbol,
+                        ticker = %ticker,
                         fetched = fetched,
                         "데이터 캐시 완료"
                     );
@@ -220,7 +214,7 @@ impl CachedHistoricalDataProvider {
                 Err(e) => {
                     warn!(
                         canonical = %symbol,
-                        source_symbol = %source_symbol,
+                        ticker = %ticker,
                         error = %e,
                         "데이터 가져오기 실패, 캐시 데이터 사용"
                     );
@@ -229,30 +223,27 @@ impl CachedHistoricalDataProvider {
         }
 
         // 5. 갭 감지
-        self.detect_and_warn_gaps(&source_symbol, timeframe, limit)
-            .await;
+        self.detect_and_warn_gaps(&ticker, timeframe, limit).await;
 
         // 6. 캐시에서 데이터 조회
         let records = self
             .cache
-            .get_cached_klines(&source_symbol, timeframe, limit)
+            .get_cached_klines(&ticker, timeframe, limit)
             .await?;
 
         // 7. canonical 심볼로 Kline 변환
         // Symbol 생성자를 통해 country 필드 자동 추론
         let klines: Vec<Kline> = records
             .into_iter()
-            .map(|kline| {
-                Kline {
-                    ticker: symbol.to_string(),
-                    ..kline
-                }
+            .map(|kline| Kline {
+                ticker: symbol.to_string(),
+                ..kline
             })
             .collect();
 
         debug!(
             canonical = %symbol,
-            source_symbol = %source_symbol,
+            ticker = %ticker,
             returned = klines.len(),
             "캔들 데이터 반환"
         );
@@ -260,11 +251,14 @@ impl CachedHistoricalDataProvider {
         Ok(klines)
     }
 
-    /// 심볼을 데이터 소스 형식으로 변환.
+    /// 심볼 정보 조회.
     ///
-    /// DB의 symbol_info 테이블에서 조회하여 yahoo_symbol 반환 (Single Source of Truth).
-    /// DB에 없거나 yahoo_symbol이 설정되지 않은 경우 에러 반환.
-    async fn resolve_symbol(&self, canonical: &str) -> Result<(String, String, MarketType)> {
+    /// DB의 symbol_info 테이블에서 조회:
+    /// - ticker: 저장/조회 키 (모든 곳에서 사용)
+    /// - yahoo_symbol: Yahoo Finance API 호출 시에만 사용
+    ///
+    /// 반환: (ticker, yahoo_symbol, market)
+    async fn resolve_symbol(&self, canonical: &str) -> Result<(String, Option<String>, String)> {
         // DB에서 심볼 정보 조회 (필수)
         let info = self
             .symbol_resolver
@@ -275,24 +269,11 @@ impl CachedHistoricalDataProvider {
                 DataError::NotFound(format!("심볼을 찾을 수 없습니다: {}", canonical))
             })?;
 
-        // yahoo_symbol 필수
-        let source_symbol = info.yahoo_symbol.ok_or_else(|| {
-            DataError::NotFound(format!("Yahoo Finance 심볼이 설정되지 않음: {}", canonical))
-        })?;
-
-        let quote = match info.market.as_str() {
-            "KR" => "KRW".to_string(),
-            "CRYPTO" => "USDT".to_string(),
-            _ => "USD".to_string(),
-        };
-        let market_type = match info.market.as_str() {
-            "KR" => MarketType::Stock,
-            "US" => MarketType::Stock,
-            "CRYPTO" => MarketType::Crypto,
-            _ => MarketType::Stock,
-        };
-
-        Ok((source_symbol, quote, market_type))
+        Ok((
+            info.ticker.clone(),
+            info.yahoo_symbol.clone(),
+            info.market.clone(),
+        ))
     }
 
     /// 날짜 범위로 캔들 데이터 조회.
@@ -317,12 +298,12 @@ impl CachedHistoricalDataProvider {
         end_date: NaiveDate,
     ) -> Result<Vec<Kline>> {
         // SymbolResolver를 통해 데이터 소스 심볼 조회
-        let (source_symbol, _quote_currency, _market_type) = self.resolve_symbol(symbol).await?;
-        let lock_key = format!("{}:{}:range", source_symbol, timeframe_to_string(timeframe));
+        let (ticker, _yahoo_symbol, _market) = self.resolve_symbol(symbol).await?;
+        let lock_key = format!("{}:{}:range", ticker, timeframe_to_string(timeframe));
 
         debug!(
             canonical = %symbol,
-            source_symbol = %source_symbol,
+            ticker = %ticker,
             timeframe = %timeframe_to_string(timeframe),
             start = %start_date,
             end = %end_date,
@@ -339,7 +320,7 @@ impl CachedHistoricalDataProvider {
 
         let cached_klines = self
             .cache
-            .get_cached_klines_range(&source_symbol, timeframe, start_dt, end_dt)
+            .get_cached_klines_range(&ticker, timeframe, start_dt, end_dt)
             .await?;
 
         // 3. 캐시 데이터로 충분한지 확인 (요청 기간의 80% 이상 커버 시 캐시만 사용)
@@ -361,23 +342,26 @@ impl CachedHistoricalDataProvider {
             // canonical 심볼로 변환하여 반환
             let klines: Vec<Kline> = cached_klines
                 .into_iter()
-                .map(|k| Kline { ticker: symbol.to_string(), ..k })
+                .map(|k| Kline {
+                    ticker: symbol.to_string(),
+                    ..k
+                })
                 .collect();
             return Ok(klines);
         }
 
         // 4. 캐시 메타데이터 확인하여 누락 구간만 요청
-        let metadata = self.cache.get_cache_metadata(&source_symbol, timeframe).await?;
+        let metadata = self.cache.get_cache_metadata(&ticker, timeframe).await?;
 
         // 메타데이터는 있지만 실제 데이터가 없으면 메타데이터 정리 (비정상 상태 복구)
         if metadata.is_some() && cached_klines.is_empty() {
             warn!(
                 canonical = %symbol,
-                source_symbol = %source_symbol,
+                ticker = %ticker,
                 "메타데이터-캐시 불일치 감지: 메타데이터 정리"
             );
             let _ = sqlx::query("DELETE FROM ohlcv_metadata WHERE symbol = $1")
-                .bind(&source_symbol)
+                .bind(&ticker)
                 .execute(&self.pool)
                 .await;
         }
@@ -388,12 +372,17 @@ impl CachedHistoricalDataProvider {
             let cached_end = meta.last_cached_time.map(|t| t.date_naive());
 
             match (cached_start, cached_end) {
-                (Some(cs), Some(ce)) if cs <= start_date && ce >= end_date && !cached_klines.is_empty() => {
+                (Some(cs), Some(ce))
+                    if cs <= start_date && ce >= end_date && !cached_klines.is_empty() =>
+                {
                     // 전체 범위가 캐시됨 && 실제 데이터도 있음 - 캐시만 사용
                     debug!(canonical = %symbol, cached_count = cached_klines.len(), "전체 범위 캐시됨, API 호출 스킵");
                     let klines: Vec<Kline> = cached_klines
                         .into_iter()
-                        .map(|k| Kline { ticker: symbol.to_string(), ..k })
+                        .map(|k| Kline {
+                            ticker: symbol.to_string(),
+                            ..k
+                        })
                         .collect();
                     return Ok(klines);
                 }
@@ -431,33 +420,34 @@ impl CachedHistoricalDataProvider {
                     data
                 }
                 Ok(_) | Err(_) => {
-                    warn!(canonical = symbol, "KRX 실패, Yahoo Finance Fallback");
-                    let provider = YahooProviderWrapper::new()?;
+                    warn!(canonical = symbol, ticker = %ticker, "KRX 실패, Yahoo Finance Fallback");
+                    let provider =
+                        YahooProviderWrapper::new(SymbolResolver::new(self.pool.clone()))?;
                     provider
-                        .get_klines_range(&source_symbol, timeframe, fetch_start, fetch_end)
+                        .get_klines_range(&ticker, timeframe, fetch_start, fetch_end)
                         .await?
                 }
             }
         } else {
-            debug!(source_symbol = %source_symbol, fetch_start = %fetch_start, fetch_end = %fetch_end, "Yahoo Finance 누락 구간 조회");
-            let provider = YahooProviderWrapper::new()?;
+            debug!(ticker = %ticker, fetch_start = %fetch_start, fetch_end = %fetch_end, "Yahoo Finance 누락 구간 조회");
+            let provider = YahooProviderWrapper::new(SymbolResolver::new(self.pool.clone()))?;
             provider
-                .get_klines_range(&source_symbol, timeframe, fetch_start, fetch_end)
+                .get_klines_range(&ticker, timeframe, fetch_start, fetch_end)
                 .await?
         };
 
         if raw_klines.is_empty() {
-            info!(canonical = %symbol, source_symbol = %source_symbol, "날짜 범위에 데이터 없음");
+            info!(canonical = %symbol, ticker = %ticker, "날짜 범위에 데이터 없음");
             return Ok(Vec::new());
         }
 
         // 3. 캐시에 저장
         let saved = self
-            .batch_insert_klines(&source_symbol, timeframe, &raw_klines)
+            .batch_insert_klines(&ticker, timeframe, &raw_klines)
             .await?;
         info!(
             canonical = %symbol,
-            source_symbol = %source_symbol,
+            ticker = %ticker,
             fetched = raw_klines.len(),
             saved = saved,
             "날짜 범위 데이터 캐시 완료"
@@ -467,11 +457,9 @@ impl CachedHistoricalDataProvider {
         // Symbol 생성자를 통해 country 필드 자동 추론
         let klines: Vec<Kline> = raw_klines
             .into_iter()
-            .map(|kline| {
-                Kline {
-                    ticker: symbol.to_string(),
-                    ..kline
-                }
+            .map(|kline| Kline {
+                ticker: symbol.to_string(),
+                ..kline
             })
             .collect();
 
@@ -514,8 +502,14 @@ impl CachedHistoricalDataProvider {
         }
 
         // 2. Fallback: KRX 정보데이터시스템 (캐시된 클라이언트 사용)
-        debug!(symbol = symbol, "KRX Open API 실패, 정보데이터시스템으로 fallback");
-        let klines = self.krx_data_source.get_ohlcv(symbol, &start_str, &end_str).await?;
+        debug!(
+            symbol = symbol,
+            "KRX Open API 실패, 정보데이터시스템으로 fallback"
+        );
+        let klines = self
+            .krx_data_source
+            .get_ohlcv(symbol, &start_str, &end_str)
+            .await?;
 
         debug!(
             symbol = symbol,
@@ -531,38 +525,41 @@ impl CachedHistoricalDataProvider {
     /// KRX Open API 클라이언트 초기화 (lazy, 한 번만 실행).
     async fn get_krx_api_client(&self) -> Option<&KrxApiClient> {
         // OnceCell로 한 번만 초기화
-        let client_opt = self.krx_api_client.get_or_init(|| async {
-            let master_key = match &self.encryption_key {
-                Some(key) => key,
-                None => {
-                    debug!("ENCRYPTION_MASTER_KEY 미설정 - KRX Open API 비활성화");
-                    return None;
-                }
-            };
+        let client_opt = self
+            .krx_api_client
+            .get_or_init(|| async {
+                let master_key = match &self.encryption_key {
+                    Some(key) => key,
+                    None => {
+                        debug!("ENCRYPTION_MASTER_KEY 미설정 - KRX Open API 비활성화");
+                        return None;
+                    }
+                };
 
-            let encryptor = match CredentialEncryptor::new(master_key) {
-                Ok(enc) => enc,
-                Err(e) => {
-                    warn!(error = %e, "CredentialEncryptor 생성 실패");
-                    return None;
-                }
-            };
+                let encryptor = match CredentialEncryptor::new(master_key) {
+                    Ok(enc) => enc,
+                    Err(e) => {
+                        warn!(error = %e, "CredentialEncryptor 생성 실패");
+                        return None;
+                    }
+                };
 
-            match KrxApiClient::from_credential(&self.pool, &encryptor).await {
-                Ok(Some(client)) => {
-                    info!("KRX Open API 클라이언트 초기화 완료");
-                    Some(client)
+                match KrxApiClient::from_credential(&self.pool, &encryptor).await {
+                    Ok(Some(client)) => {
+                        info!("KRX Open API 클라이언트 초기화 완료");
+                        Some(client)
+                    }
+                    Ok(None) => {
+                        debug!("KRX API credential이 등록되지 않음");
+                        None
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "KRX API credential 로드 실패");
+                        None
+                    }
                 }
-                Ok(None) => {
-                    debug!("KRX API credential이 등록되지 않음");
-                    None
-                }
-                Err(e) => {
-                    warn!(error = %e, "KRX API credential 로드 실패");
-                    None
-                }
-            }
-        }).await;
+            })
+            .await;
 
         client_opt.as_ref()
     }
@@ -721,7 +718,10 @@ impl CachedHistoricalDataProvider {
         let mut krx_tried = false;
         let klines = if is_pure_korean_stock_code(original_symbol) {
             krx_tried = true;
-            debug!(symbol = original_symbol, "1단계: KRX 데이터 소스 시도 (한국 주식)");
+            debug!(
+                symbol = original_symbol,
+                "1단계: KRX 데이터 소스 시도 (한국 주식)"
+            );
             match self.fetch_from_krx(original_symbol, timeframe, limit).await {
                 Ok(data) if !data.is_empty() => {
                     debug!(
@@ -732,7 +732,10 @@ impl CachedHistoricalDataProvider {
                     Some(data)
                 }
                 Ok(_) => {
-                    info!(symbol = original_symbol, "KRX 빈 데이터, Yahoo Finance로 Fallback");
+                    info!(
+                        symbol = original_symbol,
+                        "KRX 빈 데이터, Yahoo Finance로 Fallback"
+                    );
                     None
                 }
                 Err(e) => {
@@ -758,7 +761,7 @@ impl CachedHistoricalDataProvider {
                     symbol = cache_symbol,
                     "2단계: Yahoo Finance 데이터 소스 시도"
                 );
-                let provider = YahooProviderWrapper::new()?;
+                let provider = YahooProviderWrapper::new(SymbolResolver::new(self.pool.clone()))?;
                 match provider
                     .get_klines_internal(cache_symbol, timeframe, limit)
                     .await
@@ -772,10 +775,7 @@ impl CachedHistoricalDataProvider {
                         data
                     }
                     Ok(_) => {
-                        warn!(
-                            symbol = cache_symbol,
-                            "Yahoo Finance 빈 데이터 반환"
-                        );
+                        warn!(symbol = cache_symbol, "Yahoo Finance 빈 데이터 반환");
                         // 빈 데이터도 상장폐지 가능성
                         Vec::new()
                     }
@@ -804,7 +804,9 @@ impl CachedHistoricalDataProvider {
 
         // 데이터 있으면 저장 후 반환
         if !klines.is_empty() {
-            return self.save_klines_to_cache(cache_symbol, timeframe, klines, last_cached_time).await;
+            return self
+                .save_klines_to_cache(cache_symbol, timeframe, klines, last_cached_time)
+                .await;
         }
 
         // =========================================
@@ -855,7 +857,10 @@ impl CachedHistoricalDataProvider {
         let end_str = end_date.format("%Y%m%d").to_string();
 
         // 캐시된 KRX 정보데이터시스템 클라이언트 사용
-        let klines = self.krx_data_source.get_ohlcv(symbol, &start_str, &end_str).await?;
+        let klines = self
+            .krx_data_source
+            .get_ohlcv(symbol, &start_str, &end_str)
+            .await?;
 
         // limit만큼만 반환 (최신순)
         let result: Vec<Kline> = klines
@@ -951,7 +956,6 @@ impl CachedHistoricalDataProvider {
 
         Ok(total_inserted)
     }
-
 
     /// 캔들 데이터를 캐시에 저장 (증분 업데이트 적용).
     async fn save_klines_to_cache(
@@ -1135,8 +1139,8 @@ impl CachedHistoricalDataProvider {
     /// # 인자
     /// - `symbol`: canonical 심볼 (예: "005930", "AAPL")
     pub async fn clear_cache(&self, symbol: &str) -> Result<u64> {
-        let (source_symbol, _, _) = self.resolve_symbol(symbol).await?;
-        self.cache.clear_symbol_cache(&source_symbol).await
+        let (ticker, _, _) = self.resolve_symbol(symbol).await?;
+        self.cache.clear_symbol_cache(&ticker).await
     }
 
     /// 캐시 Warmup (주요 심볼 미리 캐시).
@@ -1444,15 +1448,40 @@ pub(crate) fn guess_currency(symbol: &str) -> &'static str {
 // =============================================================================
 
 /// Yahoo Finance Provider 래퍼.
+///
+/// `SymbolResolver`를 통해 ticker에서 yahoo_symbol을 조회합니다.
 pub struct YahooProviderWrapper {
     connector: yahoo_finance_api::YahooConnector,
+    symbol_resolver: SymbolResolver,
 }
 
 impl YahooProviderWrapper {
-    pub fn new() -> Result<Self> {
+    pub fn new(symbol_resolver: SymbolResolver) -> Result<Self> {
         let connector = yahoo_finance_api::YahooConnector::new()
             .map_err(|e| DataError::ConnectionError(format!("Yahoo Finance 연결 실패: {}", e)))?;
-        Ok(Self { connector })
+        Ok(Self {
+            connector,
+            symbol_resolver,
+        })
+    }
+
+    /// ticker를 Yahoo Finance API 호출용 심볼로 변환.
+    ///
+    /// `SymbolResolver`를 통해 DB에서 정확한 yahoo_symbol을 조회합니다.
+    /// DB에 없으면 fallback으로 6자리 숫자는 `.KS` 추가.
+    async fn resolve_yahoo_symbol(&self, ticker: &str) -> String {
+        // DB에서 yahoo_symbol 조회 시도
+        if let Ok(Some(info)) = self.symbol_resolver.get_symbol_info(ticker).await {
+            if let Some(yahoo_symbol) = info.yahoo_symbol {
+                return yahoo_symbol;
+            }
+        }
+        // Fallback: 6자리 숫자 한국 주식인 경우 .KS 추가
+        if ticker.len() == 6 && ticker.chars().all(|c| c.is_ascii_digit()) {
+            format!("{}.KS", ticker)
+        } else {
+            ticker.to_string()
+        }
     }
 
     pub async fn get_klines_internal(
@@ -1479,8 +1508,12 @@ impl YahooProviderWrapper {
 
         let range = calculate_range_string(timeframe, limit);
 
+        // SymbolResolver를 통해 yahoo_symbol 조회
+        let yahoo_symbol = self.resolve_yahoo_symbol(symbol).await;
+
         debug!(
-            symbol = symbol,
+            ticker = symbol,
+            yahoo_symbol = %yahoo_symbol,
             interval = interval,
             range = range,
             "Yahoo Finance API 호출"
@@ -1488,10 +1521,10 @@ impl YahooProviderWrapper {
 
         let response = self
             .connector
-            .get_quote_range(symbol, interval, range)
+            .get_quote_range(&yahoo_symbol, interval, range)
             .await
             .map_err(|e| {
-                DataError::FetchError(format!("Yahoo Finance API 오류 ({}): {}", symbol, e))
+                DataError::FetchError(format!("Yahoo Finance API 오류 ({}): {}", yahoo_symbol, e))
             })?;
 
         let quotes = response
@@ -1502,16 +1535,16 @@ impl YahooProviderWrapper {
             return Ok(Vec::new());
         }
 
-        let currency = guess_currency(symbol);
+        let _currency = guess_currency(symbol);
         let symbol_obj = symbol.to_string();
 
         let klines: Vec<Kline> = quotes
             .iter()
             .map(|q| {
                 let open_time = Utc
-                    .timestamp_opt(q.timestamp as i64, 0)
+                    .timestamp_opt(q.timestamp, 0)
                     .single()
-                    .unwrap_or_else(|| Utc::now());
+                    .unwrap_or_else(Utc::now);
                 let close_time = open_time + timeframe_to_duration(timeframe);
 
                 Kline {
@@ -1542,9 +1575,14 @@ impl YahooProviderWrapper {
     }
 
     /// 날짜 범위로 캔들 데이터 조회.
+    ///
+    /// # Arguments
+    /// * `ticker` - 순수 ticker (예: "005930", "AAPL")
+    ///
+    /// 내부에서 Yahoo Finance API 호출용 심볼로 변환 (한국 주식: .KS 추가)
     pub async fn get_klines_range(
         &self,
-        symbol: &str,
+        ticker: &str,
         timeframe: Timeframe,
         start_date: NaiveDate,
         end_date: NaiveDate,
@@ -1569,8 +1607,12 @@ impl YahooProviderWrapper {
         let start = naive_date_to_offset_datetime(start_date);
         let end = naive_date_to_offset_datetime(end_date);
 
+        // SymbolResolver를 통해 yahoo_symbol 조회
+        let yahoo_symbol = self.resolve_yahoo_symbol(ticker).await;
+
         debug!(
-            symbol = symbol,
+            ticker = ticker,
+            yahoo_symbol = %yahoo_symbol,
             interval = interval,
             start = %start_date,
             end = %end_date,
@@ -1579,10 +1621,10 @@ impl YahooProviderWrapper {
 
         let response = self
             .connector
-            .get_quote_history_interval(symbol, start, end, interval)
+            .get_quote_history_interval(&yahoo_symbol, start, end, interval)
             .await
             .map_err(|e| {
-                DataError::FetchError(format!("Yahoo Finance API 오류 ({}): {}", symbol, e))
+                DataError::FetchError(format!("Yahoo Finance API 오류 ({}): {}", yahoo_symbol, e))
             })?;
 
         let quotes = response
@@ -1593,20 +1635,18 @@ impl YahooProviderWrapper {
             return Ok(Vec::new());
         }
 
-        let currency = guess_currency(symbol);
-        let symbol_obj = symbol.to_string();
-
+        // 저장용 ticker 사용
         let klines: Vec<Kline> = quotes
             .iter()
             .map(|q| {
                 let open_time = Utc
-                    .timestamp_opt(q.timestamp as i64, 0)
+                    .timestamp_opt(q.timestamp, 0)
                     .single()
-                    .unwrap_or_else(|| Utc::now());
+                    .unwrap_or_else(Utc::now);
                 let close_time = open_time + timeframe_to_duration(timeframe);
 
                 Kline {
-                    ticker: symbol_obj.clone(),
+                    ticker: ticker.to_string(),
                     timeframe,
                     open_time,
                     open: Decimal::from_f64_retain(q.open).unwrap_or_default(),

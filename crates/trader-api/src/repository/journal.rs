@@ -247,7 +247,7 @@ impl JournalRepository {
         .bind(&input.exchange)
         .bind(&input.symbol)
         .bind(&input.symbol_name)
-        .bind(&input.side)
+        .bind(input.side)
         .bind(&input.order_type)
         .bind(input.quantity)
         .bind(input.price)
@@ -470,7 +470,7 @@ impl JournalRepository {
         .bind(&input.exchange)
         .bind(&input.symbol)
         .bind(&input.symbol_name)
-        .bind(&input.side)
+        .bind(input.side)
         .bind(input.quantity)
         .bind(input.entry_price)
         .bind(input.current_price)
@@ -645,7 +645,7 @@ impl JournalRepository {
         .await?;
 
         // 데이터가 없으면 빈 요약 반환
-        Ok(result.unwrap_or_else(|| PnLSummary {
+        Ok(result.unwrap_or(PnLSummary {
             total_realized_pnl: Decimal::ZERO,
             total_fees: Decimal::ZERO,
             total_trades: 0,
@@ -722,7 +722,7 @@ impl JournalRepository {
             .bind(&input.exchange)
             .bind(&input.symbol)
             .bind(&input.symbol_name)
-            .bind(&input.side)
+            .bind(input.side)
             .bind(&input.order_type)
             .bind(input.quantity)
             .bind(input.price)
@@ -1365,19 +1365,14 @@ impl JournalRepository {
         let mut is_first_buy = true;
 
         for exec in &executions {
-            let side = Side::from_str_flexible(&exec.side_str)
-                .unwrap_or(Side::Buy);
+            let side = Side::from_str_flexible(&exec.side_str).unwrap_or(Side::Buy);
 
             match side {
                 Side::Buy => {
                     // 매수: 로트 추가
-                    let lot = cost_basis::Lot::new(
-                        exec.quantity,
-                        exec.price,
-                        exec.fee,
-                        exec.executed_at,
-                    )
-                    .with_execution_id(exec.id);
+                    let lot =
+                        cost_basis::Lot::new(exec.quantity, exec.price, exec.fee, exec.executed_at)
+                            .with_execution_id(exec.id);
                     tracker.add_lot(lot);
 
                     // position_effect 결정
@@ -1396,12 +1391,8 @@ impl JournalRepository {
                 }
                 Side::Sell => {
                     // 매도: FIFO 기반 실현손익 계산
-                    let sale_result = tracker.sell(
-                        exec.quantity,
-                        exec.price,
-                        exec.fee,
-                        exec.executed_at,
-                    );
+                    let sale_result =
+                        tracker.sell(exec.quantity, exec.price, exec.fee, exec.executed_at);
 
                     let (realized_pnl, position_effect) = match sale_result {
                         Ok(result) => {
@@ -1483,6 +1474,7 @@ impl JournalRepository {
 }
 
 /// 확장된 체결 내역 행 (exchange, trade_id 포함).
+#[allow(dead_code)]
 #[derive(Debug, FromRow)]
 struct ExecutionRowWithExchange {
     id: Uuid,

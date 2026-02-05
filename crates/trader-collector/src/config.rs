@@ -32,6 +32,12 @@ pub struct DataProviderConfig {
     /// Yahoo Finance 활성화 (OHLCV)
     /// 기본값: true
     pub yahoo_enabled: bool,
+    /// 네이버 금융 크롤러 활성화 (KR 시장 Fundamental)
+    /// 기본값: true (KR 시장 데이터 수집용)
+    pub naver_enabled: bool,
+    /// 네이버 요청 간 딜레이 (밀리초)
+    /// 기본값: 300ms
+    pub naver_request_delay_ms: u64,
 }
 
 /// 심볼 동기화 설정
@@ -62,6 +68,8 @@ pub struct OhlcvCollectConfig {
     pub start_date: Option<String>,
     /// 수집 종료 날짜 (YYYYMMDD)
     pub end_date: Option<String>,
+    /// 대상 시장 목록 (빈 경우 전체, 예: ["US", "KR"])
+    pub target_markets: Vec<String>,
 }
 
 /// Fundamental 및 지표 수집 설정
@@ -102,6 +110,9 @@ impl CollectorConfig {
                 krx_api_enabled: env_var_bool("PROVIDER_KRX_API_ENABLED", false),
                 // Yahoo Finance: 기본 활성화
                 yahoo_enabled: env_var_bool("PROVIDER_YAHOO_ENABLED", true),
+                // 네이버 금융: KR 시장 fundamental 수집용
+                naver_enabled: env_var_bool("NAVER_FUNDAMENTAL_ENABLED", true),
+                naver_request_delay_ms: env_var_parse("NAVER_REQUEST_DELAY_MS", 300),
             },
             symbol_sync: SymbolSyncConfig {
                 min_symbol_count: env_var_parse("SYMBOL_SYNC_MIN_COUNT", 100),
@@ -116,6 +127,7 @@ impl CollectorConfig {
                 request_delay_ms: env_var_parse("OHLCV_REQUEST_DELAY_MS", 500),
                 start_date: std::env::var("OHLCV_START_DATE").ok(),
                 end_date: std::env::var("OHLCV_END_DATE").ok(),
+                target_markets: env_var_list("OHLCV_TARGET_MARKETS"),
             },
             fundamental_collect: FundamentalCollectConfig {
                 batch_size: env_var_parse("INDICATOR_BATCH_SIZE", 100),
@@ -164,4 +176,16 @@ fn env_var_bool(key: &str, default: bool) -> bool {
     std::env::var(key)
         .map(|v| v == "true" || v == "1")
         .unwrap_or(default)
+}
+
+/// 환경변수에서 쉼표로 구분된 리스트 파싱
+fn env_var_list(key: &str) -> Vec<String> {
+    std::env::var(key)
+        .map(|v| {
+            v.split(',')
+                .map(|s| s.trim().to_uppercase())
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
+        .unwrap_or_default()
 }

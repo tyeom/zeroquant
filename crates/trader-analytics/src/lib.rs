@@ -15,6 +15,7 @@
 
 pub mod analytics_provider_impl;
 pub mod backtest;
+pub mod correlation;
 pub mod global_scorer;
 pub mod indicators;
 pub mod journal_integration;
@@ -26,10 +27,13 @@ pub mod multi_timeframe_helpers;
 pub mod performance;
 pub mod portfolio;
 pub mod route_state_calculator;
+pub mod sector_rs;
 pub mod seven_factor;
 pub mod structural_features;
+pub mod survival;
 pub mod timeframe_alignment;
 pub mod trigger_calculator;
+pub mod volume_profile;
 
 // Performance 모듈 re-exports
 pub use performance::metrics::{
@@ -60,9 +64,16 @@ pub use indicators::{
     IndicatorEngine,
     IndicatorError,
     IndicatorResult,
+    // Keltner Channel
+    KeltnerChannelParams,
+    KeltnerChannelResult,
     MacdParams,
     MacdResult,
     MomentumCalculator,
+    // OBV
+    ObvIndicator,
+    ObvParams,
+    ObvResult,
     // 모멘텀 지표
     RsiParams,
     // 추세 지표
@@ -71,8 +82,16 @@ pub use indicators::{
     StochasticResult,
     // 구조적 피처
     StructuralFeatures,
+    // SuperTrend
+    SuperTrendIndicator,
+    SuperTrendParams,
+    SuperTrendResult,
     TrendIndicators,
     VolatilityIndicators,
+    // VWAP
+    VwapIndicator,
+    VwapParams,
+    VwapResult,
 };
 
 // RouteState 계산기 re-export
@@ -95,6 +114,28 @@ pub use liquidity_gate::{LiquidityGate, LiquidityLevel};
 
 // 7Factor re-export
 pub use seven_factor::{SevenFactorCalculator, SevenFactorInput, SevenFactorScores};
+
+// Sector RS re-export
+pub use sector_rs::{
+    enrich_screening_with_sector_rs, SectorRsCalculator, SectorRsInput, SectorRsResult,
+    TickerSectorRs,
+};
+
+// Survival Tracker re-export
+pub use survival::{
+    get_survival_days_map, DailyRanking, DailyRankingBuilder, SurvivalResult, SurvivalTracker,
+};
+
+// Volume Profile re-export
+pub use volume_profile::{
+    calculate_volume_profile, PriceLevel, VolumeProfile, VolumeProfileCalculator,
+};
+
+// Correlation re-export
+pub use correlation::{
+    calculate_correlation, calculate_correlation_matrix, calculate_correlation_matrix_decimal,
+    CorrelationMatrix,
+};
 
 // AnalyticsProvider 구현체 re-export
 pub use analytics_provider_impl::AnalyticsProviderImpl;

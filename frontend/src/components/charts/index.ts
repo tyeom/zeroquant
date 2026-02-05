@@ -64,3 +64,6 @@ export type { SignalCorrelationChartProps, SignalDataPoint } from './SignalCorre
 
 export { MultiTimeframeChart } from './MultiTimeframeChart'
 export type { MultiTimeframeChartProps, TimeframeData, LayoutMode } from './MultiTimeframeChart'
+
+export { ScoreHistoryChart } from './ScoreHistoryChart'
+export type { ScoreHistoryChartProps } from './ScoreHistoryChart'

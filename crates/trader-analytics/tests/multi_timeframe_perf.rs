@@ -52,10 +52,7 @@ fn test_multi_timeframe_in_memory_performance() {
     }
 
     let elapsed = start.elapsed();
-    println!(
-        "데이터 처리 ({} candles): {:?}",
-        total_candles, elapsed
-    );
+    println!("데이터 처리 ({} candles): {:?}", total_candles, elapsed);
 
     // 목표: 50ms 이내
     assert!(
@@ -68,8 +65,8 @@ fn test_multi_timeframe_in_memory_performance() {
 /// HashMap 그룹화 성능 테스트
 #[test]
 fn test_grouping_performance() {
-    use rust_decimal_macros::dec;
     use chrono::{TimeZone, Utc};
+    use rust_decimal_macros::dec;
 
     // 대량의 플랫 데이터를 타임프레임별로 그룹화
     let total_records = 3000; // 각 TF당 1000개
@@ -81,13 +78,17 @@ fn test_grouping_performance() {
         let kline = Kline {
             ticker: "BTC/USDT".to_string(),
             timeframe: Timeframe::M5, // 임시
-            open_time: Utc.with_ymd_and_hms(2024, 1, 1, 0, idx as u32 % 24, 0).unwrap(),
+            open_time: Utc
+                .with_ymd_and_hms(2024, 1, 1, 0, idx as u32 % 24, 0)
+                .unwrap(),
             open: dec!(50000),
             high: dec!(50100),
             low: dec!(49900),
             close: dec!(50050),
             volume: dec!(100),
-            close_time: Utc.with_ymd_and_hms(2024, 1, 1, 0, idx as u32 % 24, 5).unwrap(),
+            close_time: Utc
+                .with_ymd_and_hms(2024, 1, 1, 0, idx as u32 % 24, 5)
+                .unwrap(),
             quote_volume: None,
             num_trades: None,
         };
@@ -159,8 +160,8 @@ fn test_cache_hit_scenario() {
 
 /// 모의 Kline 데이터 생성
 fn create_mock_klines(timeframe: Timeframe, count: usize) -> Vec<Kline> {
-    use rust_decimal_macros::dec;
     use chrono::{Duration, TimeZone, Utc};
+    use rust_decimal_macros::dec;
 
     let interval_secs = match timeframe {
         Timeframe::M1 => 60,

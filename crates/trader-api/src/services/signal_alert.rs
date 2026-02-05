@@ -135,8 +135,8 @@ impl SignalAlertService {
         }
 
         // 지표 정보를 JSON으로 변환
-        let indicators = serde_json::to_value(&marker.indicators)
-            .unwrap_or(serde_json::Value::Null);
+        let indicators =
+            serde_json::to_value(&marker.indicators).unwrap_or(serde_json::Value::Null);
 
         // side를 String으로 변환 (라이프타임 문제 해결)
         let side_str = marker.side.as_ref().map(|s| s.to_string());
@@ -183,7 +183,7 @@ mod tests {
     use super::*;
     use chrono::Utc;
     use rust_decimal_macros::dec;
-    use trader_core::{SignalIndicators, SignalType, Side};
+    use trader_core::{Side, SignalIndicators, SignalType};
 
     #[test]
     fn test_filter_min_strength() {
@@ -241,8 +241,7 @@ mod tests {
 
     #[test]
     fn test_filter_strategy_ids() {
-        let filter = SignalAlertFilter::new()
-            .with_strategies(vec!["rsi_strategy".to_string()]);
+        let filter = SignalAlertFilter::new().with_strategies(vec!["rsi_strategy".to_string()]);
 
         let matching_marker = SignalMarker::new(
             "BTC/USDT".to_string(),

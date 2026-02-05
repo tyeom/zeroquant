@@ -135,10 +135,7 @@ impl CandlePatternIndicator {
         close: &[Decimal],
         params: CandlePatternParams,
     ) -> IndicatorResult<Vec<CandlePatternResult>> {
-        if open.len() != high.len()
-            || open.len() != low.len()
-            || open.len() != close.len()
-        {
+        if open.len() != high.len() || open.len() != low.len() || open.len() != close.len() {
             return Err(IndicatorError::InvalidParameter(
                 "시가, 고가, 저가, 종가 데이터의 길이가 일치하지 않습니다".to_string(),
             ));
@@ -169,7 +166,8 @@ impl CandlePatternIndicator {
             };
 
             // 패턴 감지
-            let pattern_result = self.detect_pattern(&candle, trend, &params, i, open, high, low, close);
+            let pattern_result =
+                self.detect_pattern(&candle, trend, &params, i, open, high, low, close);
 
             result.push(pattern_result);
         }
@@ -178,6 +176,7 @@ impl CandlePatternIndicator {
     }
 
     /// 단일 캔들에서 패턴 감지.
+    #[allow(clippy::too_many_arguments)]
     fn detect_pattern(
         &self,
         candle: &Candle,
@@ -268,7 +267,12 @@ impl CandlePatternIndicator {
     }
 
     /// 망치형 패턴 확인.
-    fn is_hammer(&self, candle: &Candle, trend: i32, params: &CandlePatternParams) -> Option<Decimal> {
+    fn is_hammer(
+        &self,
+        candle: &Candle,
+        trend: i32,
+        params: &CandlePatternParams,
+    ) -> Option<Decimal> {
         let body = candle.body();
         let lower_shadow = candle.lower_shadow();
         let upper_shadow = candle.upper_shadow();
@@ -298,7 +302,12 @@ impl CandlePatternIndicator {
     }
 
     /// 역망치형 패턴 확인.
-    fn is_inverted_hammer(&self, candle: &Candle, trend: i32, params: &CandlePatternParams) -> Option<Decimal> {
+    fn is_inverted_hammer(
+        &self,
+        candle: &Candle,
+        trend: i32,
+        params: &CandlePatternParams,
+    ) -> Option<Decimal> {
         let body = candle.body();
         let lower_shadow = candle.lower_shadow();
         let upper_shadow = candle.upper_shadow();
@@ -342,10 +351,12 @@ impl CandlePatternIndicator {
                 confidence += dec!(0.15);
             }
 
-            // 몸통 크기 비율로 신뢰도 조정
-            let body_ratio = candle.body() / prev.body();
-            if body_ratio > dec!(1.5) {
-                confidence += dec!(0.05);
+            // 몸통 크기 비율로 신뢰도 조정 (Division by zero 방지)
+            if prev.body() > Decimal::ZERO {
+                let body_ratio = candle.body() / prev.body();
+                if body_ratio > dec!(1.5) {
+                    confidence += dec!(0.05);
+                }
             }
 
             Some(confidence.min(dec!(1.0)))
@@ -369,10 +380,12 @@ impl CandlePatternIndicator {
                 confidence += dec!(0.15);
             }
 
-            // 몸통 크기 비율로 신뢰도 조정
-            let body_ratio = candle.body() / prev.body();
-            if body_ratio > dec!(1.5) {
-                confidence += dec!(0.05);
+            // 몸통 크기 비율로 신뢰도 조정 (Division by zero 방지)
+            if prev.body() > Decimal::ZERO {
+                let body_ratio = candle.body() / prev.body();
+                if body_ratio > dec!(1.5) {
+                    confidence += dec!(0.05);
+                }
             }
 
             Some(confidence.min(dec!(1.0)))
@@ -433,10 +446,38 @@ mod tests {
         let indicator = CandlePatternIndicator::new();
 
         // 망치형: 하단 그림자 긴 상승 캔들
-        let open = vec![dec!(100.0), dec!(99.0), dec!(98.0), dec!(97.0), dec!(96.0), dec!(95.0)];
-        let high = vec![dec!(101.0), dec!(100.0), dec!(99.0), dec!(98.0), dec!(97.0), dec!(101.0)];
-        let low = vec![dec!(99.0), dec!(98.0), dec!(97.0), dec!(96.0), dec!(95.0), dec!(90.0)]; // 긴 하단 그림자
-        let close = vec![dec!(100.0), dec!(99.0), dec!(98.0), dec!(97.0), dec!(96.0), dec!(100.0)];
+        let open = vec![
+            dec!(100.0),
+            dec!(99.0),
+            dec!(98.0),
+            dec!(97.0),
+            dec!(96.0),
+            dec!(95.0),
+        ];
+        let high = vec![
+            dec!(101.0),
+            dec!(100.0),
+            dec!(99.0),
+            dec!(98.0),
+            dec!(97.0),
+            dec!(101.0),
+        ];
+        let low = vec![
+            dec!(99.0),
+            dec!(98.0),
+            dec!(97.0),
+            dec!(96.0),
+            dec!(95.0),
+            dec!(90.0),
+        ]; // 긴 하단 그림자
+        let close = vec![
+            dec!(100.0),
+            dec!(99.0),
+            dec!(98.0),
+            dec!(97.0),
+            dec!(96.0),
+            dec!(100.0),
+        ];
 
         let result = indicator
             .detect(&open, &high, &low, &close, CandlePatternParams::default())

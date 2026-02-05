@@ -2,8 +2,8 @@
 //!
 //! 60일 상대강도, 가격 기울기, RSI를 종합하여 종목의 시장 레짐을 판정합니다.
 
-use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use trader_core::{Kline, MarketRegime};
 
 use crate::indicators::IndicatorEngine;
@@ -109,12 +109,11 @@ impl MarketRegimeCalculator {
             ));
         }
 
-        let rel_strength = ((current_price / price_60d_ago) - Decimal::ONE)
-            * Decimal::from(100);
+        let rel_strength = ((current_price / price_60d_ago) - Decimal::ONE) * Decimal::from(100);
 
-        Ok(rel_strength
-            .to_f64()
-            .ok_or_else(|| IndicatorError::CalculationError("Decimal to f64 변환 실패".to_string()))?)
+        rel_strength.to_f64().ok_or_else(|| {
+            IndicatorError::CalculationError("Decimal to f64 변환 실패".to_string())
+        })
     }
 
     /// 20일 가격 기울기 계산 (선형회귀)
@@ -134,9 +133,9 @@ impl MarketRegimeCalculator {
         let recent_20: Vec<f64> = candles[len - 20..]
             .iter()
             .map(|c| {
-                c.close
-                    .to_f64()
-                    .ok_or_else(|| IndicatorError::CalculationError("Decimal to f64 변환 실패".to_string()))
+                c.close.to_f64().ok_or_else(|| {
+                    IndicatorError::CalculationError("Decimal to f64 변환 실패".to_string())
+                })
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -192,9 +191,9 @@ impl MarketRegimeCalculator {
         let rsi_decimal = rsi_opt
             .ok_or_else(|| IndicatorError::CalculationError("RSI 값이 None입니다".to_string()))?;
 
-        rsi_decimal
-            .to_f64()
-            .ok_or_else(|| IndicatorError::CalculationError("RSI Decimal to f64 변환 실패".to_string()))
+        rsi_decimal.to_f64().ok_or_else(|| {
+            IndicatorError::CalculationError("RSI Decimal to f64 변환 실패".to_string())
+        })
     }
 
     /// MarketRegime 판정
@@ -276,7 +275,10 @@ mod tests {
         let candles = create_test_klines(50, 100.0, 0.0);
 
         let result = calculator.calculate(&candles);
-        assert!(matches!(result, Err(IndicatorError::InsufficientData { .. })));
+        assert!(matches!(
+            result,
+            Err(IndicatorError::InsufficientData { .. })
+        ));
     }
 
     #[test]
@@ -298,8 +300,16 @@ mod tests {
         eprintln!("  price_60d_ago: {}", candles[19].close);
 
         // 상승 추세 확인
-        assert!(result.rel_60d_pct > 5.0, "rel_60d_pct should be > 5.0 for uptrend, got {}", result.rel_60d_pct);
-        assert!(result.slope > 0.0, "slope should be > 0.0 for uptrend, got {}", result.slope);
+        assert!(
+            result.rel_60d_pct > 5.0,
+            "rel_60d_pct should be > 5.0 for uptrend, got {}",
+            result.rel_60d_pct
+        );
+        assert!(
+            result.slope > 0.0,
+            "slope should be > 0.0 for uptrend, got {}",
+            result.slope
+        );
 
         // Downtrend가 아닌 다른 레짐이어야 함
         assert!(
@@ -340,7 +350,9 @@ mod tests {
         let calculator = MarketRegimeCalculator::new();
         let candles = create_test_klines(80, 100.0, 0.25);
 
-        let rel_60d = calculator.calculate_relative_strength_60d(&candles).unwrap();
+        let rel_60d = calculator
+            .calculate_relative_strength_60d(&candles)
+            .unwrap();
         // 60일간 약 15% 상승 (60 * 0.25 = 15)
         assert!(rel_60d > 10.0 && rel_60d < 20.0);
     }

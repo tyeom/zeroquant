@@ -26,15 +26,13 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::repository::{
-    create_exchange_providers_from_credential, EquityHistoryRepository, ExchangeProviderPair,
-    HoldingPosition, PortfolioSnapshot, PositionRepository,
+    EquityHistoryRepository, ExchangeProviderPair, HoldingPosition, PortfolioSnapshot,
+    PositionRepository,
 };
 use crate::routes::strategies::ApiError;
 use crate::state::AppState;
 use chrono::Utc;
-use trader_core::{
-    ExecutionHistoryRequest, ExecutionRecord, ExchangeProvider,
-};
+use trader_core::{ExecutionHistoryRequest, ExecutionRecord};
 
 // ==================== 응답 타입 ====================
 
@@ -168,7 +166,7 @@ pub struct OrderHistoryQuery {
 /// 특정 credential_id로 거래소 Provider 조회 (캐시 우선) 또는 생성 (거래소 중립).
 ///
 /// # Single Source of Truth
-/// 
+///
 /// 이 함수는 `create_exchange_providers_from_credential()`를 통해서만 Provider를 생성합니다.
 /// 토큰 재사용을 위해 AppState의 캐시를 먼저 확인합니다.
 ///
@@ -199,7 +197,10 @@ pub async fn get_or_create_exchange_providers(
 
     // 다른 스레드가 이미 생성했을 수 있으므로 다시 확인
     if let Some(pair) = cache.get(&credential_id) {
-        debug!("거래소 Provider 캐시 히트 (재확인): credential_id={}", credential_id);
+        debug!(
+            "거래소 Provider 캐시 히트 (재확인): credential_id={}",
+            credential_id
+        );
         return Ok(Arc::clone(pair));
     }
 
@@ -220,7 +221,7 @@ pub async fn get_or_create_exchange_providers(
         pool,
         encryptor,
         credential_id,
-        None,  // OAuth 캐시는 repository에서 관리
+        None, // OAuth 캐시는 repository에서 관리
     )
     .await?;
 
@@ -263,7 +264,9 @@ pub async fn get_portfolio_summary(
                     Ok(account_info) => {
                         debug!(
                             "KR account info fetched for credential {}: total={}, available={}",
-                            credential_id, account_info.total_balance, account_info.available_balance
+                            credential_id,
+                            account_info.total_balance,
+                            account_info.available_balance
                         );
 
                         cash_balance = account_info.available_balance;
@@ -279,7 +282,7 @@ pub async fn get_portfolio_summary(
                             StatusCode::INTERNAL_SERVER_ERROR,
                             Json(ApiError::new(
                                 "BALANCE_FETCH_ERROR",
-                                &format!("계좌 조회 실패: {:?}", e),
+                                format!("계좌 조회 실패: {:?}", e),
                             )),
                         ));
                     }
@@ -780,7 +783,7 @@ pub async fn get_order_history(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ApiError::new(
                     "HISTORY_FETCH_ERROR",
-                    &format!("체결 내역 조회 실패: {:?}", e),
+                    format!("체결 내역 조회 실패: {:?}", e),
                 )),
             )
         })?;

@@ -112,6 +112,7 @@ pub fn generate_sample_klines(
 /// 특정 타임프레임의 Kline 데이터 로드
 ///
 /// ohlcv 테이블에서 지정된 타임프레임의 데이터를 조회합니다.
+#[allow(dead_code)]
 pub async fn load_klines_with_timeframe(
     pool: &sqlx::PgPool,
     symbol_str: &str,
@@ -178,6 +179,7 @@ pub async fn load_klines_with_timeframe(
 /// 다중 타임프레임 데이터 로드
 ///
 /// 각 타임프레임별로 지정된 개수의 캔들 데이터를 HashMap으로 반환합니다.
+#[allow(dead_code)]
 pub async fn load_secondary_timeframe_klines(
     pool: &sqlx::PgPool,
     symbol_str: &str,

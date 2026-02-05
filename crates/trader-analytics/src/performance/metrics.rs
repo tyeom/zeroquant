@@ -574,9 +574,9 @@ impl PerformanceMetrics {
         let last_exit = round_trips.iter().map(|rt| rt.exit_time).max().unwrap();
 
         let duration = last_exit - first_entry;
-        let days = duration.num_days().max(1) as u32;
+        
 
-        days
+        duration.num_days().max(1) as u32
     }
 
     /// 수익률을 연율화합니다.

@@ -98,6 +98,7 @@ pub enum UiFieldType {
 
 /// 유효성 검사 규칙
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct UiValidation {
     /// 필수 여부
     #[serde(default)]
@@ -128,21 +129,6 @@ pub struct UiValidation {
     pub max_items: Option<usize>,
 }
 
-impl Default for UiValidation {
-    fn default() -> Self {
-        Self {
-            required: false,
-            min: None,
-            max: None,
-            step: None,
-            min_length: None,
-            max_length: None,
-            pattern: None,
-            min_items: None,
-            max_items: None,
-        }
-    }
-}
 
 /// 선택 옵션 (Select 타입용)
 #[derive(Debug, Clone, Serialize, Deserialize)]

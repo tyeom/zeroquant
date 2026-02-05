@@ -24,21 +24,22 @@
 //! 2. 패턴 강도 평가 (Volume, Trend 확인)
 //! 3. 다중 패턴 확인 시 강화 신호
 
-use crate::strategies::common::deserialize_ticker;
+use crate::strategies::common::{deserialize_ticker, ExitConfig};
 use crate::Strategy;
+use trader_strategy_macro::StrategyConfig;
 use async_trait::async_trait;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
-use tracing::{debug, info, warn};
-use trader_core::{
-    MarketData, MarketDataType, MarketType, Order, Position, Side, Signal, SignalType,
-};
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tracing::{debug, info, warn};
 use trader_core::domain::{RouteState, StrategyContext};
+use trader_core::{
+    MarketData, MarketDataType, Order, Position, Side, Signal, SignalType,
+};
 
 /// 캔들스틱 패턴 종류
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -106,49 +107,73 @@ struct CandleData {
 }
 
 /// Candle Pattern 전략 설정
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, StrategyConfig)]
+#[strategy(
+    id = "candle_pattern",
+    name = "캔들 패턴 전략",
+    description = "35가지 캔들스틱 패턴 인식 기반 매매 전략",
+    category = "Intraday"
+)]
 pub struct CandlePatternConfig {
     /// 대상 심볼
-    #[serde(deserialize_with = "deserialize_ticker")]
-    pub ticker:  String,
+    #[serde(default = "default_ticker", deserialize_with = "deserialize_ticker")]
+    #[schema(label = "대상 종목", field_type = "symbol", default = "005930")]
+    pub ticker: String,
 
     /// 거래 금액
     #[serde(default = "default_trade_amount")]
+    #[schema(label = "거래 금액", min = 10000, max = 100000000, default = 1000000)]
     pub trade_amount: Decimal,
 
     /// 최소 패턴 강도 (0-1)
     #[serde(default = "default_min_strength")]
+    #[schema(label = "최소 패턴 강도", min = 0.1, max = 1.0, default = 0.6)]
     pub min_pattern_strength: Decimal,
 
     /// 볼륨 확인 사용
     #[serde(default = "default_use_volume")]
+    #[schema(label = "볼륨 확인 사용", default = true)]
     pub use_volume_confirmation: bool,
 
     /// 트렌드 확인 사용
     #[serde(default = "default_use_trend")]
+    #[schema(label = "트렌드 확인 사용", default = true)]
     pub use_trend_confirmation: bool,
 
     /// 트렌드 확인 기간
     #[serde(default = "default_trend_period")]
+    #[schema(label = "트렌드 확인 기간", min = 5, max = 100, default = 20)]
     pub trend_period: usize,
 
     /// 손절 비율 (%)
     #[serde(default = "default_stop_loss")]
+    #[schema(label = "손절 비율 (%)", min = 0.5, max = 20.0, default = 3)]
     pub stop_loss_pct: Decimal,
 
     /// 익절 비율 (%)
     #[serde(default = "default_take_profit")]
+    #[schema(label = "익절 비율 (%)", min = 1.0, max = 50.0, default = 6)]
     pub take_profit_pct: Decimal,
 
     /// 활성화할 패턴 타입 (빈 경우 모두 활성화)
     #[serde(default)]
+    #[schema(skip)]
     pub enabled_patterns: Vec<CandlePatternType>,
 
     /// 최소 GlobalScore (기본값: 50)
     #[serde(default = "default_min_global_score")]
+    #[schema(label = "최소 GlobalScore", min = 0, max = 100, default = 50)]
     pub min_global_score: Decimal,
+
+    /// 청산 설정 (손절/익절/트레일링 스탑).
+    #[serde(default)]
+    #[fragment("risk.exit_config")]
+    pub exit_config: ExitConfig,
 }
 
+fn default_ticker() -> String {
+    "005930".to_string()
+}
 fn default_trade_amount() -> Decimal {
     dec!(1000000)
 }
@@ -187,6 +212,7 @@ impl Default for CandlePatternConfig {
             take_profit_pct: default_take_profit(),
             enabled_patterns: Vec::new(),
             min_global_score: default_min_global_score(),
+            exit_config: ExitConfig::default(),
         }
     }
 }
@@ -408,8 +434,8 @@ impl CandlePatternStrategy {
         let prev_body = Self::body_size(prev);
 
         // Bullish Engulfing
-        if Self::is_bearish(prev) && Self::is_bullish(curr) {
-            if curr.open < prev.close && curr.close > prev.open && curr_body > prev_body {
+        if Self::is_bearish(prev) && Self::is_bullish(curr)
+            && curr.open < prev.close && curr.close > prev.open && curr_body > prev_body {
                 return Some(DetectedPattern {
                     pattern_type: CandlePatternType::BullishEngulfing,
                     direction: PatternDirection::Bullish,
@@ -417,11 +443,10 @@ impl CandlePatternStrategy {
                     confirmation: true,
                 });
             }
-        }
 
         // Bearish Engulfing
-        if Self::is_bullish(prev) && Self::is_bearish(curr) {
-            if curr.open > prev.close && curr.close < prev.open && curr_body > prev_body {
+        if Self::is_bullish(prev) && Self::is_bearish(curr)
+            && curr.open > prev.close && curr.close < prev.open && curr_body > prev_body {
                 return Some(DetectedPattern {
                     pattern_type: CandlePatternType::BearishEngulfing,
                     direction: PatternDirection::Bearish,
@@ -429,7 +454,6 @@ impl CandlePatternStrategy {
                     confirmation: true,
                 });
             }
-        }
 
         None
     }
@@ -444,8 +468,8 @@ impl CandlePatternStrategy {
         let prev = &self.candles[1];
 
         // Bullish Harami
-        if Self::is_bearish(prev) && Self::is_bullish(curr) {
-            if curr.open > prev.close && curr.close < prev.open {
+        if Self::is_bearish(prev) && Self::is_bullish(curr)
+            && curr.open > prev.close && curr.close < prev.open {
                 return Some(DetectedPattern {
                     pattern_type: CandlePatternType::BullishHarami,
                     direction: PatternDirection::Bullish,
@@ -453,11 +477,10 @@ impl CandlePatternStrategy {
                     confirmation: false,
                 });
             }
-        }
 
         // Bearish Harami
-        if Self::is_bullish(prev) && Self::is_bearish(curr) {
-            if curr.open < prev.close && curr.close > prev.open {
+        if Self::is_bullish(prev) && Self::is_bearish(curr)
+            && curr.open < prev.close && curr.close > prev.open {
                 return Some(DetectedPattern {
                     pattern_type: CandlePatternType::BearishHarami,
                     direction: PatternDirection::Bearish,
@@ -465,7 +488,6 @@ impl CandlePatternStrategy {
                     confirmation: false,
                 });
             }
-        }
 
         None
     }
@@ -525,8 +547,8 @@ impl CandlePatternStrategy {
         let c3 = &self.candles[0];
 
         // Three White Soldiers
-        if Self::is_bullish(c1) && Self::is_bullish(c2) && Self::is_bullish(c3) {
-            if c2.close > c1.close && c3.close > c2.close {
+        if Self::is_bullish(c1) && Self::is_bullish(c2) && Self::is_bullish(c3)
+            && c2.close > c1.close && c3.close > c2.close {
                 let body1 = Self::body_size(c1);
                 let body2 = Self::body_size(c2);
                 let body3 = Self::body_size(c3);
@@ -540,11 +562,10 @@ impl CandlePatternStrategy {
                     });
                 }
             }
-        }
 
         // Three Black Crows
-        if Self::is_bearish(c1) && Self::is_bearish(c2) && Self::is_bearish(c3) {
-            if c2.close < c1.close && c3.close < c2.close {
+        if Self::is_bearish(c1) && Self::is_bearish(c2) && Self::is_bearish(c3)
+            && c2.close < c1.close && c3.close < c2.close {
                 return Some(DetectedPattern {
                     pattern_type: CandlePatternType::ThreeBlackCrows,
                     direction: PatternDirection::Bearish,
@@ -552,7 +573,6 @@ impl CandlePatternStrategy {
                     confirmation: true,
                 });
             }
-        }
 
         None
     }
@@ -913,7 +933,7 @@ impl Strategy for CandlePatternStrategy {
         };
 
         // 심볼 확인
-        if data.ticker.to_string() != config.ticker {
+        if data.ticker != config.ticker {
             return Ok(vec![]);
         }
 
@@ -1044,5 +1064,6 @@ register_strategy! {
     tickers: [],
     category: Intraday,
     markets: [Crypto, Stock, Stock],
-    type: CandlePatternStrategy
+    type: CandlePatternStrategy,
+    config: CandlePatternConfig
 }

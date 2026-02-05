@@ -499,6 +499,8 @@ impl PatternRecognizer {
             && curr.is_bullish()
             && curr.open <= prev.close
             && curr.close >= prev.open
+            && !prev.body_size().is_zero()
+        // Division by zero 방지
         {
             let engulf_ratio = curr.body_size() / prev.body_size();
             if engulf_ratio >= Decimal::try_from(self.config.engulfing_ratio).unwrap_or(dec!(1.0)) {
@@ -519,6 +521,8 @@ impl PatternRecognizer {
             && curr.is_bearish()
             && curr.open >= prev.close
             && curr.close <= prev.open
+            && !prev.body_size().is_zero()
+        // Division by zero 방지
         {
             let engulf_ratio = curr.body_size() / prev.body_size();
             if engulf_ratio >= Decimal::try_from(self.config.engulfing_ratio).unwrap_or(dec!(1.0)) {
@@ -605,8 +609,8 @@ impl PatternRecognizer {
         // Tweezer Bottom (동일 저가)
         let tolerance =
             prev.range() * Decimal::try_from(self.config.price_tolerance).unwrap_or(dec!(0.02));
-        if (prev.low - curr.low).abs() <= tolerance {
-            if prev.is_bearish() && curr.is_bullish() {
+        if (prev.low - curr.low).abs() <= tolerance
+            && prev.is_bearish() && curr.is_bullish() {
                 patterns.push(CandlestickPattern {
                     pattern_type: CandlestickPatternType::TweezerBottom,
                     end_index: index,
@@ -617,11 +621,10 @@ impl PatternRecognizer {
                     metadata: HashMap::new(),
                 });
             }
-        }
 
         // Tweezer Top (동일 고가)
-        if (prev.high - curr.high).abs() <= tolerance {
-            if prev.is_bullish() && curr.is_bearish() {
+        if (prev.high - curr.high).abs() <= tolerance
+            && prev.is_bullish() && curr.is_bearish() {
                 patterns.push(CandlestickPattern {
                     pattern_type: CandlestickPatternType::TweezerTop,
                     end_index: index,
@@ -632,7 +635,6 @@ impl PatternRecognizer {
                     metadata: HashMap::new(),
                 });
             }
-        }
 
         patterns
     }
@@ -1677,9 +1679,7 @@ impl PatternRecognizer {
     fn calculate_doji_confidence(&self, body_ratio: Decimal) -> f64 {
         // 몸통이 작을수록 신뢰도 증가
         let ratio_f64 = body_ratio.to_string().parse::<f64>().unwrap_or(0.1);
-        (1.0 - ratio_f64 / self.config.doji_body_ratio)
-            .max(0.5)
-            .min(0.95)
+        (1.0 - ratio_f64 / self.config.doji_body_ratio).clamp(0.5, 0.95)
     }
 
     /// Shadow 패턴 신뢰도 계산.

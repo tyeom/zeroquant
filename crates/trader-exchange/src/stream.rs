@@ -117,6 +117,7 @@ impl KisKrMarketStream {
     }
 
     /// 종목코드에서 Symbol 생성 (국내).
+    #[allow(dead_code)]
     fn code_to_symbol(code: &str) -> Symbol {
         Symbol::stock(code, "KRW")
     }
@@ -379,6 +380,7 @@ impl KisUsMarketStream {
     }
 
     /// 티커에서 Symbol 생성 (해외).
+    #[allow(dead_code)]
     fn ticker_to_symbol(ticker: &str) -> Symbol {
         Symbol::stock(ticker, "USD")
     }
@@ -430,11 +432,11 @@ impl MarketStream for KisUsMarketStream {
             ));
         }
 
-        let ticker = symbol.clone();
-        let exchange_code = KisUsClient::get_exchange_code(&ticker).to_string();
+        let ticker = symbol;
+        let exchange_code = KisUsClient::get_exchange_code(ticker).to_string();
         let mut ws = self.ws.write().await;
 
-        ws.add_trade_subscription(&ticker, &exchange_code);
+        ws.add_trade_subscription(ticker, &exchange_code);
 
         self.subscribed_symbols
             .entry(ticker.to_string())
@@ -470,11 +472,11 @@ impl MarketStream for KisUsMarketStream {
             ));
         }
 
-        let ticker = symbol.clone();
-        let exchange_code = KisUsClient::get_exchange_code(&ticker).to_string();
+        let ticker = symbol;
+        let exchange_code = KisUsClient::get_exchange_code(ticker).to_string();
         let mut ws = self.ws.write().await;
 
-        ws.add_orderbook_subscription(&ticker, &exchange_code);
+        ws.add_orderbook_subscription(ticker, &exchange_code);
 
         self.subscribed_symbols
             .entry(ticker.to_string())
@@ -636,11 +638,7 @@ impl MarketStream for UnifiedMarketStream {
         )))
     }
 
-    async fn subscribe_kline(
-        &mut self,
-        symbol: &str,
-        timeframe: Timeframe,
-    ) -> ExchangeResult<()> {
+    async fn subscribe_kline(&mut self, symbol: &str, timeframe: Timeframe) -> ExchangeResult<()> {
         if Self::is_korean_symbol(symbol) {
             if let Some(ref mut kr) = self.kr_stream {
                 return kr.subscribe_kline(symbol, timeframe).await;

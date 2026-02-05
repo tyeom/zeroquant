@@ -15,9 +15,9 @@ use std::fmt;
 // Re-export RouteState from route_state module for convenience
 pub use super::route_state::RouteState;
 // Re-export MarketRegime, MacroEnvironment, MarketBreadth for convenience
-pub use super::market_regime::MarketRegime;
 pub use super::macro_environment::MacroEnvironment;
 pub use super::market_breadth::MarketBreadth;
+pub use super::market_regime::MarketRegime;
 
 // ================================================================================================
 // Error Types
@@ -98,6 +98,10 @@ pub struct ScreeningResult {
     pub sector_rs: Option<Decimal>,
     /// 섹터 순위
     pub sector_rank: Option<i32>,
+    /// 진입 트리거 점수 (0~100, 높을수록 강한 신호)
+    pub trigger_score: Option<f64>,
+    /// 진입 트리거 라벨 (예: "🚀스퀴즈 해제, 📊거래량 폭증")
+    pub trigger_label: Option<String>,
 }
 
 /// 스크리닝 프리셋.

@@ -33,9 +33,9 @@ use rust_decimal::Decimal;
 use tracing::{debug, info, warn};
 use yahoo_finance_api as yahoo;
 
-use trader_core::{Kline, Symbol, Timeframe};
 use crate::historical::HistoricalDataProvider;
 use crate::ExchangeError;
+use trader_core::{Kline, Symbol, Timeframe};
 
 /// Yahoo Finance 과거 데이터 제공자.
 ///
@@ -214,9 +214,9 @@ impl YahooFinanceProvider {
     fn quote_to_kline(&self, symbol: &Symbol, timeframe: Timeframe, quote: &yahoo::Quote) -> Kline {
         // Unix timestamp를 DateTime으로 변환
         let open_time = Utc
-            .timestamp_opt(quote.timestamp as i64, 0)
+            .timestamp_opt(quote.timestamp, 0)
             .single()
-            .unwrap_or_else(|| Utc::now());
+            .unwrap_or_else(Utc::now);
         let close_time = open_time + Self::timeframe_duration(timeframe);
         Kline {
             ticker: symbol.to_string(),
@@ -272,7 +272,7 @@ impl HistoricalDataProvider for YahooFinanceProvider {
         // Yahoo Finance API 호출 (get_quote_range 사용)
         let response = self
             .connector
-            .get_quote_range(&yahoo_symbol, interval, range)
+            .get_quote_range(yahoo_symbol, interval, range)
             .await
             .map_err(|e| ExchangeError::ApiError {
                 code: 0,
@@ -295,7 +295,7 @@ impl HistoricalDataProvider for YahooFinanceProvider {
         );
 
         // 통화 코드 추정
-        let currency = Self::guess_currency(&yahoo_symbol);
+        let currency = Self::guess_currency(yahoo_symbol);
         let symbol_obj = Symbol::stock(symbol, currency);
 
         // Quote를 Kline으로 변환

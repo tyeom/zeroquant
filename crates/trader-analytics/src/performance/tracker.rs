@@ -632,7 +632,7 @@ impl PerformanceTracker {
 
         self.open_positions
             .entry(key)
-            .or_insert_with(VecDeque::new)
+            .or_default()
             .push_back(position);
     }
 

@@ -1,9 +1,9 @@
 import { createSignal, createResource, Show, For } from 'solid-js'
-import { TrendingUp, TrendingDown, Calendar, Database, TestTube, RefreshCw, Download, X, CheckCircle, AlertCircle } from 'lucide-solid'
+import { TrendingUp, TrendingDown, Calendar, Database, TestTube, RefreshCw, Download, X, CheckCircle, AlertCircle, Trash2 } from 'lucide-solid'
 import { EquityCurve } from './EquityCurve'
 import type { EquityDataPoint } from './EquityCurve'
-import { getEquityCurve, getPerformance, getBacktestResults, listCredentials, syncEquityCurve } from '../../api/client'
-import type { EquityCurveResponse, PerformanceResponse, BacktestResult, SyncEquityCurveRequest } from '../../api/client'
+import { getEquityCurve, getPerformance, getBacktestResults, listCredentials, syncJournalExecutions, clearEquityCache } from '../../api/client'
+import type { EquityCurveResponse, PerformanceResponse, BacktestResult, JournalSyncResponse } from '../../api/client'
 import type { ExchangeCredential } from '../../types'
 
 // 기간 옵션
@@ -56,6 +56,7 @@ export function PortfolioEquityChart(props: PortfolioEquityChartProps) {
   const [syncCredentialId, setSyncCredentialId] = createSignal('')
   const [syncLoading, setSyncLoading] = createSignal(false)
   const [syncResult, setSyncResult] = createSignal<{ success: boolean; message: string } | null>(null)
+  const [forceFullSync, setForceFullSync] = createSignal(false)
 
   // 포트폴리오 데이터 조회 (credentialId가 변경되면 자동으로 다시 조회)
   const [equityCurveData, { refetch: refetchEquity }] = createResource(
@@ -105,7 +106,7 @@ export function PortfolioEquityChart(props: PortfolioEquityChartProps) {
     }
   })
 
-  // 동기화 핸들러
+  // 동기화 핸들러 (매매일지와 통합된 엔드포인트 사용)
   const handleSync = async () => {
     const credId = syncCredentialId()
     if (!credId) {
@@ -113,34 +114,73 @@ export function PortfolioEquityChart(props: PortfolioEquityChartProps) {
       return
     }
 
+    // 선택된 credential에서 exchange_id 추출
+    const creds = credentials()
+    const selectedCred = creds?.find((c: ExchangeCredential) => c.id === credId)
+    if (!selectedCred) {
+      setSyncResult({ success: false, message: '선택된 자격증명을 찾을 수 없습니다.' })
+      return
+    }
+
     setSyncLoading(true)
     setSyncResult(null)
 
     try {
-      // 날짜 범위는 백엔드에서 자동 감지 (현재 보유 포지션의 첫 매수일부터)
-      // 충분히 넓은 범위를 지정하여 모든 체결 내역을 가져옴
-      const endDate = new Date().toISOString().slice(0, 10).replace(/-/g, '')
-      const startDate = '20200101' // 충분히 과거 날짜
-
-      const request: SyncEquityCurveRequest = {
-        credential_id: credId,
-        start_date: startDate,
-        end_date: endDate,
-      }
-      const result = await syncEquityCurve(request)
+      // 매매일지 통합 동기화 API 호출
+      const result: JournalSyncResponse = await syncJournalExecutions(
+        selectedCred.exchange_id,
+        undefined, // startDate는 백엔드에서 자동 감지
+        forceFullSync()
+      )
       setSyncResult({
         success: result.success,
         message: result.success
-          ? `${result.synced_count}일 데이터 동기화 완료 (체결 ${result.execution_count}건)`
+          ? `체결 내역 동기화 완료 (신규 ${result.inserted}건, 기존 ${result.skipped}건)`
           : result.message,
       })
       if (result.success) {
         // 동기화 성공 시 차트 데이터 새로고침
         refetchEquity()
         refetchPerformance()
+        // 강제 동기화 후 체크 해제
+        if (forceFullSync()) {
+          setForceFullSync(false)
+        }
       }
     } catch (e: unknown) {
       const errorMessage = e instanceof Error ? e.message : '동기화 중 오류가 발생했습니다.'
+      setSyncResult({ success: false, message: errorMessage })
+    } finally {
+      setSyncLoading(false)
+    }
+  }
+
+  // 자산 곡선 캐시 초기화 핸들러
+  const handleClearCache = async () => {
+    const credId = syncCredentialId()
+    if (!credId) {
+      setSyncResult({ success: false, message: '자격증명을 선택해주세요.' })
+      return
+    }
+
+    if (!confirm('자산 곡선 캐시를 삭제하시겠습니까?\n삭제 후 다음 동기화 시 자산 곡선을 다시 계산합니다.')) {
+      return
+    }
+
+    setSyncLoading(true)
+    try {
+      const result = await clearEquityCache(credId)
+      setSyncResult({
+        success: result.success,
+        message: result.message,
+      })
+      if (result.success) {
+        // 캐시 삭제 성공 시 차트 데이터 새로고침
+        refetchEquity()
+        refetchPerformance()
+      }
+    } catch (e: unknown) {
+      const errorMessage = e instanceof Error ? e.message : '캐시 삭제 중 오류가 발생했습니다.'
       setSyncResult({ success: false, message: errorMessage })
     } finally {
       setSyncLoading(false)
@@ -527,11 +567,29 @@ export function PortfolioEquityChart(props: PortfolioEquityChartProps) {
                 </select>
               </div>
 
+              {/* 강제 전체 동기화 옵션 */}
+              <div class="flex items-center gap-3">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={forceFullSync()}
+                    onChange={(e) => setForceFullSync(e.currentTarget.checked)}
+                    class="w-4 h-4 rounded border-gray-600 bg-[var(--color-surface-light)] text-[var(--color-primary)] focus:ring-[var(--color-primary)]"
+                  />
+                  <span class="text-sm text-[var(--color-text)]">강제 전체 동기화</span>
+                </label>
+                <span class="text-xs text-[var(--color-text-muted)]">
+                  (캐시 초기화 후 전체 내역 다시 조회)
+                </span>
+              </div>
+
               {/* Info: 자동 감지 안내 */}
               <div class="flex items-start gap-2 p-3 rounded-lg bg-blue-500/10 text-blue-400">
                 <Calendar class="w-5 h-5 flex-shrink-0 mt-0.5" />
                 <span class="text-sm">
-                  현재 보유 포지션의 첫 매수일부터 자동으로 데이터를 동기화합니다.
+                  {forceFullSync()
+                    ? '캐시를 초기화하고 전체 체결 내역을 다시 동기화합니다.'
+                    : '마지막 동기화 이후의 체결 내역만 가져옵니다.'}
                 </span>
               </div>
 
@@ -553,30 +611,44 @@ export function PortfolioEquityChart(props: PortfolioEquityChartProps) {
             </div>
 
             {/* Modal Footer */}
-            <div class="flex justify-end gap-2 mt-6">
+            <div class="flex justify-between items-center mt-6">
+              {/* 캐시 삭제 버튼 (왼쪽) */}
               <button
-                onClick={() => setShowSyncModal(false)}
-                class="px-4 py-2 rounded-lg text-sm text-[var(--color-text-muted)] hover:bg-[var(--color-surface-light)] transition-colors"
+                onClick={handleClearCache}
+                disabled={syncLoading()}
+                class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                title="자산 곡선 캐시 삭제"
               >
-                닫기
+                <Trash2 class="w-4 h-4" />
+                캐시 삭제
               </button>
-              <button
-                onClick={handleSync}
-                disabled={syncLoading() || !syncCredentialId()}
-                class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)] transition-colors disabled:opacity-50"
-              >
-                {syncLoading() ? (
-                  <>
-                    <RefreshCw class="w-4 h-4 animate-spin" />
-                    동기화 중...
-                  </>
-                ) : (
-                  <>
-                    <Download class="w-4 h-4" />
-                    동기화 시작
-                  </>
-                )}
-              </button>
+
+              {/* 닫기/동기화 버튼 (오른쪽) */}
+              <div class="flex gap-2">
+                <button
+                  onClick={() => setShowSyncModal(false)}
+                  class="px-4 py-2 rounded-lg text-sm text-[var(--color-text-muted)] hover:bg-[var(--color-surface-light)] transition-colors"
+                >
+                  닫기
+                </button>
+                <button
+                  onClick={handleSync}
+                  disabled={syncLoading() || !syncCredentialId()}
+                  class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)] transition-colors disabled:opacity-50"
+                >
+                  {syncLoading() ? (
+                    <>
+                      <RefreshCw class="w-4 h-4 animate-spin" />
+                      동기화 중...
+                    </>
+                  ) : (
+                    <>
+                      <Download class="w-4 h-4" />
+                      동기화 시작
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>

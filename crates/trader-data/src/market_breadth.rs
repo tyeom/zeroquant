@@ -84,7 +84,7 @@ impl MarketBreadthCalculator {
                     o.close,
                     ROW_NUMBER() OVER (PARTITION BY o.symbol ORDER BY o.open_time DESC) as rn
                 FROM ohlcv o
-                JOIN symbol_info si ON o.symbol = si.yahoo_symbol
+                JOIN symbol_info si ON o.symbol = si.ticker
                 WHERE o.timeframe = '1d'
                   AND o.open_time >= $1
                   AND si.is_active = true

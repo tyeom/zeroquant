@@ -11,17 +11,21 @@ use std::fmt;
 
 /// KIS API 환경 유형.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum KisEnvironment {
     /// 실전투자
     Real,
     /// 모의투자
+    #[default]
     Paper,
 }
 
 /// KIS 계좌 유형.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum KisAccountType {
     /// 모의투자
+    #[default]
     Paper,
     /// 실전투자 일반
     RealGeneral,
@@ -48,7 +52,7 @@ impl KisAccountType {
     }
 
     /// 문자열에서 파싱.
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "paper" | "mock" | "test" => Some(KisAccountType::Paper),
             "real_general" | "general" | "real" => Some(KisAccountType::RealGeneral),
@@ -58,11 +62,6 @@ impl KisAccountType {
     }
 }
 
-impl Default for KisAccountType {
-    fn default() -> Self {
-        KisAccountType::Paper
-    }
-}
 
 impl KisEnvironment {
     /// 이 환경의 REST API 기본 URL 반환.
@@ -82,11 +81,6 @@ impl KisEnvironment {
     }
 }
 
-impl Default for KisEnvironment {
-    fn default() -> Self {
-        KisEnvironment::Paper
-    }
-}
 
 /// KIS API 설정.
 ///
@@ -242,7 +236,7 @@ impl KisConfig {
     pub fn from_env() -> Option<Self> {
         let default_account = std::env::var("KIS_DEFAULT_ACCOUNT")
             .ok()
-            .and_then(|s| KisAccountType::from_str(&s))
+            .and_then(|s| KisAccountType::parse(&s))
             .unwrap_or(KisAccountType::Paper);
 
         Self::from_env_for_account(default_account)
@@ -335,22 +329,22 @@ mod tests {
     #[test]
     fn test_account_type_parsing() {
         assert_eq!(
-            KisAccountType::from_str("paper"),
+            KisAccountType::parse("paper"),
             Some(KisAccountType::Paper)
         );
         assert_eq!(
-            KisAccountType::from_str("real_general"),
+            KisAccountType::parse("real_general"),
             Some(KisAccountType::RealGeneral)
         );
         assert_eq!(
-            KisAccountType::from_str("real_isa"),
+            KisAccountType::parse("real_isa"),
             Some(KisAccountType::RealIsa)
         );
         assert_eq!(
-            KisAccountType::from_str("isa"),
+            KisAccountType::parse("isa"),
             Some(KisAccountType::RealIsa)
         );
-        assert_eq!(KisAccountType::from_str("invalid"), None);
+        assert_eq!(KisAccountType::parse("invalid"), None);
     }
 
     #[test]

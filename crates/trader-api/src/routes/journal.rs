@@ -16,7 +16,7 @@
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    routing::{get, patch, post},
+    routing::{delete, get, patch, post},
     Json, Router,
 };
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use trader_core::Side;
 use ts_rs::TS;
-use utoipa::{IntoParams, ToSchema};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 // ==================== 날짜 파싱 헬퍼 ====================
@@ -124,10 +124,10 @@ fn parse_date_flexible(s: &str, field_name: &str) -> Result<NaiveDate, DateParse
 
 use crate::repository::{
     build_tracker_from_executions, create_exchange_providers_from_credential, CostBasisSummary,
-    CumulativePnL, CurrentPosition as RepoCurrentPosition, DailySummary, ExecutionCacheRepository,
-    ExecutionFilter, JournalRepository, MonthlyPnL, NewExecution, PnLSummary, PositionRepository,
-    StrategyPerformance, SymbolPnL, TradeExecution, TradeExecutionRecord, TradingInsights,
-    WeeklyPnL, YearlyPnL,
+    CumulativePnL, CurrentPosition as RepoCurrentPosition, DailySummary, EquityHistoryRepository,
+    ExecutionCacheRepository, ExecutionFilter, JournalRepository, MonthlyPnL, NewExecution,
+    PnLSummary, PositionRepository, StrategyPerformance, SymbolPnL, TradeExecution,
+    TradeExecutionRecord, TradingInsights, WeeklyPnL, YearlyPnL,
 };
 use crate::routes::strategies::ApiError;
 use crate::state::AppState;
@@ -183,6 +183,9 @@ pub struct SyncRequest {
     pub exchange: Option<String>,
     /// 시작 날짜 (선택적)
     pub start_date: Option<String>,
+    /// 강제 전체 동기화 (캐시 초기화 후 전체 내역 조회)
+    #[serde(default)]
+    pub force_full_sync: bool,
 }
 
 // ==================== 응답 타입 ====================
@@ -1298,31 +1301,28 @@ pub async fn sync_executions(
     State(state): State<Arc<AppState>>,
     Json(req): Json<SyncRequest>,
 ) -> Result<Json<SyncResponse>, (StatusCode, Json<ApiError>)> {
-    let pool = get_db_pool(&state)?;
+    let _pool = get_db_pool(&state)?;
     let credential_id = get_active_credential_id(&state).await?;
 
-    info!("체결 내역 동기화 시작: credential_id={}", credential_id);
+    info!(
+        "체결 내역 동기화 시작: credential_id={}, force_full_sync={}",
+        credential_id, req.force_full_sync
+    );
 
     // DB 연결 확인
-    let pool = state
-        .db_pool
-        .as_ref()
-        .ok_or_else(|| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("DB_ERROR", "DB pool이 없습니다")),
-            )
-        })?;
+    let pool = state.db_pool.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiError::new("DB_ERROR", "DB pool이 없습니다")),
+        )
+    })?;
 
-    let encryptor = state
-        .encryptor
-        .as_ref()
-        .ok_or_else(|| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("ENCRYPTOR_ERROR", "Encryptor가 없습니다")),
-            )
-        })?;
+    let encryptor = state.encryptor.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiError::new("ENCRYPTOR_ERROR", "Encryptor가 없습니다")),
+        )
+    })?;
 
     // ExchangeProvider 생성
     let providers = create_exchange_providers_from_credential(pool, encryptor, credential_id, None)
@@ -1334,6 +1334,19 @@ pub async fn sync_executions(
                 Json(ApiError::new("CLIENT_ERROR", &e)),
             )
         })?;
+
+    // 강제 전체 동기화 시 캐시 초기화
+    if req.force_full_sync {
+        info!("강제 전체 동기화: 캐시 초기화 수행");
+        match ExecutionCacheRepository::clear_cache(pool, credential_id, "kis").await {
+            Ok(deleted) => {
+                info!("캐시 초기화 완료: {} 건 삭제", deleted);
+            }
+            Err(e) => {
+                warn!("캐시 초기화 실패 (계속 진행): {}", e);
+            }
+        }
+    }
 
     // 날짜 설정 (기본: 30일 전 ~ 오늘)
     let today = chrono::Utc::now() + chrono::Duration::hours(9); // KST
@@ -1366,7 +1379,7 @@ pub async fn sync_executions(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ApiError::new(
                     "HISTORY_FETCH_ERROR",
-                    &format!("체결 내역 조회 실패: {:?}", e),
+                    format!("체결 내역 조회 실패: {:?}", e),
                 )),
             )
         })?;
@@ -1419,7 +1432,7 @@ pub async fn sync_executions(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ApiError::new(
                     "DB_ERROR",
-                    &format!("체결 내역 저장 실패: {}", e),
+                    format!("체결 내역 저장 실패: {}", e),
                 )),
             )
         })?;
@@ -1443,9 +1456,31 @@ pub async fn sync_executions(
         .await;
     }
 
+    // 자산 곡선 동기화 (체결 내역 기반)
+    // ISA 계좌 등 잔고 조회 API가 제한된 경우 체결 내역과 종가로 자산 곡선 복원
+    let equity_sync_count = match EquityHistoryRepository::sync_with_market_prices(
+        pool,
+        credential_id,
+        Decimal::ZERO, // 현금 잔고는 종가 기반 계산에서 제외
+        "KRW",
+        "KR",
+        None, // account_type은 credential에서 자동 감지
+    )
+    .await
+    {
+        Ok(count) => {
+            info!("자산 곡선 동기화 완료: {} 포인트", count);
+            count
+        }
+        Err(e) => {
+            warn!("자산 곡선 동기화 실패 (계속 진행): {}", e);
+            0
+        }
+    };
+
     info!(
-        "체결 내역 동기화 완료: {} 건 조회, {} 건 저장, {} 건 스킵",
-        count, inserted, skipped
+        "체결 내역 동기화 완료: {} 건 조회, {} 건 저장, {} 건 스킵, 자산 곡선 {} 포인트",
+        count, inserted, skipped, equity_sync_count
     );
 
     Ok(Json(SyncResponse {
@@ -1453,8 +1488,8 @@ pub async fn sync_executions(
         inserted: inserted as i32,
         skipped: skipped as i32,
         message: format!(
-            "동기화 완료: {} 건 저장, {} 건 스킵 (기간: {} ~ {})",
-            inserted, skipped, start_date, end_date
+            "동기화 완료: {} 건 저장, {} 건 스킵, 자산 곡선 {} 포인트 (기간: {} ~ {})",
+            inserted, skipped, equity_sync_count, start_date, end_date
         ),
     }))
 }
@@ -1596,15 +1631,22 @@ async fn get_cost_basis(
 ) -> Result<Json<CostBasisResponse>, (StatusCode, String)> {
     tracing::debug!("FIFO 원가 계산 요청: {} ({})", symbol, query.market);
 
-    let pool = state
-        .db_pool
-        .as_ref()
-        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, "Database not available".to_string()))?;
+    let pool = state.db_pool.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Database not available".to_string(),
+        )
+    })?;
 
     // 활성 credential 조회
     let credential_id = crate::repository::get_active_credential_id(pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("credential 조회 실패: {}", e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("credential 조회 실패: {}", e),
+            )
+        })?;
 
     // 종목 체결 내역 조회 (시간순 정렬은 build_tracker_from_executions에서 수행)
     let filter = ExecutionFilter {
@@ -1619,7 +1661,12 @@ async fn get_cost_basis(
 
     let executions = JournalRepository::list_executions(pool, credential_id, filter)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("체결 내역 조회 실패: {}", e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("체결 내역 조회 실패: {}", e),
+            )
+        })?;
 
     if executions.is_empty() {
         return Err((
@@ -1694,7 +1741,10 @@ async fn recalculate_pnl(
             error!(error = %e, "손익 재계산 실패");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("RECALCULATE_ERROR", format!("재계산 실패: {}", e))),
+                Json(ApiError::new(
+                    "RECALCULATE_ERROR",
+                    format!("재계산 실패: {}", e),
+                )),
             )
         })?;
 
@@ -1714,6 +1764,49 @@ async fn recalculate_pnl(
     }))
 }
 
+// ==================== 캐시 관리 ====================
+
+/// 캐시 삭제 응답.
+#[derive(Debug, Serialize, TS)]
+#[ts(export, export_to = "journal/")]
+pub struct ClearCacheResponse {
+    pub success: bool,
+    pub deleted_count: u64,
+    pub message: String,
+}
+
+/// 체결 내역 캐시 삭제.
+///
+/// DELETE /api/v1/journal/cache
+///
+/// ISA 계좌 등 전체 내역 재동기화가 필요할 때 사용합니다.
+pub async fn clear_execution_cache(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<ClearCacheResponse>, (StatusCode, Json<ApiError>)> {
+    let pool = get_db_pool(&state)?;
+    let credential_id = get_active_credential_id(&state).await?;
+
+    info!("캐시 삭제 요청: credential_id={}", credential_id);
+
+    let deleted = ExecutionCacheRepository::clear_cache(pool, credential_id, "kis")
+        .await
+        .map_err(|e| {
+            error!("캐시 삭제 실패: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiError::new("DB_ERROR", format!("캐시 삭제 실패: {}", e))),
+            )
+        })?;
+
+    info!("캐시 삭제 완료: {} 건", deleted);
+
+    Ok(Json(ClearCacheResponse {
+        success: true,
+        deleted_count: deleted,
+        message: format!("캐시 {} 건 삭제 완료", deleted),
+    }))
+}
+
 // ==================== 라우터 ====================
 
 /// 매매일지 라우터 생성.
@@ -1724,6 +1817,7 @@ pub fn journal_router() -> Router<Arc<AppState>> {
         .route("/executions", get(list_executions))
         .route("/executions/{id}", patch(update_execution))
         .route("/sync", post(sync_executions))
+        .route("/cache", delete(clear_execution_cache))
         .route("/recalculate", post(recalculate_pnl))
         // 손익 API
         .route("/pnl", get(get_pnl_summary))

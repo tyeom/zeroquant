@@ -182,7 +182,10 @@ impl DataManager {
         // 임시로 기본값 사용
         let quote = if exchange == "kis" { "KRW" } else { "USD" };
         let market_type = "stock";
-        let id = self.symbols.get_or_create(ticker, quote, market_type, exchange).await?;
+        let id = self
+            .symbols
+            .get_or_create(ticker, quote, market_type, exchange)
+            .await?;
 
         // 메모리 캐시에 저장
         {
@@ -526,6 +529,7 @@ impl DataManager {
     // =========================================================================
 
     /// 포지션을 업데이트합니다.
+    #[allow(clippy::too_many_arguments)]
     pub async fn upsert_position(
         &self,
         exchange: &str,

@@ -214,6 +214,7 @@ impl SubscriptionManager {
     /// 메시지 브로드캐스트.
     ///
     /// 구독 중인 모든 클라이언트에게 메시지를 전송합니다.
+    #[allow(clippy::result_large_err)]
     pub fn broadcast(
         &self,
         message: ServerMessage,
@@ -222,6 +223,7 @@ impl SubscriptionManager {
     }
 
     /// 특정 구독 채널에만 메시지 브로드캐스트.
+    #[allow(clippy::result_large_err)]
     pub fn broadcast_to_channel(
         &self,
         _subscription: &Subscription,

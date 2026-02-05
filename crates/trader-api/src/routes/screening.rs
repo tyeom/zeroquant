@@ -375,7 +375,10 @@ fn to_screening_filter(req: &ScreeningRequest) -> ScreeningFilter {
         only_alive_consolidation: req.only_alive_consolidation,
         filter_route_state: req.filter_route_state.clone(),
         filter_ttm_squeeze: req.filter_ttm_squeeze,
-        min_ttm_squeeze_cnt: req.min_ttm_squeeze_cnt.as_ref().and_then(|v| v.parse::<i32>().ok()),
+        min_ttm_squeeze_cnt: req
+            .min_ttm_squeeze_cnt
+            .as_ref()
+            .and_then(|v| v.parse::<i32>().ok()),
         sort_by: req.sort_by.clone(),
         sort_order: req.sort_order.clone(),
         limit: req.limit,
@@ -631,14 +634,21 @@ pub async fn list_presets() -> impl IntoResponse {
 pub async fn list_presets_v2(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<PresetsListResponseV2>, (StatusCode, String)> {
-    let pool = state
-        .db_pool
-        .as_ref()
-        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, "Database not available".to_string()))?;
+    let pool = state.db_pool.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Database not available".to_string(),
+        )
+    })?;
 
     let presets = ScreeningRepository::get_all_presets(pool)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("조회 실패: {}", e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("조회 실패: {}", e),
+            )
+        })?;
 
     let total = presets.len();
 
@@ -654,18 +664,26 @@ pub async fn save_preset(
 ) -> Result<Json<SavePresetResponse>, (StatusCode, String)> {
     info!("프리셋 저장 요청: {}", request.name);
 
-    let pool = state
-        .db_pool
-        .as_ref()
-        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, "Database not available".to_string()))?;
+    let pool = state.db_pool.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Database not available".to_string(),
+        )
+    })?;
 
     let preset = ScreeningRepository::save_preset(pool, request)
         .await
         .map_err(|e| {
             if e.to_string().contains("unique_preset_name") {
-                (StatusCode::CONFLICT, "이미 존재하는 프리셋 이름입니다".to_string())
+                (
+                    StatusCode::CONFLICT,
+                    "이미 존재하는 프리셋 이름입니다".to_string(),
+                )
             } else {
-                (StatusCode::INTERNAL_SERVER_ERROR, format!("저장 실패: {}", e))
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("저장 실패: {}", e),
+                )
             }
         })?;
 
@@ -685,17 +703,27 @@ pub async fn delete_preset(
 ) -> Result<Json<DeletePresetResponse>, (StatusCode, String)> {
     info!("프리셋 삭제 요청: {}", id);
 
-    let pool = state
-        .db_pool
-        .as_ref()
-        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, "Database not available".to_string()))?;
+    let pool = state.db_pool.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Database not available".to_string(),
+        )
+    })?;
 
     let deleted = ScreeningRepository::delete_preset(pool, id)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("삭제 실패: {}", e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("삭제 실패: {}", e),
+            )
+        })?;
 
     if !deleted {
-        return Err((StatusCode::BAD_REQUEST, "기본 프리셋은 삭제할 수 없습니다".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "기본 프리셋은 삭제할 수 없습니다".to_string(),
+        ));
     }
 
     Ok(Json(DeletePresetResponse {
@@ -747,19 +775,16 @@ pub async fn run_preset_screening(
         };
 
     // 섹터 RS 정보 추가
-    let results = match ScreeningRepository::enrich_with_sector_rs(
-        db_pool,
-        results,
-        query.market.as_deref(),
-    )
-    .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            warn!("섹터 RS 추가 실패 (무시): {}", e);
-            vec![] // 실패하면 빈 결과 반환
-        }
-    };
+    let results =
+        match ScreeningRepository::enrich_with_sector_rs(db_pool, results, query.market.as_deref())
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                warn!("섹터 RS 추가 실패 (무시): {}", e);
+                vec![] // 실패하면 빈 결과 반환
+            }
+        };
 
     let filter_summary = format!(
         "프리셋: {}, 시장: {}",
@@ -896,7 +921,7 @@ pub async fn get_sector_ranking(
     };
 
     let days = query.days.unwrap_or(20);
-    
+
     let results = match ScreeningRepository::calculate_sector_rs(
         db_pool,
         query.market.as_deref(),
@@ -912,8 +937,23 @@ pub async fn get_sector_ranking(
         }
     };
 
-    let total = results.len();
-    let dto_results: Vec<SectorRsDto> = results.into_iter().map(to_sector_rs_dto).collect();
+    // 자산군 카테고리 제외 (산업 섹터만 표시)
+    // "주식", "채권", "혼합자산", "Cryptocurrency" 등은 섹터가 아닌 자산 분류
+    const EXCLUDED_CATEGORIES: &[&str] = &[
+        "주식",
+        "채권",
+        "혼합자산",
+        "Cryptocurrency",
+        "기타",
+    ];
+
+    let filtered_results: Vec<_> = results
+        .into_iter()
+        .filter(|r| !EXCLUDED_CATEGORIES.contains(&r.sector.as_str()))
+        .collect();
+
+    let total = filtered_results.len();
+    let dto_results: Vec<SectorRsDto> = filtered_results.into_iter().map(to_sector_rs_dto).collect();
 
     Json(SectorRankingResponse {
         total,
@@ -936,8 +976,8 @@ pub async fn get_sector_ranking(
 /// - `Err(String)`: 에러 메시지
 async fn fetch_and_evaluate_macro_env(base_ebs: u8) -> Result<MacroEnvironment, String> {
     // MacroDataProvider 생성
-    let provider = MacroDataProvider::new()
-        .map_err(|e| format!("MacroDataProvider 생성 실패: {}", e))?;
+    let provider =
+        MacroDataProvider::new().map_err(|e| format!("MacroDataProvider 생성 실패: {}", e))?;
 
     // 매크로 데이터 조회
     let data = provider
@@ -966,20 +1006,17 @@ fn build_filter_summary(req: &ScreeningRequest) -> String {
     if let Some(ref e) = req.exchange {
         parts.push(format!("거래소={}", e));
     }
-    if req.max_per.is_some() {
-        parts.push(format!("PER≤{}", req.max_per.as_ref().unwrap()));
+    if let Some(max_per) = &req.max_per {
+        parts.push(format!("PER≤{}", max_per));
     }
-    if req.max_pbr.is_some() {
-        parts.push(format!("PBR≤{}", req.max_pbr.as_ref().unwrap()));
+    if let Some(max_pbr) = &req.max_pbr {
+        parts.push(format!("PBR≤{}", max_pbr));
     }
-    if req.min_roe.is_some() {
-        parts.push(format!("ROE≥{}", req.min_roe.as_ref().unwrap()));
+    if let Some(min_roe) = &req.min_roe {
+        parts.push(format!("ROE≥{}", min_roe));
     }
-    if req.min_dividend_yield.is_some() {
-        parts.push(format!(
-            "배당수익률≥{}",
-            req.min_dividend_yield.as_ref().unwrap()
-        ));
+    if let Some(min_dividend_yield) = &req.min_dividend_yield {
+        parts.push(format!("배당수익률≥{}", min_dividend_yield));
     }
 
     if parts.is_empty() {
@@ -1006,6 +1043,5 @@ pub fn screening_router() -> Router<Arc<AppState>> {
 
 /// 섹터 분석 라우터 생성
 pub fn sectors_router() -> Router<Arc<AppState>> {
-    Router::new()
-        .route("/ranking", get(get_sector_ranking))
+    Router::new().route("/ranking", get(get_sector_ranking))
 }

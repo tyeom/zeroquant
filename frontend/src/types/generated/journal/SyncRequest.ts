@@ -3,12 +3,16 @@
 /**
  * 동기화 요청.
  */
-export type SyncRequest = { 
+export type SyncRequest = {
 /**
  * 동기화할 거래소 (선택적, 기본값은 활성 계정의 거래소)
  */
-exchange: string | null, 
+exchange: string | null,
 /**
  * 시작 날짜 (선택적)
  */
-start_date: string | null, };
+start_date: string | null,
+/**
+ * 강제 전체 동기화 (캐시 초기화 후 전체 내역 조회)
+ */
+force_full_sync: boolean, };

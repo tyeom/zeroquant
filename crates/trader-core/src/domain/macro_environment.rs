@@ -24,6 +24,7 @@ use std::fmt;
 ///   - 추천 종목 제한 없음
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[derive(Default)]
 pub enum MacroRisk {
     /// 위기 상황
     ///
@@ -54,6 +55,7 @@ pub enum MacroRisk {
     /// **조치**:
     /// - 기본 EBS 기준 적용
     /// - 추천 종목 제한 없음
+    #[default]
     Normal,
 }
 
@@ -132,11 +134,6 @@ impl fmt::Display for MacroRisk {
     }
 }
 
-impl Default for MacroRisk {
-    fn default() -> Self {
-        Self::Normal
-    }
-}
 
 /// 매크로 환경 상태.
 ///

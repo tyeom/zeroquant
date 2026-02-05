@@ -64,6 +64,7 @@ use tracing::{debug, info, warn};
 
 use crate::state::AppState;
 use trader_analytics::backtest::BacktestConfig;
+use trader_strategy::StrategyRegistry;
 
 use engine::{
     convert_multi_report_to_response, convert_report_to_response, generate_multi_sample_klines,
@@ -191,39 +192,8 @@ pub async fn run_backtest(
         ));
     }
 
-    // 유효한 전략 ID 목록
-    let valid_strategies = [
-        "sma_crossover",
-        "rsi_mean_reversion",
-        "grid_trading",
-        "bollinger",
-        "volatility_breakout",
-        "magic_split",
-        "simple_power",
-        "haa",
-        "xaa",
-        "stock_rotation",
-        // 신규 전략
-        "all_weather",
-        "snow",
-        "market_cap_top",
-        "candle_pattern",
-        "infinity_bot",
-        "market_interest_day",
-        // 3차 전략
-        "baa",
-        "sector_momentum",
-        "dual_momentum",
-        "small_cap_quant",
-        "pension_bot",
-        // 2차 전략
-        "sector_vb",
-        "kospi_bothside",
-        "kosdaq_fire_rain",
-        "us_3x_leverage",
-        "stock_gugan",
-    ];
-    if !valid_strategies.contains(&request.strategy_id.as_str()) {
+    // 전략 레지스트리에서 동적으로 전략 확인
+    if StrategyRegistry::find(&request.strategy_id).is_none() {
         return Err((
             StatusCode::NOT_FOUND,
             Json(BacktestApiError::new(
@@ -772,6 +742,7 @@ pub async fn run_batch_backtest(
 }
 
 /// 단일 전략 내부 실행 (배치용).
+#[allow(clippy::too_many_arguments)]
 async fn run_single_strategy_internal(
     state: &Arc<AppState>,
     strategy_id: &str,
@@ -814,6 +785,7 @@ async fn run_single_strategy_internal(
 }
 
 /// 다중 자산 전략 내부 실행 (배치용).
+#[allow(clippy::too_many_arguments)]
 async fn run_multi_strategy_internal(
     state: &Arc<AppState>,
     strategy_id: &str,
@@ -887,511 +859,134 @@ fn convert_report_to_metrics(
 
 // ==================== 내장 전략 목록 ====================
 
-/// 구현된 모든 내장 전략 목록을 반환
+/// StrategyUISchema를 UiSchema로 변환
+fn convert_core_schema_to_ui_schema(
+    schema: &trader_core::StrategyUISchema,
+) -> UiSchema {
+    let fields: Vec<UiField> = schema
+        .custom_fields
+        .iter()
+        .enumerate()
+        .map(|(idx, field)| {
+            // FieldType -> UiFieldType 변환
+            let field_type = match field.field_type {
+                trader_core::FieldType::Integer => UiFieldType::Number,
+                trader_core::FieldType::Number => UiFieldType::Number,
+                trader_core::FieldType::Boolean => UiFieldType::Boolean,
+                trader_core::FieldType::String => UiFieldType::Text,
+                trader_core::FieldType::Select => UiFieldType::Select,
+                trader_core::FieldType::MultiSelect => UiFieldType::Select,
+                trader_core::FieldType::Symbol => UiFieldType::SymbolPicker,
+                trader_core::FieldType::Symbols => UiFieldType::SymbolPicker,
+                trader_core::FieldType::MultiTimeframe => UiFieldType::Timeframe,
+            };
+
+            // options 변환 (Select 타입용)
+            let options = if !field.options.is_empty() {
+                Some(
+                    field
+                        .options
+                        .iter()
+                        .map(|opt| UiSelectOption {
+                            label: opt.clone(),
+                            value: serde_json::Value::String(opt.clone()),
+                            description: None,
+                        })
+                        .collect(),
+                )
+            } else {
+                None
+            };
+
+            // UiValidation 구성
+            let validation = UiValidation {
+                required: field.required,
+                min: field.min,
+                max: field.max,
+                step: None,
+                min_length: None,
+                max_length: None,
+                pattern: None,
+                min_items: None,
+                max_items: None,
+            };
+
+            UiField {
+                key: field.name.clone(),
+                label: field.label.clone(),
+                field_type,
+                default_value: field.default.clone(),
+                placeholder: None,
+                help_text: field.description.clone(),
+                validation,
+                options,
+                symbol_categories: None,
+                group: None,
+                order: idx as i32,
+                show_when: None,
+                unit: None,
+            }
+        })
+        .collect();
+
+    UiSchema {
+        fields,
+        groups: Vec::new(),
+        layout: None,
+    }
+}
+
+/// ExecutionSchedule을 StrategyCategory에서 추론
+fn infer_execution_schedule(
+    category: trader_strategy::StrategyCategory,
+) -> ExecutionSchedule {
+    match category {
+        trader_strategy::StrategyCategory::Realtime => ExecutionSchedule::Realtime,
+        trader_strategy::StrategyCategory::Intraday => ExecutionSchedule::OnCandleClose,
+        trader_strategy::StrategyCategory::Daily => ExecutionSchedule::Daily,
+        trader_strategy::StrategyCategory::Monthly => ExecutionSchedule::Monthly,
+    }
+}
+
+/// 구현된 모든 내장 전략 목록을 반환 (StrategyRegistry 기반)
 fn get_builtin_strategies() -> Vec<BacktestableStrategy> {
-    vec![
-        BacktestableStrategy {
-            id: "rsi_mean_reversion".to_string(),
-            name: "RSI 평균회귀".to_string(),
-            description: "RSI 과매수/과매도 기반 평균회귀 전략".to_string(),
-            supported_symbols: vec!["005930".to_string(), "SPY".to_string()],
-            default_params: serde_json::json!({
-                "period": 14,
-                "oversold": 30,
-                "overbought": 70
-            }),
-            ui_schema: get_ui_schema_for_strategy("rsi_mean_reversion"),
-            category: Some("평균회귀".to_string()),
-            tags: vec!["RSI".to_string(), "기술적지표".to_string(), "단일종목".to_string()],
-            execution_schedule: Some(ExecutionSchedule::OnCandleClose),
-            schedule_detail: Some("캔들 완성 시마다 실행".to_string()),
-            how_it_works: Some("RSI가 과매도(30 이하) 구간에서 매수, 과매수(70 이상) 구간에서 매도합니다. Wilder's 스무딩을 사용하며, 쿨다운 기간 동안 추가 신호를 무시합니다.".to_string()),
-        },
-        BacktestableStrategy {
-            id: "grid_trading".to_string(),
-            name: "그리드 트레이딩".to_string(),
-            description: "일정 간격 그리드 매수/매도 전략. 횡보장에 적합".to_string(),
-            supported_symbols: vec!["005930".to_string(), "SPY".to_string()],
-            default_params: serde_json::json!({
-                "grid_spacing_pct": 1.0,
-                "grid_levels": 10,
-                "amount_per_level": 100000
-            }),
-            ui_schema: get_ui_schema_for_strategy("grid_trading"),
-            category: Some("그리드".to_string()),
-            tags: vec!["그리드".to_string(), "횡보장".to_string(), "단일종목".to_string()],
-            execution_schedule: Some(ExecutionSchedule::Realtime),
-            schedule_detail: Some("가격 변동 시마다 실행".to_string()),
-            how_it_works: Some("현재가 기준으로 상하 그리드 레벨을 설정하고, 가격이 하락하면 매수, 상승하면 매도합니다. ATR 기반 동적 간격 및 추세 필터 옵션을 지원합니다.".to_string()),
-        },
-        BacktestableStrategy {
-            id: "bollinger".to_string(),
-            name: "볼린저 밴드".to_string(),
-            description: "동적 변동성 밴드를 사용한 평균 회귀 전략".to_string(),
-            supported_symbols: vec!["005930".to_string(), "SPY".to_string()],
-            default_params: serde_json::json!({
-                "period": 20,
-                "std_dev": 2.0
-            }),
-            ui_schema: get_ui_schema_for_strategy("bollinger"),
-            category: Some("평균회귀".to_string()),
-            tags: vec!["볼린저".to_string(), "변동성".to_string(), "단일종목".to_string()],
-            execution_schedule: Some(ExecutionSchedule::OnCandleClose),
-            schedule_detail: Some("캔들 완성 시마다 실행".to_string()),
-            how_it_works: Some("20일 이동평균과 표준편차로 상/하단 밴드를 계산합니다. 가격이 하단 밴드 터치 시 매수, 상단 밴드 터치 시 매도합니다. RSI 확인 옵션으로 거짓 신호를 필터링할 수 있습니다.".to_string()),
-        },
-        BacktestableStrategy {
-            id: "volatility_breakout".to_string(),
-            name: "변동성 돌파".to_string(),
-            description: "Larry Williams 모멘텀 전략. 추세장에 적합".to_string(),
-            supported_symbols: vec!["005930".to_string(), "SPY".to_string()],
-            default_params: serde_json::json!({
-                "k_factor": 0.5
-            }),
-            ui_schema: get_ui_schema_for_strategy("volatility_breakout"),
-            category: Some("추세추종".to_string()),
-            tags: vec!["돌파".to_string(), "모멘텀".to_string(), "단일종목".to_string()],
-            execution_schedule: Some(ExecutionSchedule::Daily),
-            schedule_detail: Some("장 시작 5분 후 실행".to_string()),
-            how_it_works: Some("전일 변동폭(고가-저가)에 K값(0.5)을 곱한 값을 당일 시가에 더해 목표가를 설정합니다. 가격이 목표가를 돌파하면 매수하고, 장 마감 시 청산합니다.".to_string()),
-        },
-        BacktestableStrategy {
-            id: "magic_split".to_string(),
-            name: "Magic Split (분할 매수)".to_string(),
-            description: "레벨 기반 수익 실현과 함께하는 체계적 물타기 전략".to_string(),
-            supported_symbols: vec!["305540".to_string(), "QQQ".to_string()],
-            default_params: serde_json::json!({
-                "max_levels": 10,
-                "level_spacing_pct": 3.0
-            }),
-            ui_schema: get_ui_schema_for_strategy("magic_split"),
-            category: Some("분할매매".to_string()),
-            tags: vec!["분할매수".to_string(), "물타기".to_string(), "단일종목".to_string()],
-            execution_schedule: Some(ExecutionSchedule::Realtime),
-            schedule_detail: Some("가격 변동 시마다 실행".to_string()),
-            how_it_works: Some("10차수 분할매수 전략입니다. 1차: 무조건 진입(10% 익절), 2~10차: 하락 시 추가 매수. 각 차수별 익절가 도달 시 해당 차수만 매도하고, 모든 차수 청산 후 1차수부터 재시작합니다.".to_string()),
-        },
-        BacktestableStrategy {
-            id: "simple_power".to_string(),
-            name: "Simple Power".to_string(),
-            description: "TQQQ/SCHD/BIL 모멘텀 자산 배분 전략".to_string(),
-            supported_symbols: vec!["TQQQ".to_string(), "SCHD".to_string()],
-            default_params: serde_json::json!({
-                "ma_period": 130
-            }),
-            ui_schema: get_ui_schema_for_strategy("simple_power"),
-            category: Some("자산배분".to_string()),
-            tags: vec!["자산배분".to_string(), "모멘텀".to_string(), "다중자산".to_string(), "미국ETF".to_string()],
-            execution_schedule: Some(ExecutionSchedule::Monthly),
-            schedule_detail: Some("매월 첫 거래일 리밸런싱".to_string()),
-            how_it_works: Some("TQQQ(50%), SCHD(20%), PFIX(15%), TMF(15%) 기본 비중으로 투자합니다. MA130 필터를 적용하여 가격이 이동평균 하회 시 비중을 50% 감소시킵니다.".to_string()),
-        },
-        BacktestableStrategy {
-            id: "haa".to_string(),
-            name: "HAA (계층적 자산 배분)".to_string(),
-            description: "카나리아 자산 기반 위험 감지를 포함한 자산 배분".to_string(),
-            supported_symbols: vec!["SPY".to_string(), "TLT".to_string(), "VEA".to_string()],
-            default_params: serde_json::json!({
-                "momentum_period": 12
-            }),
-            ui_schema: get_ui_schema_for_strategy("haa"),
-            category: Some("자산배분".to_string()),
-            tags: vec!["자산배분".to_string(), "카나리아".to_string(), "다중자산".to_string(), "미국ETF".to_string()],
-            execution_schedule: Some(ExecutionSchedule::Monthly),
-            schedule_detail: Some("매월 첫 거래일 리밸런싱".to_string()),
-            how_it_works: Some("TIP(카나리아 자산) 모멘텀이 양수면 공격자산(SPY, IWM, VEA 등) TOP 4에 투자하고, 음수면 방어자산(IEF, BIL)으로 전환합니다. 1M/3M/6M/12M 모멘텀 평균을 사용합니다.".to_string()),
-        },
-        BacktestableStrategy {
-            id: "xaa".to_string(),
-            name: "XAA (확장 자산 배분)".to_string(),
-            description: "HAA 확장 버전. 더 많은 자산군 지원".to_string(),
-            supported_symbols: vec!["SPY".to_string(), "QQQ".to_string(), "TLT".to_string()],
-            default_params: serde_json::json!({
-                "top_n": 4
-            }),
-            ui_schema: get_ui_schema_for_strategy("xaa"),
-            category: Some("자산배분".to_string()),
-            tags: vec!["자산배분".to_string(), "확장".to_string(), "다중자산".to_string(), "미국ETF".to_string()],
-            execution_schedule: Some(ExecutionSchedule::Monthly),
-            schedule_detail: Some("매월 첫 거래일 리밸런싱".to_string()),
-            how_it_works: Some("VWO, BND 카나리아 자산 기반으로 공격(SPY, EFA, EEM 등 TOP 4), 채권(TLT, IEF, LQD TOP 2), 안전(BIL TOP 1) 자산에 동적 배분합니다.".to_string()),
-        },
-        BacktestableStrategy {
-            id: "stock_rotation".to_string(),
-            name: "종목 갈아타기".to_string(),
-            description: "모멘텀 기반 종목 순환 투자 전략".to_string(),
-            supported_symbols: vec!["005930".to_string(), "000660".to_string()],
-            default_params: serde_json::json!({
-                "rotation_period": 20
-            }),
-            ui_schema: get_ui_schema_for_strategy("stock_rotation"),
-            category: Some("모멘텀".to_string()),
-            tags: vec!["모멘텀".to_string(), "순환".to_string(), "다중종목".to_string(), "한국주식".to_string()],
-            execution_schedule: Some(ExecutionSchedule::Daily),
-            schedule_detail: Some("매일 또는 매주 리밸런싱".to_string()),
-            how_it_works: Some("후보 종목들의 모멘텀 스코어를 계산하여 상위 N개 종목에 투자합니다. 모멘텀이 음수인 종목은 제외하고, 현금 보유 비율을 조절할 수 있습니다.".to_string()),
-        },
-        BacktestableStrategy {
-            id: "sma_crossover".to_string(),
-            name: "이동평균 크로스오버".to_string(),
-            description: "단기/장기 이동평균 교차 전략".to_string(),
-            supported_symbols: vec!["005930".to_string(), "SPY".to_string()],
-            default_params: serde_json::json!({
-                "short_period": 10,
-                "long_period": 20
-            }),
-            ui_schema: get_ui_schema_for_strategy("sma_crossover"),
-            category: Some("추세추종".to_string()),
-            tags: vec!["이동평균".to_string(), "크로스오버".to_string(), "단일종목".to_string()],
-            execution_schedule: Some(ExecutionSchedule::OnCandleClose),
-            schedule_detail: Some("캔들 완성 시마다 실행".to_string()),
-            how_it_works: Some("단기 이동평균(10일)이 장기 이동평균(20일)을 상향 돌파하면 매수(골든크로스), 하향 돌파하면 매도(데드크로스)합니다.".to_string()),
-        },
-        // ===== 신규 전략들 =====
-        BacktestableStrategy {
-            id: "all_weather".to_string(),
-            name: "올웨더".to_string(),
-            description: "레이 달리오 올웨더 포트폴리오 (US/KR 선택)".to_string(),
-            supported_symbols: vec![],  // 시장 선택에 따라 자동 결정
-            default_params: serde_json::json!({
-                "market": "US",
-                "use_seasonality": true,
-                "ma_periods": [50, 80, 120, 150],
-                "rebalance_days": 30
-            }),
-            ui_schema: get_ui_schema_for_strategy("all_weather"),
-            category: Some("자산배분".to_string()),
-            tags: vec!["자산배분".to_string(), "올웨더".to_string(), "다중자산".to_string()],
-            execution_schedule: Some(ExecutionSchedule::Monthly),
-            schedule_detail: Some("매월 첫 거래일 리밸런싱".to_string()),
-            how_it_works: Some("US: SPY, TLT, IEF, GLD, PDBC, IYK / KR: 360750, 294400, 148070 등 시장별 자산에 분산 투자. 5~10월 지옥기간 방어적 운용, MA 필터로 동적 조정.".to_string()),
-        },
-        BacktestableStrategy {
-            id: "snow".to_string(),
-            name: "스노우".to_string(),
-            description: "TIP 기반 모멘텀 전략 (US/KR 선택)".to_string(),
-            supported_symbols: vec![],  // 시장 선택에 따라 자동 결정
-            default_params: serde_json::json!({
-                "market": "US",
-                "tip_ma_period": 200,
-                "attack_ma_period": 5,
-                "rebalance_days": 1
-            }),
-            ui_schema: get_ui_schema_for_strategy("snow"),
-            category: Some("자산배분".to_string()),
-            tags: vec!["모멘텀".to_string(), "자산배분".to_string()],
-            execution_schedule: Some(ExecutionSchedule::Daily),
-            schedule_detail: Some("장 마감 후 실행".to_string()),
-            how_it_works: Some("TIP 10개월 MA 기준 모멘텀 판단. US: UPRO/TLT/BIL, KR: 레버리지(122630)/국고채(148070)에 투자.".to_string()),
-        },
-        BacktestableStrategy {
-            id: "market_cap_top".to_string(),
-            name: "시총 TOP".to_string(),
-            description: "미국 시총 상위 종목 투자 전략".to_string(),
-            supported_symbols: vec!["AAPL".to_string(), "MSFT".to_string(), "GOOGL".to_string()],
-            default_params: serde_json::json!({
-                "top_n": 10,
-                "weighting_method": "Equal",
-                "rebalance_days": 30,
-                "use_momentum_filter": false
-            }),
-            ui_schema: get_ui_schema_for_strategy("market_cap_top"),
-            category: Some("패시브".to_string()),
-            tags: vec!["시총".to_string(), "패시브".to_string(), "다중종목".to_string(), "미국주식".to_string()],
-            execution_schedule: Some(ExecutionSchedule::Monthly),
-            schedule_detail: Some("매월 말 리밸런싱".to_string()),
-            how_it_works: Some("미국 시총 상위 10개 종목에 동일 비중 또는 시총 비중으로 투자합니다. 모멘텀 필터 옵션으로 하락 종목을 제외할 수 있습니다.".to_string()),
-        },
-        BacktestableStrategy {
-            id: "candle_pattern".to_string(),
-            name: "캔들 패턴".to_string(),
-            description: "35가지 캔들스틱 패턴 인식 전략".to_string(),
-            supported_symbols: vec!["005930".to_string(), "BTCUSDT".to_string()],
-            default_params: serde_json::json!({
-                "min_pattern_strength": 0.6,
-                "use_volume_confirmation": true,
-                "use_trend_confirmation": true,
-                "stop_loss_pct": 3.0,
-                "take_profit_pct": 6.0
-            }),
-            ui_schema: get_ui_schema_for_strategy("candle_pattern"),
-            category: Some("기술적분석".to_string()),
-            tags: vec!["캔들".to_string(), "패턴인식".to_string(), "단일종목".to_string()],
-            execution_schedule: Some(ExecutionSchedule::OnCandleClose),
-            schedule_detail: Some("캔들 완성 시마다 실행".to_string()),
-            how_it_works: Some("35가지 캔들스틱 패턴(해머, 도지, 인걸핑 등)을 인식합니다. 거래량 확인과 추세 확인 옵션으로 신호 정확도를 높일 수 있습니다.".to_string()),
-        },
-        BacktestableStrategy {
-            id: "infinity_bot".to_string(),
-            name: "무한매수봇".to_string(),
-            description: "50라운드 피라미드 물타기 + 트레일링 스톱 전략".to_string(),
-            supported_symbols: vec!["005930".to_string(), "BTCUSDT".to_string()],
-            default_params: serde_json::json!({
-                "max_rounds": 50,
-                "round_amount_pct": 2.0,
-                "dip_trigger_pct": 2.0,
-                "take_profit_pct": 3.0,
-                "short_ma_period": 10,
-                "mid_ma_period": 100,
-                "long_ma_period": 200
-            }),
-            ui_schema: get_ui_schema_for_strategy("infinity_bot"),
-            category: Some("분할매매".to_string()),
-            tags: vec!["물타기".to_string(), "분할매수".to_string(), "단일종목".to_string()],
-            execution_schedule: Some(ExecutionSchedule::Realtime),
-            schedule_detail: Some("가격 변동 시마다 실행".to_string()),
-            how_it_works: Some("최대 50라운드까지 물타기합니다. 1-5라운드: 무조건 매수, 6-20라운드: MA 확인, 21-30라운드: MA+양봉 확인. 트레일링 스톱 5%->10%로 익절 관리합니다.".to_string()),
-        },
-        BacktestableStrategy {
-            id: "market_interest_day".to_string(),
-            name: "시장관심 단타".to_string(),
-            description: "거래량 급증 종목 단기 모멘텀 트레이딩".to_string(),
-            supported_symbols: vec!["005930".to_string(), "BTCUSDT".to_string()],
-            default_params: serde_json::json!({
-                "volume_multiplier": 2.0,
-                "consecutive_up_candles": 3,
-                "trailing_stop_pct": 1.5,
-                "take_profit_pct": 3.0,
-                "stop_loss_pct": 2.0,
-                "max_hold_minutes": 120
-            }),
-            ui_schema: get_ui_schema_for_strategy("market_interest_day"),
-            category: Some("단타".to_string()),
-            tags: vec!["거래량".to_string(), "모멘텀".to_string(), "단타".to_string(), "단일종목".to_string()],
-            execution_schedule: Some(ExecutionSchedule::Daily),
-            schedule_detail: Some("장 시작 직후 실행".to_string()),
-            how_it_works: Some("거래량이 평균 대비 2배 이상 급증하고, 연속 상승봉이 나타나면 진입합니다. 트레일링 스톱으로 수익 보호하고, 최대 120분 보유 후 청산합니다.".to_string()),
-        },
-        // 3차 전략들
-        BacktestableStrategy {
-            id: "baa".to_string(),
-            name: "BAA".to_string(),
-            description: "Bold Asset Allocation - 카나리아 자산 기반 듀얼 모멘텀 전략".to_string(),
-            supported_symbols: vec![
-                "SPY".to_string(), "VEA".to_string(), "VWO".to_string(), "BND".to_string(),
-                "QQQ".to_string(), "IWM".to_string(),
-                "TIP".to_string(), "DBC".to_string(), "BIL".to_string(), "IEF".to_string(), "TLT".to_string(),
-            ],
-            default_params: serde_json::json!({
-                "version": "Bold",
-                "total_amount": 10000000,
-                "rebalance_threshold": 5
-            }),
-            ui_schema: get_ui_schema_for_strategy("baa"),
-            category: Some("자산배분".to_string()),
-            tags: vec!["듀얼모멘텀".to_string(), "카나리아".to_string(), "자산배분".to_string(), "월간리밸런싱".to_string()],
-            execution_schedule: Some(ExecutionSchedule::Monthly),
-            schedule_detail: Some("매월 초 리밸런싱".to_string()),
-            how_it_works: Some("4개 카나리아 자산(SPY, VEA, VWO, BND)의 모멘텀으로 시장 상태를 판단합니다. 모두 양수면 공격 자산(QQQ, IWM 등) 중 최고 모멘텀 종목에 투자, 하나라도 음수면 방어 자산(TIP, TLT 등)으로 전환합니다.".to_string()),
-        },
-        BacktestableStrategy {
-            id: "sector_momentum".to_string(),
-            name: "섹터 모멘텀".to_string(),
-            description: "섹터 ETF 모멘텀 순위 기반 투자 전략 (US/KR 지원)".to_string(),
-            supported_symbols: vec![
-                // US 섹터
-                "XLK".to_string(), "XLF".to_string(), "XLV".to_string(), "XLY".to_string(),
-                "XLP".to_string(), "XLE".to_string(), "XLI".to_string(), "XLB".to_string(),
-                "XLU".to_string(), "XLRE".to_string(), "XLC".to_string(),
-            ],
-            default_params: serde_json::json!({
-                "market": "US",
-                "top_n": 3,
-                "weighting_method": "Equal",
-                "short_period": 20,
-                "medium_period": 60,
-                "long_period": 120
-            }),
-            ui_schema: get_ui_schema_for_strategy("sector_momentum"),
-            category: Some("자산배분".to_string()),
-            tags: vec!["섹터".to_string(), "모멘텀".to_string(), "ETF".to_string(), "월간리밸런싱".to_string()],
-            execution_schedule: Some(ExecutionSchedule::Monthly),
-            schedule_detail: Some("매월 초 리밸런싱".to_string()),
-            how_it_works: Some("섹터 ETF의 단기(20일)/중기(60일)/장기(120일) 모멘텀을 가중 합산하여 순위를 매기고, 상위 N개 섹터에 동일 비중 또는 모멘텀 비례 비중으로 투자합니다.".to_string()),
-        },
-        BacktestableStrategy {
-            id: "dual_momentum".to_string(),
-            name: "듀얼 모멘텀".to_string(),
-            description: "한국 주식 + 미국 채권 듀얼 모멘텀 전략".to_string(),
-            supported_symbols: vec![
-                // 한국 주식
-                "069500".to_string(), "229200".to_string(),
-                // 미국 채권
-                "TLT".to_string(), "IEF".to_string(), "BIL".to_string(),
-            ],
-            default_params: serde_json::json!({
-                "momentum_period": 63,
-                "use_absolute_momentum": true,
-                "total_amount": 10000000
-            }),
-            ui_schema: get_ui_schema_for_strategy("dual_momentum"),
-            category: Some("자산배분".to_string()),
-            tags: vec!["듀얼모멘텀".to_string(), "한국주식".to_string(), "미국채권".to_string(), "월간리밸런싱".to_string()],
-            execution_schedule: Some(ExecutionSchedule::Monthly),
-            schedule_detail: Some("매월 초 리밸런싱".to_string()),
-            how_it_works: Some("한국 주식(KODEX 200, 코스닥150)과 미국 채권(TLT, IEF)의 상대 모멘텀을 비교하여 더 높은 쪽에 투자합니다. 선택된 자산의 절대 모멘텀이 음수면 안전 자산(BIL)으로 전환합니다.".to_string()),
-        },
-        BacktestableStrategy {
-            id: "small_cap_quant".to_string(),
-            name: "소형주 퀀트".to_string(),
-            description: "코스닥 소형주 퀀트 전략. 20일 MA 필터 + 재무 필터".to_string(),
-            supported_symbols: vec![
-                "229200".to_string(),  // 코스닥150 ETF (기준 지수)
-            ],
-            default_params: serde_json::json!({
-                "target_count": 20,
-                "ma_period": 20,
-                "min_market_cap": 50.0,
-                "min_roe": 5.0,
-                "min_pbr": 0.2,
-                "min_per": 2.0,
-                "total_amount": 10000000
-            }),
-            ui_schema: get_ui_schema_for_strategy("small_cap_quant"),
-            category: Some("퀀트".to_string()),
-            tags: vec!["소형주".to_string(), "퀀트".to_string(), "한국주식".to_string(), "월간리밸런싱".to_string()],
-            execution_schedule: Some(ExecutionSchedule::Monthly),
-            schedule_detail: Some("매월 초 리밸런싱".to_string()),
-            how_it_works: Some("코스닥 소형지수가 20일 MA 위에 있을 때, 재무 필터(시총 50억+, ROE 5%+, PBR 0.2+, PER 2+)를 통과한 소형주 상위 20개에 동일 비중 투자합니다. MA 하회 시 전량 매도합니다.".to_string()),
-        },
-        BacktestableStrategy {
-            id: "pension_bot".to_string(),
-            name: "연금 자동화".to_string(),
-            description: "개인연금 계좌용 정적+동적 자산배분 조합 전략".to_string(),
-            supported_symbols: vec![
-                // 주식 ETF
-                "448290".to_string(), "379780".to_string(), "294400".to_string(),
-                // 채권 ETF
-                "305080".to_string(), "148070".to_string(),
-                // 원자재 ETF
-                "319640".to_string(),
-                // 단기자금
-                "130730".to_string(),
-            ],
-            default_params: serde_json::json!({
-                "avg_momentum_period": 10,
-                "top_bonus_count": 12,
-                "cash_to_short_term_rate": 0.45,
-                "cash_to_bonus_rate": 0.45,
-                "total_amount": 10000000
-            }),
-            ui_schema: get_ui_schema_for_strategy("pension_bot"),
-            category: Some("자산배분".to_string()),
-            tags: vec!["연금".to_string(), "자산배분".to_string(), "모멘텀".to_string(), "월간리밸런싱".to_string()],
-            execution_schedule: Some(ExecutionSchedule::Monthly),
-            schedule_detail: Some("매월 초 리밸런싱".to_string()),
-            how_it_works: Some("정적 자산배분(주식 44%, 채권 30%, 원자재 14%, 현금 12%)에 평균 모멘텀을 적용하여 동적 비중 조절. 남은 현금의 45%는 단기자금, 45%는 모멘텀 TOP 12에 차등 보너스로 분배합니다.".to_string()),
-        },
-        // 2차 전략들
-        BacktestableStrategy {
-            id: "sector_vb".to_string(),
-            name: "섹터 변동성 돌파".to_string(),
-            description: "한국 섹터 ETF 변동성 돌파 전략".to_string(),
-            supported_symbols: vec![
-                "139220".to_string(), "139230".to_string(), "139240".to_string(),
-                "139250".to_string(), "139260".to_string(), "139270".to_string(),
-            ],
-            default_params: serde_json::json!({
-                "k_factor": 0.5,
-                "lookback_days": 20,
-                "top_n": 3,
-                "total_amount": 10000000
-            }),
-            ui_schema: None,
-            category: Some("변동성".to_string()),
-            tags: vec!["섹터".to_string(), "변동성돌파".to_string(), "한국주식".to_string(), "일간".to_string()],
-            execution_schedule: Some(ExecutionSchedule::Daily),
-            schedule_detail: Some("매일 장 시작 전 실행".to_string()),
-            how_it_works: Some("한국 섹터 ETF 중 변동성 돌파 신호가 발생한 상위 3개 섹터에 투자합니다. 전일 고가-저가 범위의 K배 돌파 시 진입합니다.".to_string()),
-        },
-        BacktestableStrategy {
-            id: "kospi_bothside".to_string(),
-            name: "코스피 양방향".to_string(),
-            description: "코스피 레버리지/인버스 양방향 매매 전략".to_string(),
-            supported_symbols: vec![
-                "122630".to_string(), // KODEX 레버리지
-                "252670".to_string(), // KODEX 200선물인버스2X
-            ],
-            default_params: serde_json::json!({
-                "rsi_period": 14,
-                "rsi_oversold": 30,
-                "rsi_overbought": 70,
-                "ma_period": 20,
-                "total_amount": 10000000
-            }),
-            ui_schema: None,
-            category: Some("지수".to_string()),
-            tags: vec!["코스피".to_string(), "레버리지".to_string(), "인버스".to_string(), "양방향".to_string()],
-            execution_schedule: Some(ExecutionSchedule::Daily),
-            schedule_detail: Some("매일 장중 실행".to_string()),
-            how_it_works: Some("코스피 방향성에 따라 레버리지 또는 인버스 ETF에 투자합니다. RSI와 이동평균을 기반으로 방향을 판단합니다.".to_string()),
-        },
-        BacktestableStrategy {
-            id: "kosdaq_fire_rain".to_string(),
-            name: "코스닥 급등주".to_string(),
-            description: "코스피/코스닥 복합 양방향 전략".to_string(),
-            supported_symbols: vec![
-                "229200".to_string(), // KODEX 코스닥150
-                "251340".to_string(), // KODEX 코스닥150선물인버스
-            ],
-            default_params: serde_json::json!({
-                "lookback_period": 20,
-                "momentum_threshold": 0.05,
-                "volume_threshold": 2.0,
-                "total_amount": 10000000
-            }),
-            ui_schema: None,
-            category: Some("지수".to_string()),
-            tags: vec!["코스닥".to_string(), "급등주".to_string(), "모멘텀".to_string(), "양방향".to_string()],
-            execution_schedule: Some(ExecutionSchedule::Daily),
-            schedule_detail: Some("매일 장중 실행".to_string()),
-            how_it_works: Some("코스닥 지수의 모멘텀과 거래량을 분석하여 레버리지 또는 인버스 ETF에 투자합니다.".to_string()),
-        },
-        BacktestableStrategy {
-            id: "us_3x_leverage".to_string(),
-            name: "미국 3배 레버리지".to_string(),
-            description: "미국 3배 레버리지/인버스 ETF 조합 전략".to_string(),
-            supported_symbols: vec![
-                "TQQQ".to_string(), // ProShares UltraPro QQQ
-                "SQQQ".to_string(), // ProShares UltraPro Short QQQ
-                "UPRO".to_string(), // ProShares UltraPro S&P500
-                "SPXU".to_string(), // ProShares UltraPro Short S&P500
-            ],
-            default_params: serde_json::json!({
-                "ma_period": 20,
-                "momentum_period": 10,
-                "rebalance_threshold": 0.05,
-                "total_amount": 10000000
-            }),
-            ui_schema: None,
-            category: Some("레버리지".to_string()),
-            tags: vec!["미국".to_string(), "3배레버리지".to_string(), "인버스".to_string(), "ETF".to_string()],
-            execution_schedule: Some(ExecutionSchedule::Daily),
-            schedule_detail: Some("매일 미국 장 마감 후 실행".to_string()),
-            how_it_works: Some("미국 주요 지수(나스닥, S&P500)의 모멘텀에 따라 3배 레버리지 또는 인버스 ETF에 투자합니다.".to_string()),
-        },
-        BacktestableStrategy {
-            id: "stock_gugan".to_string(),
-            name: "주식 구간 매매".to_string(),
-            description: "주식 구간 분할 매매 전략".to_string(),
-            supported_symbols: vec![
-                "005930".to_string(), // 삼성전자
-                "000660".to_string(), // SK하이닉스
-            ],
-            default_params: serde_json::json!({
-                "zone_count": 10,
-                "zone_pct": 5.0,
-                "invest_per_zone": 1000000,
-                "total_amount": 10000000
-            }),
-            ui_schema: None,
-            category: Some("분할매매".to_string()),
-            tags: vec!["구간매매".to_string(), "분할매수".to_string(), "한국주식".to_string()],
-            execution_schedule: Some(ExecutionSchedule::Daily),
-            schedule_detail: Some("매일 장중 실행".to_string()),
-            how_it_works: Some("주가를 10개 구간으로 나누어 하락 시 분할 매수, 상승 시 분할 매도합니다. 구간별 동일 금액을 투자합니다.".to_string()),
-        },
-    ]
+    StrategyRegistry::all()
+        .map(|meta| {
+            // UI 스키마: 팩토리가 있으면 변환, 없으면 기존 방식
+            let ui_schema = if let Some(schema_factory) = meta.ui_schema_factory {
+                Some(convert_core_schema_to_ui_schema(&schema_factory()))
+            } else {
+                // 레거시: 기존 get_ui_schema_for_strategy 함수 사용
+                get_ui_schema_for_strategy(meta.id)
+            };
+
+            // 카테고리 문자열
+            let category_str = match meta.category {
+                trader_strategy::StrategyCategory::Realtime => "실시간",
+                trader_strategy::StrategyCategory::Intraday => "일중",
+                trader_strategy::StrategyCategory::Daily => "일간",
+                trader_strategy::StrategyCategory::Monthly => "월간",
+            };
+
+            BacktestableStrategy {
+                id: meta.id.to_string(),
+                name: meta.name.to_string(),
+                description: meta.description.to_string(),
+                supported_symbols: meta
+                    .default_tickers
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
+                default_params: serde_json::json!({}),
+                ui_schema,
+                category: Some(category_str.to_string()),
+                tags: vec![category_str.to_string()],
+                execution_schedule: Some(infer_execution_schedule(meta.category)),
+                schedule_detail: None,
+                how_it_works: Some(meta.description.to_string()),
+            }
+        })
+        .collect()
 }
 
 // ==================== 테스트 ====================

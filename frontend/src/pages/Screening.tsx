@@ -142,7 +142,7 @@ const initialClientFilter: ClientFilterState = {
 
 const initialUIState: UIState = {
   activeTab: 'preset',
-  selectedPreset: 'value',
+  selectedPreset: 'basic',
   viewMode: 'table',
   showSectorPanel: false,
 }
@@ -156,6 +156,7 @@ const initialModalState: ModalState = {
 
 // 프리셋 ID -> 표시 이름 매핑
 const PRESET_LABELS: Record<string, { name: string; icon: typeof DollarSign; description: string }> = {
+  basic: { name: '전체', icon: ListFilter, description: '필터 없이 모든 종목 조회' },
   value: { name: '가치주', icon: DollarSign, description: '저 PER, 저 PBR 종목' },
   dividend: { name: '배당주', icon: Percent, description: '고배당 수익률 종목' },
   growth: { name: '성장주', icon: TrendingUp, description: '높은 매출/이익 성장률' },
@@ -516,12 +517,13 @@ export function Screening() {
   // OpportunityMap용 데이터 변환
   const opportunityMapData = createMemo((): OpportunitySymbol[] => {
     return sortedResults().map(r => {
-      // RouteState 변환 (Rest → AVOID로 매핑)
+      // RouteState 변환 (DB: ATTACK/ARMED/WAIT/OVERHEAT/NEUTRAL → UI)
       let routeState: 'ATTACK' | 'ARMED' | 'WATCH' | 'AVOID' | 'UNKNOWN' = 'UNKNOWN'
-      if (r.route_state === 'Attack') routeState = 'ATTACK'
-      else if (r.route_state === 'Armed') routeState = 'ARMED'
-      else if (r.route_state === 'Watch') routeState = 'WATCH'
-      else if (r.route_state === 'Rest') routeState = 'AVOID'
+      const dbState = r.route_state?.toUpperCase()
+      if (dbState === 'ATTACK') routeState = 'ATTACK'
+      else if (dbState === 'ARMED') routeState = 'ARMED'
+      else if (dbState === 'WAIT' || dbState === 'WATCH') routeState = 'WATCH'
+      else if (dbState === 'OVERHEAT' || dbState === 'REST' || dbState === 'NEUTRAL') routeState = 'AVOID'
 
       return {
         symbol: r.ticker,
@@ -537,11 +539,15 @@ export function Screening() {
   // KanbanBoard용 데이터 변환
   const kanbanBoardData = createMemo((): KanbanSymbol[] => {
     return sortedResults()
-      .filter(r => r.route_state && ['Attack', 'Armed', 'Watch'].includes(r.route_state))
+      .filter(r => {
+        const dbState = r.route_state?.toUpperCase()
+        return dbState && ['ATTACK', 'ARMED', 'WAIT', 'WATCH'].includes(dbState)
+      })
       .map(r => {
+        const dbState = r.route_state?.toUpperCase()
         let routeState: 'ATTACK' | 'ARMED' | 'WATCH' = 'WATCH'
-        if (r.route_state === 'Attack') routeState = 'ATTACK'
-        else if (r.route_state === 'Armed') routeState = 'ARMED'
+        if (dbState === 'ATTACK') routeState = 'ATTACK'
+        else if (dbState === 'ARMED') routeState = 'ARMED'
 
         return {
           symbol: r.ticker,

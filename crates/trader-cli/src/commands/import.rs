@@ -20,7 +20,7 @@ use serde::Deserialize;
 use std::str::FromStr;
 use tracing::{debug, info, warn};
 
-use trader_core::{Kline, MarketType, Symbol, Timeframe};
+use trader_core::{Kline, Symbol, Timeframe};
 use trader_data::{Database, DatabaseConfig, KlineRepository, SymbolRepository};
 
 use crate::commands::download::{Interval, Market};
@@ -124,12 +124,13 @@ pub async fn import_to_db(config: ImportDbConfig) -> Result<usize> {
 /// Country 필드가 자동 설정되도록 합니다.
 fn create_symbol(config: &ImportDbConfig) -> Symbol {
     match config.market {
-        Market::KR => Symbol::kr_stock(&config.symbol.to_uppercase(), "KRW"),
-        Market::US => Symbol::us_stock(&config.symbol.to_uppercase(), "USD"),
+        Market::KR => Symbol::kr_stock(config.symbol.to_uppercase(), "KRW"),
+        Market::US => Symbol::us_stock(config.symbol.to_uppercase(), "USD"),
     }
 }
 
 /// Yahoo Finance에서 OHLCV 데이터 다운로드.
+#[allow(clippy::needless_range_loop)]
 async fn download_from_yahoo(config: &ImportDbConfig) -> Result<Vec<Kline>> {
     // Yahoo Finance 심볼 변환
     let yahoo_symbol = match config.market {

@@ -90,7 +90,7 @@ impl StrategyRepository {
         .bind(&input.timeframe)
         .bind(&input.config)
         .bind(&risk_limits)
-        .bind(&input.allocated_capital)
+        .bind(input.allocated_capital)
         .bind(&risk_profile)
         .bind(&input.multi_timeframe_config)
         .fetch_one(&mut *tx)
@@ -287,7 +287,8 @@ impl StrategyRepository {
         id: &str,
         symbols: Vec<String>,
     ) -> Result<StrategyRecord, sqlx::Error> {
-        let symbols_json = serde_json::to_value(&symbols).unwrap_or(serde_json::Value::Array(vec![]));
+        let symbols_json =
+            serde_json::to_value(&symbols).unwrap_or(serde_json::Value::Array(vec![]));
 
         let record = sqlx::query_as::<_, StrategyRecord>(
             r#"
@@ -313,14 +314,23 @@ impl StrategyRepository {
         engine: &trader_strategy::StrategyEngine,
     ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
         use trader_strategy::strategies::{
-            AllWeatherStrategy, BaaStrategy, BollingerStrategy, CandlePatternStrategy,
-            DualMomentumStrategy, GridStrategy, HaaStrategy, InfinityBotStrategy,
-            KosdaqFireRainStrategy, KospiBothSideStrategy, MagicSplitStrategy,
-            MarketCapTopStrategy, MarketInterestDayStrategy, PensionBotStrategy,
-            RsiMultiTfStrategy, RsiStrategy, SectorMomentumStrategy, SectorVbStrategy,
-            SimplePowerStrategy, SmaStrategy, SmallCapQuantStrategy, SnowStrategy,
-            StockGuganStrategy, StockRotationStrategy, Us3xLeverageStrategy,
-            VolatilityBreakoutStrategy, XaaStrategy,
+            // 그룹 전략 (통합)
+            AssetAllocationStrategy,
+            // 독립 전략
+            CandlePatternStrategy,
+            CompoundMomentumStrategy,
+            DayTradingStrategy,
+            InfinityBotStrategy,
+            MarketBothSideStrategy,
+            MeanReversionStrategy,
+            MomentumPowerStrategy,
+            MomentumSurgeStrategy,
+            PensionBotStrategy,
+            RangeTradingStrategy,
+            RotationStrategy,
+            SectorVbStrategy,
+            SmallCapQuantStrategy,
+            Us3xLeverageStrategy,
         };
         use trader_strategy::Strategy;
 
@@ -332,43 +342,59 @@ impl StrategyRepository {
 
             // Create strategy instance based on type
             let strategy: Option<Box<dyn Strategy>> = match strategy_type {
-                // 기본 전략들
-                "rsi" | "rsi_mean_reversion" => Some(Box::new(RsiStrategy::new())),
+                // MeanReversion 그룹 (RSI, Grid, Bollinger, Magic Split)
+                "rsi" | "rsi_mean_reversion" => Some(Box::new(MeanReversionStrategy::rsi())),
                 "rsi_multi_tf" | "rsi_mtf" | "multi_rsi" => {
-                    Some(Box::new(RsiMultiTfStrategy::new()))
+                    Some(Box::new(MeanReversionStrategy::rsi()))
                 }
-                "grid" | "grid_trading" => Some(Box::new(GridStrategy::new())),
-                "bollinger" | "bollinger_bands" => Some(Box::new(BollingerStrategy::new())),
+                "grid" | "grid_trading" => Some(Box::new(MeanReversionStrategy::grid())),
+                "bollinger" | "bollinger_bands" => {
+                    Some(Box::new(MeanReversionStrategy::bollinger()))
+                }
+                "magic_split" | "split" => Some(Box::new(MeanReversionStrategy::magic_split())),
+
+                // DayTrading 그룹 (Volatility Breakout, SMA Crossover, Market Interest Day)
                 "volatility_breakout" | "volatility" => {
-                    Some(Box::new(VolatilityBreakoutStrategy::new()))
+                    Some(Box::new(DayTradingStrategy::breakout()))
                 }
-                "magic_split" | "split" => Some(Box::new(MagicSplitStrategy::new())),
-                "sma" | "sma_crossover" | "ma_crossover" => Some(Box::new(SmaStrategy::new())),
+                "sma" | "sma_crossover" | "ma_crossover" => {
+                    Some(Box::new(DayTradingStrategy::crossover()))
+                }
+                "market_interest_day" => Some(Box::new(DayTradingStrategy::volume_surge())),
 
-                // 다중 자산 전략들
-                "simple_power" => Some(Box::new(SimplePowerStrategy::new())),
-                "haa" => Some(Box::new(HaaStrategy::new())),
-                "xaa" => Some(Box::new(XaaStrategy::new())),
-                "stock_rotation" => Some(Box::new(StockRotationStrategy::new())),
+                // AssetAllocation 그룹 (HAA, XAA, BAA, All Weather, Dual Momentum)
+                "haa" => Some(Box::new(AssetAllocationStrategy::haa())),
+                "xaa" => Some(Box::new(AssetAllocationStrategy::xaa())),
                 "all_weather" | "all_weather_us" | "all_weather_kr" => {
-                    Some(Box::new(AllWeatherStrategy::new()))
+                    Some(Box::new(AssetAllocationStrategy::all_weather()))
                 }
-                "snow" | "snow_us" | "snow_kr" => Some(Box::new(SnowStrategy::new())),
-                "baa" => Some(Box::new(BaaStrategy::new())),
-                "sector_momentum" => Some(Box::new(SectorMomentumStrategy::new())),
-                "dual_momentum" => Some(Box::new(DualMomentumStrategy::new())),
-                "pension_bot" => Some(Box::new(PensionBotStrategy::new())),
-                "market_cap_top" => Some(Box::new(MarketCapTopStrategy::new())),
+                "baa" => Some(Box::new(AssetAllocationStrategy::baa())),
+                "dual_momentum" => Some(Box::new(AssetAllocationStrategy::dual_momentum())),
 
-                // 기타 전략들
+                // Rotation 그룹 (Stock Rotation, Sector Momentum, Market Cap Top)
+                "stock_rotation" => Some(Box::new(RotationStrategy::stock_rotation())),
+                "sector_momentum" => Some(Box::new(RotationStrategy::sector_momentum())),
+                "market_cap_top" => Some(Box::new(RotationStrategy::market_cap_top())),
+
+                // 독립 전략들
+                "compound_momentum" | "simple_power" => {
+                    Some(Box::new(CompoundMomentumStrategy::new()))
+                }
+                "momentum_power" | "snow" | "snow_us" | "snow_kr" => {
+                    Some(Box::new(MomentumPowerStrategy::new()))
+                }
+                "pension_bot" => Some(Box::new(PensionBotStrategy::new())),
                 "candle_pattern" => Some(Box::new(CandlePatternStrategy::new())),
                 "infinity_bot" => Some(Box::new(InfinityBotStrategy::new())),
-                "market_interest_day" => Some(Box::new(MarketInterestDayStrategy::new())),
                 "sector_vb" => Some(Box::new(SectorVbStrategy::new())),
-                "kospi_bothside" => Some(Box::new(KospiBothSideStrategy::new())),
-                "kosdaq_fire_rain" => Some(Box::new(KosdaqFireRainStrategy::new())),
+                "market_bothside" | "kospi_bothside" | "kospi_both" => {
+                    Some(Box::new(MarketBothSideStrategy::new()))
+                }
+                "momentum_surge" | "kosdaq_fire_rain" | "kosdaq_surge" => {
+                    Some(Box::new(MomentumSurgeStrategy::new()))
+                }
                 "us_3x_leverage" => Some(Box::new(Us3xLeverageStrategy::new())),
-                "stock_gugan" => Some(Box::new(StockGuganStrategy::new())),
+                "range_trading" | "stock_gugan" => Some(Box::new(RangeTradingStrategy::new())),
                 "small_cap_quant" => Some(Box::new(SmallCapQuantStrategy::new())),
 
                 _ => {

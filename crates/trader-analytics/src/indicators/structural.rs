@@ -111,17 +111,20 @@ impl StructuralFeatures {
             .unwrap()
             .ok_or_else(|| IndicatorError::CalculationError("MA20 계산 실패".to_string()))?;
 
-        let dist_ma20 = ((current_price - current_ma20) / current_ma20
-            * Decimal::from(100))
-        .to_string()
-        .parse::<f64>()
-        .unwrap_or(0.0);
+        let dist_ma20 = if current_ma20 > Decimal::ZERO {
+            ((current_price - current_ma20) / current_ma20 * Decimal::from(100))
+                .to_string()
+                .parse::<f64>()
+                .unwrap_or(0.0)
+        } else {
+            0.0 // MA20이 0이면 이격도 0으로 처리
+        };
 
         // 2. 볼린저 밴드 폭 계산
         let bb = engine.bollinger_bands(&closes, BollingerBandsParams::default())?;
-        let last_bb = bb.last().ok_or_else(|| {
-            IndicatorError::CalculationError("볼린저 밴드 계산 실패".to_string())
-        })?;
+        let last_bb = bb
+            .last()
+            .ok_or_else(|| IndicatorError::CalculationError("볼린저 밴드 계산 실패".to_string()))?;
 
         let bb_width = match (last_bb.upper, last_bb.lower, last_bb.middle) {
             (Some(upper), Some(lower), Some(middle)) if middle > Decimal::ZERO => {
@@ -180,11 +183,7 @@ impl StructuralFeatures {
 
         let sum_x: f64 = x_values.iter().sum();
         let sum_y: f64 = y_values.iter().sum();
-        let sum_xy: f64 = x_values
-            .iter()
-            .zip(&y_values)
-            .map(|(x, y)| x * y)
-            .sum();
+        let sum_xy: f64 = x_values.iter().zip(&y_values).map(|(x, y)| x * y).sum();
         let sum_x2: f64 = x_values.iter().map(|x| x * x).sum();
 
         let slope = (n * sum_xy - sum_x * sum_y) / (n * sum_x2 - sum_x * sum_x);
@@ -360,7 +359,10 @@ mod tests {
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
-            IndicatorError::InsufficientData { required: 40, provided: 30 }
+            IndicatorError::InsufficientData {
+                required: 40,
+                provided: 30
+            }
         ));
     }
 

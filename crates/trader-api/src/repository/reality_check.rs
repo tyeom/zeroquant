@@ -312,7 +312,10 @@ impl RealityCheckRepository {
         .fetch_all(pool)
         .await?;
 
-        info!("Reality check calculation completed: {} records", results.len());
+        info!(
+            "Reality check calculation completed: {} records",
+            results.len()
+        );
 
         Ok(results)
     }
@@ -540,10 +543,7 @@ impl RealityCheckRepository {
     }
 
     /// 전체 통계 요약
-    pub async fn get_summary_stats(
-        pool: &PgPool,
-        days: i32,
-    ) -> Result<DailyStats, sqlx::Error> {
+    pub async fn get_summary_stats(pool: &PgPool, days: i32) -> Result<DailyStats, sqlx::Error> {
         debug!("Fetching summary stats for last {} days", days);
 
         let stats = sqlx::query_as!(

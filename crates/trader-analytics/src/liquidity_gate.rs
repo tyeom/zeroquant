@@ -207,18 +207,12 @@ mod tests {
     fn test_check_level() {
         let gate = LiquidityGate::for_market(MarketType::Stock);
 
-        assert_eq!(
-            gate.check_level(dec!(12_000_000_000)),
-            LiquidityLevel::Pass
-        );
+        assert_eq!(gate.check_level(dec!(12_000_000_000)), LiquidityLevel::Pass);
         assert_eq!(
             gate.check_level(dec!(9_000_000_000)),
             LiquidityLevel::Relaxed
         );
-        assert_eq!(
-            gate.check_level(dec!(7_000_000_000)),
-            LiquidityLevel::Fail
-        );
+        assert_eq!(gate.check_level(dec!(7_000_000_000)), LiquidityLevel::Fail);
     }
 
     #[test]

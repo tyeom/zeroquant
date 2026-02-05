@@ -199,16 +199,8 @@ impl TriggerCalculator {
         let high_prices: Vec<Decimal> = recent.iter().map(|k| k.high).collect();
         let low_prices: Vec<Decimal> = recent.iter().map(|k| k.low).collect();
 
-        let max_high = high_prices
-            .iter()
-            .max()
-            .copied()
-            .unwrap_or(Decimal::ZERO);
-        let min_low = low_prices
-            .iter()
-            .min()
-            .copied()
-            .unwrap_or(Decimal::ZERO);
+        let max_high = high_prices.iter().max().copied().unwrap_or(Decimal::ZERO);
+        let min_low = low_prices.iter().min().copied().unwrap_or(Decimal::ZERO);
 
         if max_high.is_zero() || min_low.is_zero() {
             return Ok(false);
@@ -244,12 +236,7 @@ impl TriggerCalculator {
             .rsi(&closes, crate::indicators::RsiParams { period: 14 })?;
 
         // RSI가 50 이상이고 상승 중인지 확인
-        let recent_rsi: Vec<Decimal> = rsi_values
-            .iter()
-            .rev()
-            .take(3)
-            .filter_map(|&x| x)
-            .collect();
+        let recent_rsi: Vec<Decimal> = rsi_values.iter().rev().take(3).filter_map(|&x| x).collect();
 
         if recent_rsi.len() < 3 {
             return Ok(false);
@@ -365,16 +352,7 @@ mod tests {
 
         // 평균 거래량 1000, 마지막 2500 (2.5배)
         let mut klines = (0..30)
-            .map(|i| {
-                create_test_kline(
-                    dec!(100),
-                    dec!(105),
-                    dec!(95),
-                    dec!(100),
-                    dec!(1000),
-                    i,
-                )
-            })
+            .map(|i| create_test_kline(dec!(100), dec!(105), dec!(95), dec!(100), dec!(1000), i))
             .collect::<Vec<_>>();
 
         // 마지막 캔들 거래량 폭증
@@ -397,16 +375,7 @@ mod tests {
 
         // 20일간 100~105 박스권
         let mut klines = (0..20)
-            .map(|i| {
-                create_test_kline(
-                    dec!(100),
-                    dec!(105),
-                    dec!(100),
-                    dec!(102),
-                    dec!(1000),
-                    i,
-                )
-            })
+            .map(|i| create_test_kline(dec!(100), dec!(105), dec!(100), dec!(102), dec!(1000), i))
             .collect::<Vec<_>>();
 
         // 추가 데이터 (필요한 최소 개수 맞추기)
@@ -514,16 +483,7 @@ mod tests {
 
         // 평범한 횡보 패턴 (트리거 없음)
         let klines = (0..50)
-            .map(|i| {
-                create_test_kline(
-                    dec!(100),
-                    dec!(102),
-                    dec!(98),
-                    dec!(100),
-                    dec!(1000),
-                    i,
-                )
-            })
+            .map(|i| create_test_kline(dec!(100), dec!(102), dec!(98), dec!(100), dec!(1000), i))
             .collect::<Vec<_>>();
 
         let result = calculator.calculate(&klines).unwrap();

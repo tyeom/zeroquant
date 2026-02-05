@@ -62,12 +62,9 @@ impl MarketStream for SimulatedMarketStream {
         Ok(())
     }
 
-    async fn subscribe_kline(
-        &mut self,
-        symbol: &str,
-        timeframe: Timeframe,
-    ) -> ExchangeResult<()> {
-        self.kline_subscriptions.insert((symbol.to_string(), timeframe));
+    async fn subscribe_kline(&mut self, symbol: &str, timeframe: Timeframe) -> ExchangeResult<()> {
+        self.kline_subscriptions
+            .insert((symbol.to_string(), timeframe));
         Ok(())
     }
 

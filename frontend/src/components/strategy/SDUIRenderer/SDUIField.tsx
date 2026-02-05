@@ -12,7 +12,59 @@ import {
   createMemo,
 } from 'solid-js';
 import type { FieldSchema } from '../../../types/sdui';
-import { SymbolAutocomplete, MultiSymbolInput, MultiTimeframeField, type MultiTimeframeValue } from './fields';
+import { MultiSymbolInput, MultiTimeframeField, type MultiTimeframeValue } from './fields';
+import { SymbolSearch } from '../../../components/SymbolSearch';
+
+// ==================== 유틸리티 함수 ====================
+
+/**
+ * 옵션 라벨 매핑 (영문 → 한글)
+ */
+const OPTION_LABELS: Record<string, string> = {
+  // 전략 변형
+  rsi: 'RSI 평균회귀',
+  bollinger: '볼린저 밴드',
+  grid: '그리드 트레이딩',
+  magic_split: '매직 분할',
+  // 일반
+  true: '예',
+  false: '아니오',
+  // 타이밍
+  daily: '일별',
+  weekly: '주별',
+  monthly: '월별',
+  quarterly: '분기별',
+  // RouteState
+  Attack: '공격',
+  Armed: '대기',
+  Wait: '관망',
+  Overheat: '과열',
+  Neutral: '중립',
+  // 시장 국면
+  bull: '상승장',
+  neutral: '중립',
+  bear: '하락장',
+  // 이동평균 타입
+  sma: 'SMA (단순이동평균)',
+  ema: 'EMA (지수이동평균)',
+};
+
+/**
+ * 문자열 배열을 SelectInput 옵션 객체 배열로 변환
+ */
+function normalizeOptions(
+  options: Array<string | { value: string; label: string; description?: string }>
+): Array<{ value: string; label: string; description?: string }> {
+  return options.map((opt) => {
+    if (typeof opt === 'string') {
+      return {
+        value: opt,
+        label: OPTION_LABELS[opt] || opt,
+      };
+    }
+    return opt;
+  });
+}
 
 // ==================== Props ====================
 
@@ -128,7 +180,7 @@ export const SDUIField: Component<SDUIFieldProps> = (props) => {
           <SelectInput
             id={props.field.name}
             value={props.value as string}
-            options={props.field.options || []}
+            options={normalizeOptions(props.field.options || [])}
             onChange={props.onChange}
             readOnly={props.readOnly}
             hasError={!!props.error}
@@ -140,21 +192,20 @@ export const SDUIField: Component<SDUIFieldProps> = (props) => {
           <MultiSelectInput
             id={props.field.name}
             value={props.value as string[]}
-            options={props.field.options || []}
+            options={normalizeOptions(props.field.options || [])}
             onChange={props.onChange}
             readOnly={props.readOnly}
           />
         </Match>
 
-        {/* 심볼 (자동완성) */}
+        {/* 심볼 (검색) */}
         <Match when={props.field.field_type === 'symbol'}>
-          <SymbolAutocomplete
-            id={props.field.name}
-            value={props.value as string}
-            onChange={(v) => props.onChange(v)}
-            placeholder="종목 코드 또는 이름 입력"
-            readOnly={props.readOnly}
-            hasError={!!props.error}
+          <SymbolSearch
+            value={(props.value as string) || ''}
+            onSelect={(ticker) => props.onChange(ticker)}
+            placeholder="종목 코드 또는 이름 검색"
+            disabled={props.readOnly}
+            size="md"
           />
         </Match>
 

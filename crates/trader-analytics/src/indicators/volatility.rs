@@ -486,14 +486,15 @@ impl VolatilityIndicators {
             let kc = &kc_results[i];
 
             // BB와 KC가 모두 계산되어 있는지 확인
-            let is_squeeze = if let (Some(bb_upper), Some(bb_lower), Some(kc_upper), Some(kc_lower)) =
-                (bb.upper, bb.lower, kc.upper, kc.lower)
-            {
-                // Squeeze 조건: BB가 KC 내부에 있음
-                bb_upper < kc_upper && bb_lower > kc_lower
-            } else {
-                false
-            };
+            let is_squeeze =
+                if let (Some(bb_upper), Some(bb_lower), Some(kc_upper), Some(kc_lower)) =
+                    (bb.upper, bb.lower, kc.upper, kc.lower)
+                {
+                    // Squeeze 조건: BB가 KC 내부에 있음
+                    bb_upper < kc_upper && bb_lower > kc_lower
+                } else {
+                    false
+                };
 
             // Squeeze 카운트 업데이트
             if is_squeeze {
@@ -506,11 +507,7 @@ impl VolatilityIndicators {
             let released = prev_squeeze && !is_squeeze;
 
             // 모멘텀 계산 (종가 - KC 중간선)
-            let momentum = if let Some(kc_middle) = kc.middle {
-                Some(close[i] - kc_middle)
-            } else {
-                None
-            };
+            let momentum = kc.middle.map(|kc_middle| close[i] - kc_middle);
 
             result.push(TtmSqueezeResult {
                 is_squeeze,

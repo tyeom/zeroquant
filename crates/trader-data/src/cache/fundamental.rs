@@ -330,7 +330,7 @@ impl FundamentalFetcher {
         let summary_detail = result_data.summary_detail.as_ref();
         let market_cap = summary_detail
             .and_then(|sd| sd.market_cap)
-            .and_then(|v| Decimal::from_u64(v));
+            .and_then(Decimal::from_u64);
         let trailing_pe = summary_detail
             .and_then(|sd| sd.trailing_pe)
             .and_then(round_decimal_from_f64);
@@ -543,7 +543,7 @@ impl FundamentalFetcher {
         }
 
         // 2. OHLCV 캔들 데이터 변환
-        let (quote_currency, market_type) = match market.to_uppercase().as_str() {
+        let (_quote_currency, _market_type) = match market.to_uppercase().as_str() {
             "KR" => ("KRW", MarketType::Stock),
             "US" => ("USD", MarketType::Stock),
             "CRYPTO" => ("USDT", MarketType::Crypto),
@@ -555,7 +555,7 @@ impl FundamentalFetcher {
             .iter()
             .filter_map(|q| {
                 // Unix timestamp → DateTime 변환
-                let open_time = Utc.timestamp_opt(q.timestamp as i64, 0).single()?;
+                let open_time = Utc.timestamp_opt(q.timestamp, 0).single()?;
                 let close_time = open_time + chrono::Duration::days(1);
 
                 Some(Kline {

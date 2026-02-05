@@ -20,7 +20,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -100,10 +100,12 @@ async fn list_watchlists(
 ) -> Result<Json<WatchlistListResponse>, (StatusCode, String)> {
     debug!("관심종목 그룹 목록 조회");
 
-    let pool = state
-        .db_pool
-        .as_ref()
-        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, "Database not available".to_string()))?;
+    let pool = state.db_pool.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Database not available".to_string(),
+        )
+    })?;
 
     let watchlists = WatchlistRepository::get_all_watchlists(pool)
         .await
@@ -126,16 +128,21 @@ async fn create_watchlist(
 ) -> Result<Json<WatchlistRecord>, (StatusCode, String)> {
     info!("관심종목 그룹 생성: {}", input.name);
 
-    let pool = state
-        .db_pool
-        .as_ref()
-        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, "Database not available".to_string()))?;
+    let pool = state.db_pool.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Database not available".to_string(),
+        )
+    })?;
 
     let watchlist = WatchlistRepository::create_watchlist(pool, input)
         .await
         .map_err(|e| {
             if e.to_string().contains("unique_watchlist_name") {
-                (StatusCode::CONFLICT, "이미 존재하는 그룹 이름입니다".to_string())
+                (
+                    StatusCode::CONFLICT,
+                    "이미 존재하는 그룹 이름입니다".to_string(),
+                )
             } else {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -154,10 +161,12 @@ async fn get_watchlist_detail(
 ) -> Result<Json<WatchlistDetailResponse>, (StatusCode, String)> {
     debug!("관심종목 그룹 상세 조회: {}", id);
 
-    let pool = state
-        .db_pool
-        .as_ref()
-        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, "Database not available".to_string()))?;
+    let pool = state.db_pool.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Database not available".to_string(),
+        )
+    })?;
 
     // 그룹 정보 조회
     let watchlist = WatchlistRepository::get_watchlist_by_id(pool, id)
@@ -196,10 +205,12 @@ async fn delete_watchlist(
 ) -> Result<Json<SuccessResponse>, (StatusCode, String)> {
     info!("관심종목 그룹 삭제: {}", id);
 
-    let pool = state
-        .db_pool
-        .as_ref()
-        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, "Database not available".to_string()))?;
+    let pool = state.db_pool.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Database not available".to_string(),
+        )
+    })?;
 
     let deleted = WatchlistRepository::delete_watchlist(pool, id)
         .await
@@ -228,10 +239,12 @@ async fn add_items(
 ) -> Result<Json<AddItemsResponse>, (StatusCode, String)> {
     info!("관심종목 아이템 추가: {} ({}개)", id, request.items.len());
 
-    let pool = state
-        .db_pool
-        .as_ref()
-        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, "Database not available".to_string()))?;
+    let pool = state.db_pool.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Database not available".to_string(),
+        )
+    })?;
 
     // 그룹 존재 여부 확인
     let watchlist = WatchlistRepository::get_watchlist_by_id(pool, id)
@@ -267,12 +280,17 @@ async fn remove_item(
     Path((id, symbol)): Path<(Uuid, String)>,
     Query(query): Query<DeleteItemQuery>,
 ) -> Result<Json<SuccessResponse>, (StatusCode, String)> {
-    info!("관심종목 아이템 삭제: {} - {} ({})", id, symbol, query.market);
+    info!(
+        "관심종목 아이템 삭제: {} - {} ({})",
+        id, symbol, query.market
+    );
 
-    let pool = state
-        .db_pool
-        .as_ref()
-        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, "Database not available".to_string()))?;
+    let pool = state.db_pool.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Database not available".to_string(),
+        )
+    })?;
 
     let removed = WatchlistRepository::remove_item(pool, id, &symbol, &query.market)
         .await
@@ -284,7 +302,10 @@ async fn remove_item(
         })?;
 
     if !removed {
-        return Err((StatusCode::NOT_FOUND, "아이템을 찾을 수 없습니다".to_string()));
+        return Err((
+            StatusCode::NOT_FOUND,
+            "아이템을 찾을 수 없습니다".to_string(),
+        ));
     }
 
     Ok(Json(SuccessResponse {
@@ -301,10 +322,12 @@ async fn update_item(
 ) -> Result<Json<WatchlistItemRecord>, (StatusCode, String)> {
     debug!("관심종목 아이템 수정: {}", item_id);
 
-    let pool = state
-        .db_pool
-        .as_ref()
-        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, "Database not available".to_string()))?;
+    let pool = state.db_pool.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Database not available".to_string(),
+        )
+    })?;
 
     let updated = WatchlistRepository::update_item(pool, item_id, input)
         .await
@@ -314,7 +337,12 @@ async fn update_item(
                 format!("수정 실패: {}", e),
             )
         })?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "아이템을 찾을 수 없습니다".to_string()))?;
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                "아이템을 찾을 수 없습니다".to_string(),
+            )
+        })?;
 
     Ok(Json(updated))
 }
@@ -327,19 +355,22 @@ async fn find_symbol_in_watchlists(
 ) -> Result<Json<Vec<WatchlistRecord>>, (StatusCode, String)> {
     debug!("종목 포함 그룹 조회: {} ({})", symbol, query.market);
 
-    let pool = state
-        .db_pool
-        .as_ref()
-        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, "Database not available".to_string()))?;
+    let pool = state.db_pool.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Database not available".to_string(),
+        )
+    })?;
 
-    let watchlists = WatchlistRepository::find_watchlists_containing_symbol(pool, &symbol, &query.market)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("조회 실패: {}", e),
-            )
-        })?;
+    let watchlists =
+        WatchlistRepository::find_watchlists_containing_symbol(pool, &symbol, &query.market)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("조회 실패: {}", e),
+                )
+            })?;
 
     Ok(Json(watchlists))
 }

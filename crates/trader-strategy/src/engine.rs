@@ -514,12 +514,14 @@ impl StrategyEngine {
             }
 
             // 다중 타임프레임 전략 처리
-            let signals_result = if let Some(mtf_config) = instance.strategy.multi_timeframe_config() {
-                self.process_multi_timeframe_data(instance, &data, &mtf_config).await
-            } else {
-                // 일반 전략: 기존 방식대로 처리
-                instance.strategy.on_market_data(&data).await
-            };
+            let signals_result =
+                if let Some(mtf_config) = instance.strategy.multi_timeframe_config() {
+                    self.process_multi_timeframe_data(instance, &data, &mtf_config)
+                        .await
+                } else {
+                    // 일반 전략: 기존 방식대로 처리
+                    instance.strategy.on_market_data(&data).await
+                };
 
             match signals_result {
                 Ok(signals) => {
@@ -636,7 +638,7 @@ impl StrategyEngine {
             let ctx = instance.context.read().await;
             let mut data_map: HashMap<Timeframe, Vec<Kline>> = HashMap::new();
 
-            for (&tf, _) in &mtf_config.timeframes {
+            for &tf in mtf_config.timeframes.keys() {
                 if Some(tf) != primary_tf {
                     let klines = ctx.get_klines(ticker, tf).to_vec();
                     data_map.insert(tf, klines);
@@ -653,7 +655,10 @@ impl StrategyEngine {
             "Primary TF 완료 - 전략 재평가 실행"
         );
 
-        instance.strategy.on_multi_timeframe_data(data, &secondary_data).await
+        instance
+            .strategy
+            .on_multi_timeframe_data(data, &secondary_data)
+            .await
     }
 
     /// 중복 제거 윈도우 내 신호 중복 제거.

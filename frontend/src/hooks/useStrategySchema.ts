@@ -3,18 +3,40 @@
  *
  * 백엔드에서 전략 UI 스키마를 조회하고 캐싱합니다.
  * SDUIRenderer에서 사용됩니다.
+ * ts-rs 자동 생성 타입 사용
  */
 import { createSignal, createEffect, onCleanup } from 'solid-js';
 import type {
   StrategyUISchema,
   SchemaFragment,
-  RenderableSection,
   FieldSchema,
-} from '../types/sdui';
+} from '../types/generated/sdui';
 import {
   getStrategySchema,
   getFragmentDetails,
 } from '../api/schema';
+
+/**
+ * 렌더링용 섹션 정보 (Fragment + fields 결합)
+ *
+ * SDUISection 컴포넌트에서 사용합니다.
+ */
+export interface RenderableSection {
+  /** 섹션 ID (Fragment ID 또는 'custom') */
+  id: string;
+  /** 섹션 이름 */
+  name: string;
+  /** 섹션 설명 */
+  description?: string | null;
+  /** 필수 여부 (접기 불가) */
+  required: boolean;
+  /** 접힘 가능 여부 */
+  collapsible: boolean;
+  /** 포함된 필드 목록 */
+  fields: FieldSchema[];
+  /** 표시 순서 */
+  order: number;
+}
 
 // ==================== 캐시 ====================
 

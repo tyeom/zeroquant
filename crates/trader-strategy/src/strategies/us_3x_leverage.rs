@@ -1,26 +1,23 @@
-//! 미국 3배 레버리지/인버스 조합 전략 (US 3X Leverage)
+//! 미국 3배 레버리지/인버스 조합 전략 (US 3X Leverage) v2.0
 //!
 //! 3배 레버리지 ETF와 인버스 ETF를 조합하여 양방향 수익을 추구하는 전략.
-//! 상승장에서는 레버리지 ETF, 하락장에서는 인버스 ETF로 헤지.
 //!
-//! # 전략 로직
-//! - **기본 배분**: 레버리지 70% + 인버스 30% (조정 가능)
-//! - **리밸런싱**: 월 1회 또는 비율 이탈 시
-//! - **진입 조건**: MA 기반 추세 판단 후 비중 조절
+//! # 핵심 로직
+//! 1. 상승장: 레버리지 ETF 비중 확대 (TQQQ, SOXL)
+//! 2. 하락장: 인버스 ETF 비중 확대 (SQQQ, SOXS)
+//! 3. 위기 상황: 전량 현금화 또는 인버스 집중
+//!
+//! # StrategyContext 연동 (v2.0)
+//! - GlobalScore: 최소 점수 이상인 ETF만 매수
+//! - RouteState: Wait/Overheat 상태에서 진입 제한
+//! - MarketRegime: 시장 상태에 따른 동적 비중 조절
+//! - MacroEnvironment: 매크로 위험 수준에 따른 방어 전환
 //!
 //! # 대상 ETF
 //! - **레버리지**: TQQQ (나스닥 3배), SOXL (반도체 3배)
 //! - **인버스**: SQQQ (나스닥 인버스 3배), SOXS (반도체 인버스 3배)
-//!
-//! # 기본 배분
-//! - TQQQ: 35%
-//! - SOXL: 35%
-//! - SQQQ: 15%
-//! - SOXS: 15%
-//!
-//! # 권장 타임프레임
-//! - 일봉 (1D) - 장기 투자
 
+use crate::register_strategy;
 use crate::Strategy;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -33,10 +30,19 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
-use trader_core::domain::{RouteState, StrategyContext};
-use trader_core::{MarketData, MarketDataType, Order, Position, Side, Signal};
+use trader_core::domain::StrategyContext;
+use trader_core::{
+    MacroRisk, MarketData, MarketDataType, MarketRegime, Order, Position, RouteState, Side, Signal,
+};
+use trader_strategy_macro::StrategyConfig;
 
-/// 개별 ETF 배분 설정.
+use crate::strategies::common::ExitConfig;
+
+// ============================================================================
+// 설정
+// ============================================================================
+
+/// 개별 ETF 배분 설정
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct EtfAllocation {
     /// ETF 티커
@@ -49,57 +55,85 @@ pub struct EtfAllocation {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[derive(Default)]
 pub enum EtfType {
     #[serde(rename = "leverage")]
+    #[default]
     Leverage,
     #[serde(rename = "inverse")]
     Inverse,
 }
 
-impl Default for EtfType {
-    fn default() -> Self {
-        EtfType::Leverage
-    }
-}
 
-/// 미국 3배 레버리지 전략 설정.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+/// 미국 3배 레버리지 전략 설정 v2.0
+#[derive(Debug, Clone, Deserialize, Serialize, StrategyConfig)]
+#[strategy(
+    id = "us_3x_leverage",
+    name = "미국 3배 레버리지",
+    description = "미국 레버리지/인버스 ETF 조합으로 양방향 수익을 추구하는 전략",
+    category = "Daily"
+)]
 pub struct Us3xLeverageConfig {
     /// ETF 배분 리스트
     #[serde(default = "default_allocations")]
+    #[schema(label = "ETF 배분")]
     pub allocations: Vec<EtfAllocation>,
 
     /// 리밸런싱 임계값 (비율 이탈 %, 기본값: 5%)
     #[serde(default = "default_rebalance_threshold")]
+    #[schema(label = "리밸런싱 임계값 (%)", min = 1, max = 20)]
     pub rebalance_threshold: f64,
 
     /// 리밸런싱 주기 (일, 기본값: 30일)
     #[serde(default = "default_rebalance_period_days")]
+    #[schema(label = "리밸런싱 주기 (일)", min = 1, max = 90)]
     pub rebalance_period_days: u32,
-
-    /// MA 필터 사용 (기본값: true)
-    #[serde(default = "default_use_ma_filter")]
-    pub use_ma_filter: bool,
 
     /// 레버리지 MA 기간 (기본값: 20)
     #[serde(default = "default_ma_period")]
+    #[schema(label = "이동평균 기간", min = 5, max = 200)]
     pub ma_period: usize,
 
-    /// 하락장 시 인버스 비중 증가 (기본값: true)
-    #[serde(default = "default_dynamic_allocation")]
-    pub dynamic_allocation: bool,
-
-    /// 하락장 인버스 최대 비중 (기본값: 50%)
+    /// 하락장 인버스 최대 비중 (기본값: 60%)
     #[serde(default = "default_max_inverse_ratio")]
+    #[schema(label = "인버스 최대 비중 (%)", min = 0, max = 100)]
     pub max_inverse_ratio: f64,
 
     /// 레버리지 최대 손실 시 전량 매도 (기본값: 30%)
     #[serde(default = "default_max_drawdown")]
+    #[schema(label = "최대 손실률 (%)", min = 5, max = 50)]
     pub max_drawdown_pct: f64,
 
-    /// 최소 글로벌 스코어 (기본값: 60)
+    // ========== StrategyContext 연동 설정 (v2.0) ==========
+    /// 최소 글로벌 스코어 (기본값: 55.0)
     #[serde(default = "default_min_global_score")]
-    pub min_global_score: Decimal,
+    #[schema(label = "최소 GlobalScore", min = 0, max = 100)]
+    pub min_global_score: f64,
+
+    /// RouteState 필터 사용 여부 (기본값: true)
+    #[serde(default = "default_use_route_filter")]
+    #[schema(label = "RouteState 필터 사용")]
+    pub use_route_filter: bool,
+
+    /// MarketRegime 기반 동적 배분 사용 여부 (기본값: true)
+    #[serde(default = "default_use_regime_allocation")]
+    #[schema(label = "MarketRegime 동적 배분")]
+    pub use_regime_allocation: bool,
+
+    /// MacroRisk 기반 방어 전환 사용 여부 (기본값: true)
+    #[serde(default = "default_use_macro_risk")]
+    #[schema(label = "MacroRisk 방어 전환")]
+    pub use_macro_risk: bool,
+
+    /// 위기 상황 시 전량 현금화 (기본값: false)
+    #[serde(default)]
+    #[schema(label = "위기 시 현금화")]
+    pub cash_out_on_crisis: bool,
+
+    /// 청산 설정 (손절/익절/트레일링 스탑).
+    #[serde(default)]
+    #[fragment("risk.exit_config")]
+    pub exit_config: ExitConfig,
 }
 
 fn default_allocations() -> Vec<EtfAllocation> {
@@ -133,23 +167,26 @@ fn default_rebalance_threshold() -> f64 {
 fn default_rebalance_period_days() -> u32 {
     30
 }
-fn default_use_ma_filter() -> bool {
-    true
-}
 fn default_ma_period() -> usize {
     20
 }
-fn default_dynamic_allocation() -> bool {
-    true
-}
 fn default_max_inverse_ratio() -> f64 {
-    0.5
+    0.6
 }
 fn default_max_drawdown() -> f64 {
     30.0
 }
-fn default_min_global_score() -> Decimal {
-    dec!(60)
+fn default_min_global_score() -> f64 {
+    55.0
+}
+fn default_use_route_filter() -> bool {
+    true
+}
+fn default_use_regime_allocation() -> bool {
+    true
+}
+fn default_use_macro_risk() -> bool {
+    true
 }
 
 impl Default for Us3xLeverageConfig {
@@ -158,22 +195,31 @@ impl Default for Us3xLeverageConfig {
             allocations: default_allocations(),
             rebalance_threshold: 5.0,
             rebalance_period_days: 30,
-            use_ma_filter: true,
             ma_period: 20,
-            dynamic_allocation: true,
-            max_inverse_ratio: 0.5,
+            max_inverse_ratio: 0.6,
             max_drawdown_pct: 30.0,
-            min_global_score: default_min_global_score(),
+            min_global_score: 55.0,
+            use_route_filter: true,
+            use_regime_allocation: true,
+            use_macro_risk: true,
+            cash_out_on_crisis: false,
+            exit_config: ExitConfig::default(),
         }
     }
 }
 
-/// ETF 데이터.
+// ============================================================================
+// 내부 데이터 구조체
+// ============================================================================
+
+/// ETF 데이터
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct EtfData {
     ticker: String,
     etf_type: EtfType,
-    target_ratio: f64,
+    base_target_ratio: f64, // 설정 파일의 기본 비율
+    target_ratio: f64,      // 현재 적용 비율 (동적 조절 가능)
     current_ratio: f64,
     current_price: Decimal,
     holdings: Decimal,
@@ -187,6 +233,7 @@ impl EtfData {
         Self {
             ticker,
             etf_type,
+            base_target_ratio: target_ratio,
             target_ratio,
             current_ratio: 0.0,
             current_price: Decimal::ZERO,
@@ -221,10 +268,24 @@ impl EtfData {
     }
 }
 
-/// 미국 3배 레버리지 전략.
+/// 시장 환경 상태
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum MarketEnvironment {
+    Bullish, // 강세장 - 레버리지 70%+
+    Neutral, // 중립 - 기본 배분
+    Bearish, // 약세장 - 인버스 비중 증가
+    Crisis,  // 위기 - 전량 현금화 또는 인버스 집중
+}
+
+// ============================================================================
+// 전략 구현
+// ============================================================================
+
+/// 미국 3배 레버리지 전략 v2.0
 pub struct Us3xLeverageStrategy {
     config: Option<Us3xLeverageConfig>,
     tickers: Vec<String>,
+    context: Option<Arc<RwLock<StrategyContext>>>,
 
     /// ETF별 데이터
     etf_data: HashMap<String, EtfData>,
@@ -241,8 +302,8 @@ pub struct Us3xLeverageStrategy {
     /// 포트폴리오 고점
     portfolio_high: Decimal,
 
-    /// 시장 상태 (true = 상승장)
-    is_bullish: bool,
+    /// 현재 시장 환경
+    market_env: MarketEnvironment,
 
     /// 초기화 완료
     started: bool,
@@ -252,9 +313,6 @@ pub struct Us3xLeverageStrategy {
     total_pnl: Decimal,
 
     initialized: bool,
-
-    /// 전략 컨텍스트
-    context: Option<Arc<RwLock<StrategyContext>>>,
 }
 
 impl Us3xLeverageStrategy {
@@ -262,57 +320,271 @@ impl Us3xLeverageStrategy {
         Self {
             config: None,
             tickers: Vec::new(),
+            context: None,
             etf_data: HashMap::new(),
             total_value: Decimal::ZERO,
             last_rebalance_date: None,
             current_date: None,
             portfolio_high: Decimal::ZERO,
-            is_bullish: true,
+            market_env: MarketEnvironment::Neutral,
             started: false,
             rebalance_count: 0,
             total_pnl: Decimal::ZERO,
             initialized: false,
-            context: None,
         }
     }
 
-    /// StrategyContext 기반 진입 가능 여부 확인.
-    fn can_enter(&self, ticker: &str) -> bool {
-        let context = match &self.context {
-            Some(ctx) => ctx,
-            None => return true,
-        };
+    // ========================================================================
+    // StrategyContext 연동 헬퍼 (v2.0)
+    // ========================================================================
+
+    /// StrategyContext에서 GlobalScore 조회
+    async fn get_global_score(&self, ticker: &str) -> Option<f64> {
+        let ctx = self.context.as_ref()?;
+        let ctx_guard = ctx.read().await;
+        ctx_guard
+            .get_global_score(ticker)
+            .map(|gs| gs.overall_score.to_f64().unwrap_or(0.0))
+    }
+
+    /// StrategyContext에서 RouteState 조회
+    async fn get_route_state(&self, ticker: &str) -> Option<RouteState> {
+        let ctx = self.context.as_ref()?;
+        let ctx_guard = ctx.read().await;
+        ctx_guard.get_route_state(ticker).cloned()
+    }
+
+    /// StrategyContext에서 MarketRegime 조회
+    async fn get_market_regime(&self, ticker: &str) -> Option<MarketRegime> {
+        let ctx = self.context.as_ref()?;
+        let ctx_guard = ctx.read().await;
+        ctx_guard.get_market_regime(ticker).cloned()
+    }
+
+    /// StrategyContext에서 MacroRisk 조회
+    async fn get_macro_risk(&self) -> Option<MacroRisk> {
+        let ctx = self.context.as_ref()?;
+        let ctx_guard = ctx.read().await;
+        ctx_guard
+            .get_macro_environment()
+            .map(|m| m.risk_level)
+    }
+
+    /// 종목별 진입 가능 여부 확인 (v2.0 - async)
+    async fn can_enter(&self, ticker: &str) -> bool {
         let config = match &self.config {
             Some(cfg) => cfg,
             None => return true,
         };
-        let ctx = match context.try_read() {
-            Ok(ctx) => ctx,
-            Err(_) => return true,
-        };
-        if let Some(route) = ctx.get_route_state(ticker) {
-            match route {
-                RouteState::Wait | RouteState::Overheat => {
-                    debug!("[Us3xLeverage] RouteState {:?} for {} - 진입 불가", route, ticker);
-                    return false;
+
+        // RouteState 체크
+        if config.use_route_filter {
+            if let Some(route) = self.get_route_state(ticker).await {
+                match route {
+                    RouteState::Wait | RouteState::Overheat => {
+                        debug!(ticker, ?route, "RouteState 비호의적 - 진입 거부");
+                        return false;
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
         }
-        // GlobalScore 확인
-        if let Some(score) = ctx.get_global_score(ticker) {
-            if score.overall_score < config.min_global_score {
+
+        // GlobalScore 체크
+        if let Some(score) = self.get_global_score(ticker).await {
+            if score < config.min_global_score {
                 debug!(
-                    "[Us3xLeverage] GlobalScore {} < {} for {} - 진입 불가",
-                    score.overall_score, config.min_global_score, ticker
+                    ticker,
+                    score,
+                    min = config.min_global_score,
+                    "GlobalScore 미달"
                 );
                 return false;
             }
         }
+
         true
     }
 
-    /// 새로운 날인지 확인.
+    // ========================================================================
+    // 시장 환경 판단 (v2.0)
+    // ========================================================================
+
+    /// 시장 환경 업데이트 (MarketRegime + MacroRisk 기반)
+    async fn update_market_environment(&mut self) {
+        let config = match self.config.as_ref() {
+            Some(c) => c,
+            None => return,
+        };
+
+        // 1. MacroRisk 확인 (최우선)
+        if config.use_macro_risk {
+            if let Some(risk) = self.get_macro_risk().await {
+                match risk {
+                    MacroRisk::Critical => {
+                        self.market_env = MarketEnvironment::Crisis;
+                        info!("매크로 위험 Critical - 위기 모드 전환");
+                        return;
+                    }
+                    MacroRisk::High => {
+                        self.market_env = MarketEnvironment::Bearish;
+                        info!("매크로 위험 High - 약세장 모드 전환");
+                        return;
+                    }
+                    MacroRisk::Normal => {
+                        // MacroRisk 정상 - MarketRegime으로 판단
+                    }
+                }
+            }
+        }
+
+        // 2. MarketRegime 기반 판단
+        if config.use_regime_allocation {
+            // 대표 레버리지 ETF의 MarketRegime 확인 (TQQQ)
+            if let Some(regime) = self.get_market_regime("TQQQ").await {
+                match regime {
+                    MarketRegime::StrongUptrend => {
+                        self.market_env = MarketEnvironment::Bullish;
+                        debug!("MarketRegime StrongUptrend - 강세장");
+                        return;
+                    }
+                    MarketRegime::BottomBounce => {
+                        self.market_env = MarketEnvironment::Neutral;
+                        debug!("MarketRegime BottomBounce - 중립");
+                        return;
+                    }
+                    MarketRegime::Sideways => {
+                        self.market_env = MarketEnvironment::Neutral;
+                        debug!("MarketRegime Sideways - 중립");
+                        return;
+                    }
+                    MarketRegime::Correction => {
+                        self.market_env = MarketEnvironment::Bearish;
+                        debug!("MarketRegime Correction - 약세장");
+                        return;
+                    }
+                    MarketRegime::Downtrend => {
+                        self.market_env = MarketEnvironment::Bearish;
+                        debug!("MarketRegime Downtrend - 약세장");
+                        return;
+                    }
+                }
+            }
+        }
+
+        // 3. 폴백: MA 기반 판단
+        let mut bullish_count = 0;
+        let mut total_leverage = 0;
+
+        for data in self.etf_data.values() {
+            if data.etf_type == EtfType::Leverage {
+                total_leverage += 1;
+                if data.is_above_ma() {
+                    bullish_count += 1;
+                }
+            }
+        }
+
+        if total_leverage > 0 {
+            if bullish_count >= total_leverage {
+                self.market_env = MarketEnvironment::Bullish;
+            } else if bullish_count == 0 {
+                self.market_env = MarketEnvironment::Bearish;
+            } else {
+                self.market_env = MarketEnvironment::Neutral;
+            }
+        }
+
+        debug!(
+            bullish_count,
+            total_leverage,
+            ?self.market_env,
+            "시장 환경 업데이트 (MA 기반)"
+        );
+    }
+
+    /// 목표 비율 조정 (시장 환경 기반)
+    fn adjust_target_ratios(&mut self) {
+        let config = match self.config.as_ref() {
+            Some(c) => c.clone(),
+            None => return,
+        };
+
+        match self.market_env {
+            MarketEnvironment::Bullish => {
+                // 강세장: 레버리지 비중 최대화
+                let leverage_ratio = 0.8;
+                let inverse_ratio = 0.2;
+                self.set_etf_ratios(leverage_ratio, inverse_ratio);
+                debug!(
+                    "강세장 비중: 레버리지 {:.0}%, 인버스 {:.0}%",
+                    leverage_ratio * 100.0,
+                    inverse_ratio * 100.0
+                );
+            }
+            MarketEnvironment::Neutral => {
+                // 중립: 기본 비율로 복귀
+                for alloc in &config.allocations {
+                    if let Some(data) = self.etf_data.get_mut(&alloc.ticker) {
+                        data.target_ratio = data.base_target_ratio;
+                    }
+                }
+                debug!("중립 비중: 기본값 복귀");
+            }
+            MarketEnvironment::Bearish => {
+                // 약세장: 인버스 비중 증가
+                let inverse_ratio = config.max_inverse_ratio;
+                let leverage_ratio = 1.0 - inverse_ratio;
+                self.set_etf_ratios(leverage_ratio, inverse_ratio);
+                debug!(
+                    "약세장 비중: 레버리지 {:.0}%, 인버스 {:.0}%",
+                    leverage_ratio * 100.0,
+                    inverse_ratio * 100.0
+                );
+            }
+            MarketEnvironment::Crisis => {
+                if config.cash_out_on_crisis {
+                    // 전량 현금화 (모든 비율 0으로 - 신호 생성 시 청산)
+                    for data in self.etf_data.values_mut() {
+                        data.target_ratio = 0.0;
+                    }
+                    warn!("위기 모드: 전량 현금화 예정");
+                } else {
+                    // 인버스 집중
+                    self.set_etf_ratios(0.1, 0.9);
+                    warn!("위기 모드: 인버스 90% 집중");
+                }
+            }
+        }
+    }
+
+    /// 레버리지/인버스 비율 설정 헬퍼
+    fn set_etf_ratios(&mut self, leverage_total: f64, inverse_total: f64) {
+        let leverage_count = self
+            .etf_data
+            .values()
+            .filter(|d| d.etf_type == EtfType::Leverage)
+            .count();
+        let inverse_count = self
+            .etf_data
+            .values()
+            .filter(|d| d.etf_type == EtfType::Inverse)
+            .count();
+
+        for data in self.etf_data.values_mut() {
+            data.target_ratio = match data.etf_type {
+                EtfType::Leverage if leverage_count > 0 => leverage_total / leverage_count as f64,
+                EtfType::Inverse if inverse_count > 0 => inverse_total / inverse_count as f64,
+                _ => 0.0,
+            };
+        }
+    }
+
+    // ========================================================================
+    // 기타 헬퍼
+    // ========================================================================
+
+    /// 새로운 날인지 확인
     fn is_new_day(&self, current_time: DateTime<Utc>) -> bool {
         match self.current_date {
             Some(date) => current_time.date_naive() != date,
@@ -320,7 +592,7 @@ impl Us3xLeverageStrategy {
         }
     }
 
-    /// 리밸런싱 필요 여부 확인.
+    /// 리밸런싱 필요 여부 확인
     fn needs_rebalancing(&self, current_time: DateTime<Utc>) -> bool {
         let config = match self.config.as_ref() {
             Some(c) => c,
@@ -346,7 +618,7 @@ impl Us3xLeverageStrategy {
         false
     }
 
-    /// 현재 비율 계산.
+    /// 현재 비율 계산
     fn calculate_current_ratios(&mut self) {
         if self.total_value <= Decimal::ZERO {
             return;
@@ -358,90 +630,12 @@ impl Us3xLeverageStrategy {
         }
     }
 
-    /// 시장 상태 판단 (MA 기반).
-    fn update_market_state(&mut self) {
-        let config = match self.config.as_ref() {
-            Some(c) => c,
-            None => return,
-        };
-
-        if !config.use_ma_filter {
-            self.is_bullish = true;
-            return;
-        }
-
-        // 레버리지 ETF 중 하나라도 MA 위에 있으면 상승장
-        let mut bullish_count = 0;
-        let mut total_leverage = 0;
-
-        for data in self.etf_data.values() {
-            if data.etf_type == EtfType::Leverage {
-                total_leverage += 1;
-                if data.is_above_ma() {
-                    bullish_count += 1;
-                }
-            }
-        }
-
-        // 과반수 기준
-        self.is_bullish = bullish_count > total_leverage / 2;
-
-        debug!(
-            bullish_count = bullish_count,
-            total = total_leverage,
-            is_bullish = self.is_bullish,
-            "시장 상태 업데이트"
-        );
-    }
-
-    /// 목표 비율 조정 (동적 배분).
-    fn adjust_target_ratios(&mut self) {
-        let config = match self.config.as_ref() {
-            Some(c) => c.clone(),
-            None => return,
-        };
-
-        if !config.dynamic_allocation {
-            return;
-        }
-
-        // 하락장이면 인버스 비중 증가
-        if !self.is_bullish {
-            let inverse_boost = config.max_inverse_ratio;
-
-            for data in self.etf_data.values_mut() {
-                match data.etf_type {
-                    EtfType::Inverse => {
-                        // 인버스 비중을 최대까지 증가
-                        data.target_ratio = inverse_boost / 2.0; // 인버스 2개 균등
-                    }
-                    EtfType::Leverage => {
-                        // 레버리지 비중 감소
-                        data.target_ratio = (1.0 - inverse_boost) / 2.0; // 레버리지 2개 균등
-                    }
-                }
-            }
-
-            info!(
-                inverse_ratio = inverse_boost,
-                "하락장 감지 - 인버스 비중 증가"
-            );
-        } else {
-            // 상승장이면 기본 비율로 복귀
-            for alloc in &config.allocations {
-                if let Some(data) = self.etf_data.get_mut(&alloc.ticker) {
-                    data.target_ratio = alloc.target_ratio;
-                }
-            }
-        }
-    }
-
-    /// 리밸런싱 신호 생성.
-    fn generate_rebalance_signals(&mut self, timestamp: DateTime<Utc>) -> Vec<Signal> {
+    /// 리밸런싱 신호 생성
+    async fn generate_rebalance_signals(&mut self, timestamp: DateTime<Utc>) -> Vec<Signal> {
         let mut signals = Vec::new();
 
         self.calculate_current_ratios();
-        self.update_market_state();
+        self.update_market_environment().await;
         self.adjust_target_ratios();
 
         for (ticker, data) in &self.etf_data {
@@ -453,52 +647,57 @@ impl Us3xLeverageStrategy {
                 continue; // 1% 미만 차이는 무시
             }
 
-            let ticker = match self.tickers.iter().find(|s| s.starts_with(&format!("{}/", ticker))) {
+            let full_ticker = match self
+                .tickers
+                .iter()
+                .find(|s| s.starts_with(&format!("{}/", ticker)))
+            {
                 Some(s) => s.clone(),
                 None => continue,
             };
 
             if diff > 0.0 {
-                // 매수 필요 - StrategyContext 기반 진입 체크 (종목별)
-                if !self.can_enter(&ticker) {
-                    debug!(
-                        ticker = %ticker,
-                        "[Us3xLeverage] 리밸런싱 매수 스킵 - can_enter() false"
-                    );
+                // 매수 필요 - StrategyContext 기반 진입 체크
+                if !self.can_enter(ticker).await {
+                    debug!(ticker, "리밸런싱 매수 스킵 - can_enter() false");
                     continue;
                 }
 
                 info!(
-                    ticker = %ticker,
+                    ticker,
                     target = %format!("{:.1}%", target * 100.0),
                     current = %format!("{:.1}%", current * 100.0),
+                    ?self.market_env,
                     "리밸런싱 매수"
                 );
 
                 signals.push(
-                    Signal::entry("us_3x_leverage", ticker, Side::Buy)
+                    Signal::entry("us_3x_leverage", full_ticker, Side::Buy)
                         .with_strength(diff.abs())
                         .with_prices(Some(data.current_price), None, None)
                         .with_metadata("action", json!("rebalance_buy"))
                         .with_metadata("target_ratio", json!(target))
-                        .with_metadata("current_ratio", json!(current)),
+                        .with_metadata("current_ratio", json!(current))
+                        .with_metadata("market_env", json!(format!("{:?}", self.market_env))),
                 );
             } else {
                 // 매도 필요
                 info!(
-                    ticker = %ticker,
+                    ticker,
                     target = %format!("{:.1}%", target * 100.0),
                     current = %format!("{:.1}%", current * 100.0),
+                    ?self.market_env,
                     "리밸런싱 매도"
                 );
 
                 signals.push(
-                    Signal::exit("us_3x_leverage", ticker, Side::Sell)
+                    Signal::exit("us_3x_leverage", full_ticker, Side::Sell)
                         .with_strength(diff.abs())
                         .with_prices(Some(data.current_price), None, None)
                         .with_metadata("action", json!("rebalance_sell"))
                         .with_metadata("target_ratio", json!(target))
-                        .with_metadata("current_ratio", json!(current)),
+                        .with_metadata("current_ratio", json!(current))
+                        .with_metadata("market_env", json!(format!("{:?}", self.market_env))),
                 );
             }
         }
@@ -511,41 +710,48 @@ impl Us3xLeverageStrategy {
         signals
     }
 
-    /// 초기 진입 신호 생성.
-    fn generate_initial_signals(&mut self) -> Vec<Signal> {
+    /// 초기 진입 신호 생성
+    async fn generate_initial_signals(&mut self) -> Vec<Signal> {
         let mut signals = Vec::new();
+
+        // 초기 진입 전 시장 환경 확인
+        self.update_market_environment().await;
+        self.adjust_target_ratios();
 
         for (ticker, data) in &self.etf_data {
             if data.target_ratio <= 0.0 {
                 continue;
             }
 
-            // StrategyContext 기반 진입 체크 (종목별)
-            if !self.can_enter(&ticker) {
-                debug!(
-                    ticker = %ticker,
-                    "[Us3xLeverage] 초기 진입 스킵 - can_enter() false"
-                );
+            // StrategyContext 기반 진입 체크
+            if !self.can_enter(ticker).await {
+                debug!(ticker, "초기 진입 스킵 - can_enter() false");
                 continue;
             }
 
-            let ticker = match self.tickers.iter().find(|s| s.starts_with(&format!("{}/", ticker))) {
+            let full_ticker = match self
+                .tickers
+                .iter()
+                .find(|s| s.starts_with(&format!("{}/", ticker)))
+            {
                 Some(s) => s.clone(),
                 None => continue,
             };
 
             info!(
-                ticker = %ticker,
+                ticker,
                 ratio = %format!("{:.1}%", data.target_ratio * 100.0),
+                ?self.market_env,
                 "초기 매수"
             );
 
             signals.push(
-                Signal::entry("us_3x_leverage", ticker, Side::Buy)
+                Signal::entry("us_3x_leverage", full_ticker, Side::Buy)
                     .with_strength(data.target_ratio)
                     .with_prices(Some(data.current_price), None, None)
                     .with_metadata("action", json!("initial_buy"))
-                    .with_metadata("target_ratio", json!(data.target_ratio)),
+                    .with_metadata("target_ratio", json!(data.target_ratio))
+                    .with_metadata("market_env", json!(format!("{:?}", self.market_env))),
             );
         }
 
@@ -553,12 +759,9 @@ impl Us3xLeverageStrategy {
         signals
     }
 
-    /// 드로다운 체크.
+    /// 드로다운 체크
     fn check_drawdown(&mut self) -> Option<Vec<Signal>> {
-        let config = match self.config.as_ref() {
-            Some(c) => c,
-            None => return None,
-        };
+        let config = self.config.as_ref()?;
 
         if self.portfolio_high <= Decimal::ZERO {
             return None;
@@ -569,7 +772,7 @@ impl Us3xLeverageStrategy {
             .unwrap_or(0.0);
 
         if drawdown >= config.max_drawdown_pct {
-            // 전량 청산
+            // 레버리지 ETF 전량 청산
             let mut signals = Vec::new();
 
             for (ticker, data) in &self.etf_data {
@@ -578,19 +781,23 @@ impl Us3xLeverageStrategy {
                 }
 
                 if data.etf_type == EtfType::Leverage {
-                    let ticker = match self.tickers.iter().find(|s| s.starts_with(&format!("{}/", ticker))) {
+                    let full_ticker = match self
+                        .tickers
+                        .iter()
+                        .find(|s| s.starts_with(&format!("{}/", ticker)))
+                    {
                         Some(s) => s.clone(),
                         None => continue,
                     };
 
                     warn!(
-                        ticker = %ticker,
+                        ticker,
                         drawdown = %format!("{:.1}%", drawdown),
                         "최대 드로다운 도달 - 레버리지 청산"
                     );
 
                     signals.push(
-                        Signal::exit("us_3x_leverage", ticker, Side::Sell)
+                        Signal::exit("us_3x_leverage", full_ticker, Side::Sell)
                             .with_strength(1.0)
                             .with_prices(Some(data.current_price), None, None)
                             .with_metadata("action", json!("drawdown_exit"))
@@ -612,6 +819,10 @@ impl Default for Us3xLeverageStrategy {
     }
 }
 
+// ============================================================================
+// Strategy 트레이트 구현
+// ============================================================================
+
 #[async_trait]
 impl Strategy for Us3xLeverageStrategy {
     fn name(&self) -> &str {
@@ -619,12 +830,12 @@ impl Strategy for Us3xLeverageStrategy {
     }
 
     fn version(&self) -> &str {
-        "1.0.0"
+        "2.0.0"
     }
 
     fn description(&self) -> &str {
-        "미국 3배 레버리지/인버스 조합 전략. TQQQ/SOXL (레버리지 70%) + \
-         SQQQ/SOXS (인버스 30%) 조합. 월 1회 리밸런싱."
+        "미국 3배 레버리지/인버스 조합 전략 v2.0. StrategyContext 연동으로 \
+         MarketRegime/MacroRisk 기반 동적 비중 조절."
     }
 
     async fn initialize(
@@ -636,8 +847,10 @@ impl Strategy for Us3xLeverageStrategy {
         info!(
             allocations = ?lev_config.allocations.iter().map(|a| &a.ticker).collect::<Vec<_>>(),
             rebalance_days = lev_config.rebalance_period_days,
-            dynamic = lev_config.dynamic_allocation,
-            "미국 3배 레버리지 전략 초기화"
+            use_regime_allocation = lev_config.use_regime_allocation,
+            use_macro_risk = lev_config.use_macro_risk,
+            min_global_score = lev_config.min_global_score,
+            "미국 3배 레버리지 전략 v2.0 초기화"
         );
 
         // ETF 데이터 초기화
@@ -714,7 +927,7 @@ impl Strategy for Us3xLeverageStrategy {
                 .values()
                 .all(|d| d.current_price > Decimal::ZERO);
             if all_have_price {
-                return Ok(self.generate_initial_signals());
+                return Ok(self.generate_initial_signals().await);
             }
             return Ok(vec![]);
         }
@@ -726,7 +939,7 @@ impl Strategy for Us3xLeverageStrategy {
 
         // 리밸런싱 체크 (새 날에만)
         if new_day && self.needs_rebalancing(timestamp) {
-            return Ok(self.generate_rebalance_signals(timestamp));
+            return Ok(self.generate_rebalance_signals(timestamp).await);
         }
 
         Ok(vec![])
@@ -765,7 +978,7 @@ impl Strategy for Us3xLeverageStrategy {
         }
 
         debug!(
-            ticker = %ticker,
+            ticker,
             side = ?order.side,
             quantity = %order.quantity,
             "주문 체결"
@@ -794,7 +1007,8 @@ impl Strategy for Us3xLeverageStrategy {
             rebalance_count = self.rebalance_count,
             total_pnl = %self.total_pnl,
             final_value = %self.total_value,
-            "미국 3배 레버리지 전략 종료"
+            final_env = ?self.market_env,
+            "미국 3배 레버리지 전략 v2.0 종료"
         );
 
         Ok(())
@@ -811,28 +1025,35 @@ impl Strategy for Us3xLeverageStrategy {
                         "holdings": v.holdings.to_string(),
                         "current_ratio": format!("{:.1}%", v.current_ratio * 100.0),
                         "target_ratio": format!("{:.1}%", v.target_ratio * 100.0),
+                        "etf_type": format!("{:?}", v.etf_type),
                     }),
                 )
             })
             .collect();
 
         json!({
+            "version": "2.0.0",
             "initialized": self.initialized,
             "started": self.started,
-            "is_bullish": self.is_bullish,
+            "market_env": format!("{:?}", self.market_env),
             "total_value": self.total_value.to_string(),
             "portfolio_high": self.portfolio_high.to_string(),
             "rebalance_count": self.rebalance_count,
             "total_pnl": self.total_pnl.to_string(),
             "holdings": holdings,
+            "context_connected": self.context.is_some(),
         })
     }
 
     fn set_context(&mut self, context: Arc<RwLock<StrategyContext>>) {
         self.context = Some(context);
-        info!("StrategyContext injected into Us3xLeverage strategy");
+        info!("StrategyContext injected into Us3xLeverage v2.0 strategy");
     }
 }
+
+// ============================================================================
+// 테스트
+// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -847,7 +1068,8 @@ mod tests {
                 { "ticker": "TQQQ", "target_ratio": 0.35, "etf_type": "leverage" },
                 { "ticker": "SQQQ", "target_ratio": 0.15, "etf_type": "inverse" }
             ],
-            "rebalance_period_days": 30
+            "rebalance_period_days": 30,
+            "min_global_score": 55.0
         });
 
         strategy.initialize(config).await.unwrap();
@@ -863,19 +1085,34 @@ mod tests {
         let total_ratio: f64 = allocs.iter().map(|a| a.target_ratio).sum();
         assert!((total_ratio - 1.0).abs() < 0.01);
     }
+
+    #[test]
+    fn test_default_config() {
+        let config = Us3xLeverageConfig::default();
+        assert_eq!(config.min_global_score, 55.0);
+        assert!(config.use_route_filter);
+        assert!(config.use_regime_allocation);
+        assert!(config.use_macro_risk);
+        assert!(!config.cash_out_on_crisis);
+    }
+
+    #[test]
+    fn test_market_environment_variants() {
+        assert_ne!(MarketEnvironment::Bullish, MarketEnvironment::Bearish);
+        assert_ne!(MarketEnvironment::Neutral, MarketEnvironment::Crisis);
+    }
 }
 
 // 전략 레지스트리에 자동 등록
-use crate::register_strategy;
-
 register_strategy! {
     id: "us_3x_leverage",
-    aliases: ["us_leverage"],
+    aliases: ["us_leverage", "leverage_3x"],
     name: "미국 3배 레버리지",
-    description: "미국 3배 레버리지 ETF 전략입니다.",
+    description: "미국 3배 레버리지 ETF 전략 v2.0. StrategyContext 연동.",
     timeframe: "1d",
-    tickers: ["TQQQ", "SQQQ", "UPRO", "SPXU", "TMF", "TMV"],
+    tickers: ["TQQQ", "SQQQ", "SOXL", "SOXS"],
     category: Daily,
     markets: [Stock],
-    type: Us3xLeverageStrategy
+    type: Us3xLeverageStrategy,
+    config: Us3xLeverageConfig
 }

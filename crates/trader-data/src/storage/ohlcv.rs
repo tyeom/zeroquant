@@ -80,8 +80,8 @@ impl OhlcvRecord {
     pub fn to_kline_with_canonical(
         &self,
         canonical: &str,
-        quote: &str,
-        market_type: trader_core::MarketType,
+        _quote: &str,
+        _market_type: trader_core::MarketType,
     ) -> Kline {
         let timeframe = self.timeframe.parse().unwrap_or(Timeframe::D1);
         let close_time = self

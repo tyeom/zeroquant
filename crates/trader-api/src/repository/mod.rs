@@ -8,20 +8,21 @@ pub mod cost_basis;
 pub mod credentials;
 pub mod equity_history;
 pub mod execution_cache;
+pub mod global_score;
 pub mod journal;
+pub mod kis_token;
 pub mod klines;
 pub mod orders;
 pub mod portfolio;
 pub mod positions;
 pub mod reality_check;
+pub mod score_history;
 pub mod screening;
 pub mod signal_alert_rule;
 pub mod signal_marker;
 pub mod strategies;
 pub mod symbol_fundamental;
 pub mod symbol_info;
-pub mod global_score;
-pub mod kis_token;
 pub mod watchlist;
 
 pub use backtest_results::{
@@ -29,10 +30,8 @@ pub use backtest_results::{
     ListResultsFilter, ListResultsResponse as BacktestListResponse,
 };
 pub use credentials::{
-    create_exchange_providers_from_credential,
-    create_kis_kr_client_from_credential,
-    get_active_credential_id,
-    ExchangeProviderPair,
+    create_exchange_providers_from_credential, create_kis_kr_client_from_credential,
+    get_active_credential_id, ExchangeProviderPair,
 };
 pub use equity_history::{
     EquityHistoryRepository, EquityPoint, ExecutionForSync, MonthlyReturn, PortfolioSnapshot,
@@ -48,13 +47,13 @@ pub use positions::{
     HoldingPosition, PositionInput, PositionRecord, PositionRepository,
     SyncResult as PositionSyncResult,
 };
-pub use screening::{
-    CreatePresetRequest, MomentumScreenResult, ScreeningFilter, ScreeningPreset,
-    ScreeningPresetRecord, ScreeningRepository, ScreeningResult, SectorRsResult,
-};
 pub use reality_check::{
     CalculationResult, DailyStats, PriceSnapshot, RankStats, RealityCheckRecord,
     RealityCheckRepository, SnapshotInput, SourceStats,
+};
+pub use screening::{
+    CreatePresetRequest, MomentumScreenResult, ScreeningFilter, ScreeningPreset,
+    ScreeningPresetRecord, ScreeningRepository, ScreeningResult, SectorRsResult,
 };
 pub use strategies::StrategyRepository;
 pub use symbol_fundamental::{
@@ -67,8 +66,8 @@ pub use symbol_info::{
 };
 
 pub use global_score::{
-    GlobalScoreRecord, GlobalScoreRepository, RankedSymbol, RankingFilter,
-    SevenFactorData, SevenFactorResponse,
+    GlobalScoreRecord, GlobalScoreRepository, RankedSymbol, RankingFilter, SevenFactorData,
+    SevenFactorResponse,
 };
 
 pub use journal::{
@@ -113,3 +112,7 @@ pub use watchlist::{
 };
 
 pub use kis_token::KisTokenRepository;
+
+pub use score_history::{
+    ScoreHistoryInput, ScoreHistoryRecord, ScoreHistoryRepository, ScoreHistorySummary,
+};

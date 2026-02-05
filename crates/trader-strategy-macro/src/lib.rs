@@ -106,13 +106,28 @@ pub fn derive_strategy_config(input: TokenStream) -> TokenStream {
             let field_name_str = field_name.to_string();
 
             let default_label = field_name_str.clone();
-            let label = schema_attrs.get("label").unwrap_or(&default_label);
-            let description = schema_attrs.get("description");
-            let min = schema_attrs.get("min");
-            let max = schema_attrs.get("max");
+            let label = schema_attrs.values.get("label").unwrap_or(&default_label);
+            let description = schema_attrs.values.get("description");
+            let min = schema_attrs.values.get("min");
+            let max = schema_attrs.values.get("max");
 
-            // 필드 타입 추론
-            let field_type = infer_field_type(&field.ty);
+            // 필드 타입: 명시적 지정 > 자동 추론
+            let field_type = if let Some(ft) = &schema_attrs.field_type {
+                match ft.as_str() {
+                    "integer" => quote! { trader_core::FieldType::Integer },
+                    "number" => quote! { trader_core::FieldType::Number },
+                    "boolean" => quote! { trader_core::FieldType::Boolean },
+                    "string" => quote! { trader_core::FieldType::String },
+                    "select" => quote! { trader_core::FieldType::Select },
+                    "multi_select" => quote! { trader_core::FieldType::MultiSelect },
+                    "symbol" => quote! { trader_core::FieldType::Symbol },
+                    "symbols" => quote! { trader_core::FieldType::Symbols },
+                    "multi_timeframe" => quote! { trader_core::FieldType::MultiTimeframe },
+                    _ => infer_field_type(&field.ty),
+                }
+            } else {
+                infer_field_type(&field.ty)
+            };
 
             let description_expr = if let Some(desc) = description {
                 quote! { Some(#desc.to_string()) }
@@ -121,15 +136,42 @@ pub fn derive_strategy_config(input: TokenStream) -> TokenStream {
             };
 
             let min_expr = if let Some(min_val) = min {
-                let min_f64: f64 = min_val.parse().unwrap_or(0.0);
+                let min_f64: f64 = min_val.parse::<f64>().unwrap_or(0.0);
                 quote! { Some(#min_f64) }
             } else {
                 quote! { None }
             };
 
             let max_expr = if let Some(max_val) = max {
-                let max_f64: f64 = max_val.parse().unwrap_or(100.0);
+                let max_f64: f64 = max_val.parse::<f64>().unwrap_or(100.0);
                 quote! { Some(#max_f64) }
+            } else {
+                quote! { None }
+            };
+
+            // options 배열 생성
+            let options = &schema_attrs.options;
+            let options_expr = if options.is_empty() {
+                quote! { Vec::new() }
+            } else {
+                quote! { vec![#(#options.to_string()),*] }
+            };
+
+            // hidden 속성
+            let is_hidden = schema_attrs.hidden;
+
+            // default 값 (schema 속성에서 가져옴)
+            let default_expr = if let Some(default_val) = schema_attrs.values.get("default") {
+                // JSON 값으로 파싱 시도
+                if let Ok(parsed) = default_val.parse::<f64>() {
+                    quote! { Some(serde_json::json!(#parsed)) }
+                } else if default_val == "true" {
+                    quote! { Some(serde_json::json!(true)) }
+                } else if default_val == "false" {
+                    quote! { Some(serde_json::json!(false)) }
+                } else {
+                    quote! { Some(serde_json::json!(#default_val)) }
+                }
             } else {
                 quote! { None }
             };
@@ -140,9 +182,12 @@ pub fn derive_strategy_config(input: TokenStream) -> TokenStream {
                     field_type: #field_type,
                     label: #label.to_string(),
                     description: #description_expr,
+                    default: #default_expr,
                     min: #min_expr,
                     max: #max_expr,
+                    options: #options_expr,
                     required: true,
+                    hidden: #is_hidden,
                     ..Default::default()
                 }
             });
@@ -188,13 +233,19 @@ fn parse_strategy_attributes(
 
     for attr in attrs {
         if attr.path().is_ident("strategy") {
+            // 전체 토큰을 문자열로 변환하여 파싱
             if let Ok(meta_list) = attr.meta.require_list() {
-                for nested in meta_list.tokens.clone().into_iter() {
-                    let nested_str = nested.to_string();
-                    // "id = \"value\"" 형태 파싱
-                    if let Some((key, value)) = nested_str.split_once('=') {
+                let tokens_str = meta_list.tokens.to_string();
+
+                // "id = \"value\", name = \"value\"" 형태를 분리
+                for pair in tokens_str.split(',') {
+                    let pair = pair.trim();
+                    if let Some((key, value)) = pair.split_once('=') {
                         let key = key.trim();
-                        let value = value.trim().trim_matches('"');
+                        // 값에서 따옴표 제거
+                        let value = value.trim().trim_matches('"').trim_matches('\"');
+                        // 이스케이프된 따옴표 처리
+                        let value = value.replace("\\\"", "");
                         result.insert(key.to_string(), value.to_string());
                     }
                 }
@@ -226,19 +277,80 @@ fn parse_fragment_attribute(attr: &syn::Attribute) -> (String, bool) {
     (fragment_id, optional)
 }
 
+/// 스키마 속성 결과.
+struct SchemaAttributes {
+    /// 기본 키-값 속성 (label, description, min, max, default)
+    values: std::collections::HashMap<String, String>,
+    /// 필드 타입 (select, symbol 등 명시적 지정)
+    field_type: Option<String>,
+    /// 선택 옵션 목록 (Select/MultiSelect용)
+    options: Vec<String>,
+    /// 숨김 여부
+    hidden: bool,
+}
+
 /// 필드의 schema 속성을 파싱합니다.
-fn parse_schema_attributes(attrs: &[syn::Attribute]) -> std::collections::HashMap<String, String> {
-    let mut result = std::collections::HashMap::new();
+fn parse_schema_attributes(attrs: &[syn::Attribute]) -> SchemaAttributes {
+    let mut result = SchemaAttributes {
+        values: std::collections::HashMap::new(),
+        field_type: None,
+        options: Vec::new(),
+        hidden: false,
+    };
 
     for attr in attrs {
         if attr.path().is_ident("schema") {
             if let Ok(meta_list) = attr.meta.require_list() {
-                for nested in meta_list.tokens.clone().into_iter() {
-                    let nested_str = nested.to_string();
-                    if let Some((key, value)) = nested_str.split_once('=') {
+                let tokens_str = meta_list.tokens.to_string();
+
+                // options = ["a", "b", "c"] 패턴 추출
+                if let Some(options_start) = tokens_str.find("options") {
+                    if let Some(bracket_start) = tokens_str[options_start..].find('[') {
+                        let start = options_start + bracket_start + 1;
+                        if let Some(bracket_end) = tokens_str[start..].find(']') {
+                            let options_str = &tokens_str[start..start + bracket_end];
+                            result.options = options_str
+                                .split(',')
+                                .map(|s| s.trim().trim_matches('"').trim_matches('\'').to_string())
+                                .filter(|s| !s.is_empty())
+                                .collect();
+                        }
+                    }
+                }
+
+                // 문자열 기반 파싱: options 부분을 제거한 후 키-값 쌍 파싱
+                let clean_str = if let Some(opt_idx) = tokens_str.find("options") {
+                    // options 부분과 그 뒤의 배열을 제거
+                    let before = &tokens_str[..opt_idx];
+                    let after_bracket = tokens_str[opt_idx..].find(']')
+                        .map(|i| &tokens_str[opt_idx + i + 1..])
+                        .unwrap_or("");
+                    format!("{}{}", before.trim_end_matches(',').trim_end(), after_bracket)
+                } else {
+                    tokens_str.clone()
+                };
+
+                // 키-값 쌍 파싱 (예: label = "...", field_type = "...", hidden = true)
+                for part in clean_str.split(',') {
+                    let part = part.trim();
+                    if part.is_empty() {
+                        continue;
+                    }
+                    // hidden (단독 키워드) 처리
+                    if part == "hidden" {
+                        result.hidden = true;
+                        continue;
+                    }
+                    if let Some((key, value)) = part.split_once('=') {
                         let key = key.trim();
-                        let value = value.trim().trim_matches('"');
-                        result.insert(key.to_string(), value.to_string());
+                        let value = value.trim().trim_matches('"').trim_matches('\'');
+                        if key == "field_type" {
+                            result.field_type = Some(value.to_string());
+                        } else if key == "hidden" {
+                            result.hidden = value == "true";
+                        } else {
+                            result.values.insert(key.to_string(), value.to_string());
+                        }
                     }
                 }
             }

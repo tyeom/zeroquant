@@ -5,7 +5,7 @@
  */
 import { createSignal, createResource, createMemo, For, Show, onMount } from 'solid-js'
 import { useParams, useSearchParams } from '@solidjs/router'
-import { ArrowLeft, TrendingUp, TrendingDown, RefreshCw, Calendar, BarChart3, Activity } from 'lucide-solid'
+import { ArrowLeft, TrendingUp, TrendingDown, RefreshCw, Calendar, BarChart3, Activity, LineChart } from 'lucide-solid'
 import {
   Card,
   CardHeader,
@@ -18,13 +18,15 @@ import {
   Button,
   SignalMarkerOverlay,
 } from '../components/ui'
-import { SyncedChartPanel, VolumeProfile, VolumeProfileLegend } from '../components/charts'
+import { SyncedChartPanel, VolumeProfile, VolumeProfileLegend, ScoreHistoryChart } from '../components/charts'
 import type { CandlestickDataPoint, TradeMarker, PriceVolume } from '../components/charts'
 import type { SignalMarker, SignalIndicators } from '../types'
 import {
   getSymbolSignals,
+  getScoreHistory,
   type SignalMarkerDto,
   type SymbolSignalsQuery,
+  type ScoreHistorySummary,
 } from '../api/client'
 import { SymbolDisplay } from '../components/SymbolDisplay'
 
@@ -210,6 +212,21 @@ export function SymbolDetail() {
   // 현재 심볼 (URL 파라미터에서)
   const symbol = () => params.symbol || ''
   const exchange = () => searchParams.exchange || 'KRX'
+
+  // Score History 데이터 로드
+  const [scoreHistoryResource] = createResource(
+    () => ({ symbol: symbol(), days: selectedDays() }),
+    async ({ symbol, days }) => {
+      if (!symbol) return { symbol: '', history: [], total: 0 }
+
+      try {
+        return await getScoreHistory(symbol, { days })
+      } catch (err) {
+        console.error('점수 히스토리 조회 실패:', err)
+        return { symbol: '', history: [], total: 0 }
+      }
+    }
+  )
 
   // 신호 데이터 로드
   const [signalsResource] = createResource(
@@ -658,6 +675,35 @@ export function SymbolDetail() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Score History 차트 */}
+      <Card>
+        <CardHeader>
+          <h3 class="text-lg font-semibold text-[var(--color-text)] flex items-center gap-2">
+            <LineChart class="w-5 h-5" />
+            Global Score 추이
+          </h3>
+        </CardHeader>
+        <CardContent>
+          <Show
+            when={!scoreHistoryResource.loading && (scoreHistoryResource()?.history?.length ?? 0) > 0}
+            fallback={
+              <EmptyState
+                icon={scoreHistoryResource.loading ? '⏳' : '📈'}
+                title={scoreHistoryResource.loading ? '점수 히스토리 로딩 중...' : '점수 기록 없음'}
+                description={scoreHistoryResource.loading ? undefined : '이 종목의 점수 기록이 아직 없습니다'}
+                className="h-[200px] flex flex-col items-center justify-center"
+              />
+            }
+          >
+            <ScoreHistoryChart
+              data={scoreHistoryResource()?.history ?? []}
+              height={200}
+              showRank={true}
+            />
+          </Show>
+        </CardContent>
+      </Card>
     </div>
   )
 }

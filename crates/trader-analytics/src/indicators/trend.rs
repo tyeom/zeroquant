@@ -169,8 +169,8 @@ impl TrendIndicators {
 
         // 이후 EMA 계산
         let mut prev_ema = initial_sma;
-        for i in period..prices.len() {
-            let ema = (prices[i] * multiplier) + (prev_ema * (Decimal::ONE - multiplier));
+        for price in prices.iter().skip(period) {
+            let ema = (*price * multiplier) + (prev_ema * (Decimal::ONE - multiplier));
             result.push(Some(ema));
             prev_ema = ema;
         }
@@ -277,6 +277,7 @@ impl TrendIndicators {
     ///
     /// # 반환
     /// 각 시점에서 골든 크로스 발생 여부
+    #[allow(clippy::needless_range_loop)]
     pub fn detect_golden_cross(
         &self,
         short_ma: &[Option<Decimal>],
@@ -310,6 +311,7 @@ impl TrendIndicators {
     ///
     /// # 반환
     /// 각 시점에서 데드 크로스 발생 여부
+    #[allow(clippy::needless_range_loop)]
     pub fn detect_dead_cross(
         &self,
         short_ma: &[Option<Decimal>],

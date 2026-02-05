@@ -11,12 +11,12 @@ use super::kis_token::KisTokenRepository;
 use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tracing::{debug, info, warn};
 use trader_core::CredentialEncryptor;
 use trader_core::ExchangeProvider;
-use trader_exchange::connector::{KisConfig, KisOAuth};
 use trader_exchange::connector::kis::{KisAccountType, KisKrClient, KisUsClient};
+use trader_exchange::connector::{KisConfig, KisOAuth};
 use trader_exchange::provider::{KisKrProvider, KisUsProvider};
-use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 /// 암호화된 credential 구조
@@ -193,10 +193,8 @@ pub async fn create_exchange_providers_from_credential(
         info!("OAuth 캐시 재사용: credential_id={}", credential_id);
         cached
     } else {
-        let new_oauth = Arc::new(
-            KisOAuth::new(config.clone())
-                .map_err(|e| format!("OAuth 생성 실패: {}", e))?,
-        );
+        let new_oauth =
+            Arc::new(KisOAuth::new(config.clone()).map_err(|e| format!("OAuth 생성 실패: {}", e))?);
 
         // DB에서 유효한 토큰 조회 (rate limit 대응)
         let environment = if row.is_testnet { "paper" } else { "real" };
@@ -300,10 +298,8 @@ pub async fn create_kis_kr_client_from_credential(
         account_type,
     );
 
-    let oauth = Arc::new(
-        KisOAuth::new(config.clone())
-            .map_err(|e| format!("OAuth 생성 실패: {}", e))?,
-    );
+    let oauth =
+        Arc::new(KisOAuth::new(config.clone()).map_err(|e| format!("OAuth 생성 실패: {}", e))?);
 
     // DB에서 유효한 토큰 조회 (rate limit 대응)
     let environment = if row.is_testnet { "paper" } else { "real" };

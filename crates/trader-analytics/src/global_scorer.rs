@@ -26,9 +26,12 @@ use chrono::Utc;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::collections::HashMap;
-use trader_core::{types::{MarketType}, GlobalScoreResult, Kline};
+use trader_core::{types::MarketType, GlobalScoreResult, Kline};
 
-use crate::indicators::{BollingerBandsParams, IndicatorEngine, IndicatorError, MacdParams, RsiParams, SmaParams, StructuralFeatures};
+use crate::indicators::{
+    BollingerBandsParams, IndicatorEngine, IndicatorError, MacdParams, RsiParams, SmaParams,
+    StructuralFeatures,
+};
 
 /// GlobalScorer 계산 오류.
 #[derive(Debug, thiserror::Error)]
@@ -80,6 +83,7 @@ impl Default for FactorWeights {
 
 /// GlobalScorer 입력 파라미터.
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct GlobalScorerParams {
     /// 심볼
     pub symbol: Option<String>,
@@ -110,20 +114,6 @@ pub struct GlobalScorerParams {
     pub structural_features: Option<StructuralFeatures>,
 }
 
-impl Default for GlobalScorerParams {
-    fn default() -> Self {
-        Self {
-            symbol: None,
-            market_type: None,
-            entry_price: None,
-            target_price: None,
-            stop_price: None,
-            avg_volume_amount: None,
-            volume_percentile: None,
-            structural_features: None,
-        }
-    }
-}
 
 /// Global Score 계산기.
 ///
@@ -272,8 +262,14 @@ impl GlobalScorer {
             return Ok(0.0); // 현재가가 손절가 이하면 0점
         }
 
-        let reward = (target - current_price).to_string().parse::<f32>().unwrap_or(0.0);
-        let risk = (current_price - stop).to_string().parse::<f32>().unwrap_or(1.0);
+        let reward = (target - current_price)
+            .to_string()
+            .parse::<f32>()
+            .unwrap_or(0.0);
+        let risk = (current_price - stop)
+            .to_string()
+            .parse::<f32>()
+            .unwrap_or(1.0);
 
         if risk <= 0.0 {
             return Ok(0.0);
@@ -309,6 +305,11 @@ impl GlobalScorer {
             return Ok(0.0); // 이미 목표가 도달
         }
 
+        // Division by zero 방지
+        if current_price <= Decimal::ZERO {
+            return Ok(0.0);
+        }
+
         let room_pct = ((target - current_price) / current_price * Decimal::from(100))
             .to_string()
             .parse::<f32>()
@@ -342,13 +343,18 @@ impl GlobalScorer {
             return Ok(0.0); // 현재가 ≤ 손절가
         }
 
+        // Division by zero 방지
+        if current_price <= Decimal::ZERO {
+            return Ok(0.0);
+        }
+
         let room_pct = ((current_price - stop) / current_price * Decimal::from(100))
             .to_string()
             .parse::<f32>()
             .unwrap_or(0.0);
 
         // 스윗스팟: 4~6% = 100점
-        let score = if room_pct >= 4.0 && room_pct <= 6.0 {
+        let score = if (4.0..=6.0).contains(&room_pct) {
             100.0
         } else if room_pct < 4.0 {
             // 너무 좁음: 2% = 40점, 4% = 100점
@@ -357,8 +363,7 @@ impl GlobalScorer {
             // 너무 넓음: 6% = 100점, 10% = 50점
             100.0 - (room_pct - 6.0) / 4.0 * 50.0
         }
-        .max(0.0)
-        .min(100.0);
+        .clamp(0.0, 100.0);
 
         Ok(score)
     }
@@ -393,7 +398,7 @@ impl GlobalScorer {
         // 괴리 5% 이상 = 0점, 0% = 100점
         let score = (1.0 - deviation_pct / 5.0) * 100.0;
 
-        Ok(score.max(0.0).min(100.0))
+        Ok(score.clamp(0.0, 100.0))
     }
 
     /// 5. Momentum (MOM) 팩터 계산.
@@ -406,11 +411,17 @@ impl GlobalScorer {
     /// # 반환
     ///
     /// 0 ~ 100점
-    fn calculate_momentum(&self, candles: &[Kline], params: &GlobalScorerParams) -> GlobalScorerResult<f32> {
+    fn calculate_momentum(
+        &self,
+        candles: &[Kline],
+        params: &GlobalScorerParams,
+    ) -> GlobalScorerResult<f32> {
         let closes: Vec<Decimal> = candles.iter().map(|k| k.close).collect();
 
         // RSI 계산
-        let rsi_values = self.indicator_engine.rsi(&closes, RsiParams { period: 14 })?;
+        let rsi_values = self
+            .indicator_engine
+            .rsi(&closes, RsiParams { period: 14 })?;
         let rsi = rsi_values
             .last()
             .and_then(|v| *v)
@@ -420,7 +431,7 @@ impl GlobalScorer {
             .unwrap_or(50.0);
 
         // RSI 스코어: 45~65 = 만점, 30~80 = 부분 점수
-        let rsi_score = if rsi >= 45.0 && rsi <= 65.0 {
+        let rsi_score = if (45.0..=65.0).contains(&rsi) {
             40.0
         } else if rsi < 45.0 {
             ((rsi - 30.0) / 15.0 * 40.0).max(0.0)
@@ -433,12 +444,13 @@ impl GlobalScorer {
         let macd_result = self.indicator_engine.macd(&closes, MacdParams::default())?;
         let macd_slope = if macd_result.len() >= 2 {
             let last_macd = macd_result.last().and_then(|m| m.macd).unwrap_or(dec!(0));
-            let prev_macd = macd_result[macd_result.len() - 2]
-                .macd
-                .unwrap_or(dec!(0));
+            let prev_macd = macd_result[macd_result.len() - 2].macd.unwrap_or(dec!(0));
 
             // Decimal → f32 변환
-            (last_macd - prev_macd).to_string().parse::<f32>().unwrap_or(0.0)
+            (last_macd - prev_macd)
+                .to_string()
+                .parse::<f32>()
+                .unwrap_or(0.0)
         } else {
             0.0
         };
@@ -457,7 +469,11 @@ impl GlobalScorer {
             // ERS 계산 (0~1)
             let ebs_ok = if ebs >= 4.0 { 1.0 } else { 0.0 };
             let slope_ok = if macd_slope > 0.0 { 1.0 } else { 0.0 };
-            let rsi_ok = if (45.0..=65.0).contains(&rsi) { 1.0 } else { 0.0 };
+            let rsi_ok = if (45.0..=65.0).contains(&rsi) {
+                1.0
+            } else {
+                0.0
+            };
             let ers = (ebs_ok + slope_ok + rsi_ok) / 3.0;
 
             // ERS를 30점 만점으로 변환
@@ -533,11 +549,18 @@ impl GlobalScorer {
         };
 
         // 2. MA20 이격도 안정성
-        let ma20 = self.indicator_engine.sma(&closes, SmaParams { period: 20 })?;
+        let ma20 = self
+            .indicator_engine
+            .sma(&closes, SmaParams { period: 20 })?;
         let ma20_value = ma20
             .last()
             .and_then(|v| *v)
             .ok_or_else(|| GlobalScorerError::CalculationError("MA20 계산 실패".to_string()))?;
+
+        // Division by zero 방지
+        if ma20_value <= Decimal::ZERO {
+            return Ok(volz_score + 25.0); // 계산 불가 시 중립 점수
+        }
 
         let disparity_pct = ((current_price - ma20_value) / ma20_value * Decimal::from(100))
             .to_string()
@@ -594,7 +617,7 @@ impl GlobalScorer {
         if let Ok(rsi_values) = self.indicator_engine.rsi(&closes, RsiParams { period: 14 }) {
             if let Some(Some(rsi)) = rsi_values.last() {
                 let rsi_f32 = rsi.to_string().parse::<f32>().unwrap_or(50.0);
-                if rsi_f32 < 45.0 || rsi_f32 > 65.0 {
+                if !(45.0..=65.0).contains(&rsi_f32) {
                     total_penalty += 4.0;
                 }
             }
@@ -604,9 +627,7 @@ impl GlobalScorer {
         if let Ok(macd_result) = self.indicator_engine.macd(&closes, MacdParams::default()) {
             if macd_result.len() >= 2 {
                 let last_macd = macd_result.last().and_then(|m| m.macd).unwrap_or(dec!(0));
-                let prev_macd = macd_result[macd_result.len() - 2]
-                    .macd
-                    .unwrap_or(dec!(0));
+                let prev_macd = macd_result[macd_result.len() - 2].macd.unwrap_or(dec!(0));
 
                 if last_macd < prev_macd {
                     total_penalty += 4.0;
@@ -706,12 +727,7 @@ impl GlobalScorer {
     /// # 반환
     ///
     /// 0~5점
-    fn calculate_ebs(
-        &self,
-        structural: &StructuralFeatures,
-        rsi: f32,
-        macd_slope: f32,
-    ) -> f32 {
+    fn calculate_ebs(&self, structural: &StructuralFeatures, rsi: f32, macd_slope: f32) -> f32 {
         let mut ebs = 0.0;
 
         // 1. RSI 건강성 (45~65)
@@ -897,9 +913,9 @@ mod tests {
 
         // 일부 조건 충족
         let structural2 = StructuralFeatures {
-            low_trend: -0.1,  // 미충족
+            low_trend: -0.1, // 미충족
             vol_quality: 0.2,
-            range_pos: 0.3,   // 미충족
+            range_pos: 0.3, // 미충족
             dist_ma20: 2.0,
             bb_width: 2.5,
             rsi: 55.0,

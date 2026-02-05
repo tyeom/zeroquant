@@ -242,7 +242,6 @@ pub struct CandleData {
     pub volume: f64,
 }
 
-
 /// 다중 타임프레임 캔들 데이터 쿼리.
 #[derive(Debug, Deserialize)]
 pub struct MultiKlinesQuery {
@@ -505,7 +504,7 @@ pub async fn get_klines(
                     StatusCode::BAD_GATEWAY,
                     Json(ApiError::new(
                         "DATA_FETCH_ERROR",
-                        &format!("차트 데이터 조회 실패: {}", e),
+                        format!("차트 데이터 조회 실패: {}", e),
                     )),
                 )
             })?
@@ -522,7 +521,7 @@ pub async fn get_klines(
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(ApiError::new(
                     "YAHOO_FINANCE_ERROR",
-                    &format!("Yahoo Finance 연결 실패: {}", e),
+                    format!("Yahoo Finance 연결 실패: {}", e),
                 )),
             )
         })?;
@@ -541,7 +540,7 @@ pub async fn get_klines(
                     StatusCode::BAD_GATEWAY,
                     Json(ApiError::new(
                         "YAHOO_FINANCE_ERROR",
-                        &format!("차트 데이터 조회 실패: {}", e),
+                        format!("차트 데이터 조회 실패: {}", e),
                     )),
                 )
             })?
@@ -572,7 +571,6 @@ pub async fn get_klines(
         data: candles,
     }))
 }
-
 
 /// 다중 타임프레임 캔들스틱 데이터 조회.
 ///
@@ -668,7 +666,10 @@ pub async fn get_multi_klines(
                 let cached_provider = CachedHistoricalDataProvider::new(pool.clone());
                 for tf_str in &timeframes {
                     let timeframe = parse_timeframe(tf_str);
-                    match cached_provider.get_klines(&query.symbol, timeframe, query.limit).await {
+                    match cached_provider
+                        .get_klines(&query.symbol, timeframe, query.limit)
+                        .await
+                    {
                         Ok(klines) => {
                             let candles: Vec<CandleData> = klines
                                 .into_iter()
@@ -698,7 +699,7 @@ pub async fn get_multi_klines(
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(ApiError::new(
                     "YAHOO_FINANCE_ERROR",
-                    &format!("Yahoo Finance 연결 실패: {}", e),
+                    format!("Yahoo Finance 연결 실패: {}", e),
                 )),
             )
         })?;
@@ -706,7 +707,10 @@ pub async fn get_multi_klines(
         // 순차적으로 각 타임프레임 데이터 조회
         for tf_str in &timeframes {
             let timeframe = parse_timeframe(tf_str);
-            match provider.get_klines(&query.symbol, timeframe, query.limit).await {
+            match provider
+                .get_klines(&query.symbol, timeframe, query.limit)
+                .await
+            {
                 Ok(klines) => {
                     let candles: Vec<CandleData> = klines
                         .into_iter()
@@ -857,7 +861,7 @@ pub async fn get_ticker(
                     StatusCode::BAD_GATEWAY,
                     Json(ApiError::new(
                         "EXCHANGE_ERROR",
-                        &format!("현재가 조회 실패: {}", e),
+                        format!("현재가 조회 실패: {}", e),
                     )),
                 ))
             }
@@ -894,7 +898,7 @@ pub async fn get_ticker(
                     StatusCode::BAD_GATEWAY,
                     Json(ApiError::new(
                         "EXCHANGE_ERROR",
-                        &format!("현재가 조회 실패: {}", e),
+                        format!("현재가 조회 실패: {}", e),
                     )),
                 ))
             }
@@ -963,7 +967,7 @@ pub async fn get_market_breadth(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ApiError::new(
                 "BREADTH_CALCULATION_ERROR",
-                &format!("Market Breadth 계산 실패: {}", e),
+                format!("Market Breadth 계산 실패: {}", e),
             )),
         )
     })?;

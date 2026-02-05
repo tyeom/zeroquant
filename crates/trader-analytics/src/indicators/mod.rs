@@ -25,6 +25,7 @@
 //!
 //! ## 거래량 지표 (Volume Indicators)
 //! - **OBV**: 거래량 균형 지표 (On-Balance Volume)
+//! - **VWAP**: 거래량 가중 평균 가격 (Volume Weighted Average Price)
 //!
 //! ## 패턴 인식 (Pattern Recognition)
 //! - **Candle Patterns**: 캔들스틱 패턴 감지 (망치형, 장악형 등)
@@ -46,11 +47,12 @@
 pub mod candle_patterns;
 pub mod hma;
 pub mod momentum;
-pub mod obv;
 pub mod structural;
 pub mod supertrend;
 pub mod trend;
 pub mod volatility;
+pub mod volume;
+pub mod weekly_ma;
 
 use rust_decimal::Decimal;
 use thiserror::Error;
@@ -60,13 +62,17 @@ pub use candle_patterns::{
 };
 pub use hma::{HmaIndicator, HmaParams};
 pub use momentum::{MomentumCalculator, RsiParams, StochasticParams, StochasticResult};
-pub use obv::{ObvIndicator, ObvParams, ObvResult};
 pub use structural::StructuralFeatures;
 pub use supertrend::{SuperTrendIndicator, SuperTrendParams, SuperTrendResult};
 pub use trend::{EmaParams, MacdParams, MacdResult, SmaParams, TrendIndicators};
 pub use volatility::{
     AtrParams, BollingerBandsParams, BollingerBandsResult, KeltnerChannelParams,
     KeltnerChannelResult, TtmSqueezeParams, TtmSqueezeResult, VolatilityIndicators,
+};
+pub use volume::{ObvIndicator, ObvParams, ObvResult, VwapIndicator, VwapParams, VwapResult};
+pub use weekly_ma::{
+    calculate_weekly_ma, detect_weekly_ma_cross, get_current_weekly_ma_distance,
+    map_weekly_ma_to_daily, resample_to_weekly, WeeklyMaResult,
 };
 
 /// 지표 계산 오류.
@@ -99,6 +105,7 @@ pub struct IndicatorEngine {
     volatility: VolatilityIndicators,
     hma: HmaIndicator,
     obv: ObvIndicator,
+    vwap: VwapIndicator,
     supertrend: SuperTrendIndicator,
     candle_patterns: CandlePatternIndicator,
 }
@@ -195,7 +202,6 @@ impl IndicatorEngine {
 
     /// 다기간 모멘텀 점수 계산.
     ///
-    /// Python 전략 코드의 모멘텀 계산 방식을 따릅니다:
     /// 모멘텀 = (1개월 + 3개월 + 6개월 + 12개월) / 4
     ///
     /// # 인자
@@ -267,8 +273,7 @@ impl IndicatorEngine {
         close: &[Decimal],
         params: KeltnerChannelParams,
     ) -> IndicatorResult<Vec<KeltnerChannelResult>> {
-        self.volatility
-            .keltner_channel(high, low, close, params)
+        self.volatility.keltner_channel(high, low, close, params)
     }
 
     /// TTM Squeeze 계산.
@@ -390,6 +395,50 @@ impl IndicatorEngine {
         lookback: usize,
     ) -> IndicatorResult<Vec<bool>> {
         self.obv.detect_divergence(close, obv_results, lookback)
+    }
+
+    // ==================== VWAP ====================
+
+    /// VWAP (Volume Weighted Average Price) 계산.
+    ///
+    /// 거래량 가중 평균 가격을 계산합니다.
+    ///
+    /// # 인자
+    /// * `high` - 고가 데이터
+    /// * `low` - 저가 데이터
+    /// * `close` - 종가 데이터
+    /// * `volume` - 거래량 데이터
+    /// * `params` - VWAP 파라미터
+    ///
+    /// # 반환
+    /// VWAP 값, 상/하단 밴드, 괴리율
+    pub fn vwap(
+        &self,
+        high: &[Decimal],
+        low: &[Decimal],
+        close: &[Decimal],
+        volume: &[Decimal],
+        params: VwapParams,
+    ) -> IndicatorResult<Vec<VwapResult>> {
+        self.vwap.calculate(high, low, close, volume, params)
+    }
+
+    /// VWAP 돌파 감지.
+    ///
+    /// 가격이 VWAP을 상향/하향 돌파하는 경우를 감지합니다.
+    ///
+    /// # 인자
+    /// * `close` - 종가 데이터
+    /// * `vwap_results` - VWAP 계산 결과
+    ///
+    /// # 반환
+    /// 각 시점의 돌파 방향 (1: 상향, -1: 하향, 0: 없음)
+    pub fn vwap_crossover(
+        &self,
+        close: &[Decimal],
+        vwap_results: &[VwapResult],
+    ) -> IndicatorResult<Vec<i8>> {
+        self.vwap.detect_crossover(close, vwap_results)
     }
 
     /// SuperTrend 지표 계산.
@@ -519,22 +568,10 @@ mod tests {
     #[test]
     fn test_obv_calculation() {
         let engine = IndicatorEngine::new();
-        let close = vec![
-            dec!(100.0),
-            dec!(102.0),
-            dec!(101.0),
-            dec!(103.0),
-        ];
-        let volume = vec![
-            dec!(1000.0),
-            dec!(1500.0),
-            dec!(1200.0),
-            dec!(1800.0),
-        ];
+        let close = vec![dec!(100.0), dec!(102.0), dec!(101.0), dec!(103.0)];
+        let volume = vec![dec!(1000.0), dec!(1500.0), dec!(1200.0), dec!(1800.0)];
 
-        let obv = engine
-            .obv(&close, &volume, ObvParams::default())
-            .unwrap();
+        let obv = engine.obv(&close, &volume, ObvParams::default()).unwrap();
 
         assert_eq!(obv.len(), close.len());
         // 첫 번째는 변화 없음

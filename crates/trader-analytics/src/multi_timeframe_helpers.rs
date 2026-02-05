@@ -51,7 +51,10 @@ impl TrendDirection {
 
     /// 추세가 상승인지 확인.
     pub fn is_bullish(&self) -> bool {
-        matches!(self, TrendDirection::StrongUptrend | TrendDirection::Uptrend)
+        matches!(
+            self,
+            TrendDirection::StrongUptrend | TrendDirection::Uptrend
+        )
     }
 
     /// 추세가 하락인지 확인.
@@ -115,8 +118,8 @@ pub fn analyze_trend(
     };
 
     // 정렬 여부 확인 (모든 TF가 같은 방향)
-    let is_aligned = trends.values().all(|t| t.is_bullish())
-        || trends.values().all(|t| t.is_bearish());
+    let is_aligned =
+        trends.values().all(|t| t.is_bullish()) || trends.values().all(|t| t.is_bearish());
 
     TrendAnalysis {
         trends,
@@ -349,7 +352,7 @@ pub fn default_weights(timeframes: &[Timeframe]) -> HashMap<Timeframe, Decimal> 
     }
 
     // 타임프레임 크기순 정렬 (큰 것 먼저)
-    let mut sorted: Vec<_> = timeframes.iter().copied().collect();
+    let mut sorted: Vec<_> = timeframes.to_vec();
     sorted.sort_by_key(|tf| std::cmp::Reverse(tf.duration().as_secs()));
 
     // 가중치 할당 (큰 TF에 높은 가중치)
@@ -469,15 +472,9 @@ mod tests {
 
     #[test]
     fn test_combine_signals_conflicting() {
-        let signals = HashMap::from([
-            (Timeframe::D1, dec!(0.8)),
-            (Timeframe::H1, dec!(-0.8)),
-        ]);
+        let signals = HashMap::from([(Timeframe::D1, dec!(0.8)), (Timeframe::H1, dec!(-0.8))]);
 
-        let weights = HashMap::from([
-            (Timeframe::D1, dec!(0.5)),
-            (Timeframe::H1, dec!(0.5)),
-        ]);
+        let weights = HashMap::from([(Timeframe::D1, dec!(0.5)), (Timeframe::H1, dec!(0.5))]);
 
         let combined = combine_signals(&signals, &weights);
 
@@ -505,10 +502,7 @@ mod tests {
             SignalDirection::from_score(dec!(0.8)),
             SignalDirection::StrongBuy
         );
-        assert_eq!(
-            SignalDirection::from_score(dec!(0.3)),
-            SignalDirection::Buy
-        );
+        assert_eq!(SignalDirection::from_score(dec!(0.3)), SignalDirection::Buy);
         assert_eq!(
             SignalDirection::from_score(dec!(0.0)),
             SignalDirection::Neutral

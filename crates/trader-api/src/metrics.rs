@@ -120,11 +120,11 @@ pub fn normalize_path(path: &str) -> String {
     let normalized: Vec<String> = segments
         .iter()
         .map(|segment| {
-            // UUID 패턴 감지
-            if segment.len() == 36 && segment.chars().filter(|c| *c == '-').count() == 4 {
-                ":id".to_string()
-            // 숫자만 있는 경우
-            } else if !segment.is_empty() && segment.chars().all(|c| c.is_ascii_digit()) {
+            // UUID 패턴 또는 숫자만 있는 경우 :id로 대체
+            let is_uuid = segment.len() == 36 && segment.chars().filter(|c| *c == '-').count() == 4;
+            let is_numeric = !segment.is_empty() && segment.chars().all(|c| c.is_ascii_digit());
+
+            if is_uuid || is_numeric {
                 ":id".to_string()
             } else {
                 (*segment).to_string()

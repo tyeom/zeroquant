@@ -30,11 +30,12 @@ use trader_api::websocket::{
 };
 use trader_core::crypto::CredentialEncryptor;
 use trader_data::cache::CachedHistoricalDataProvider;
-use trader_exchange::connector::kis::{KisAccountType, KisConfig, KisKrClient, KisOAuth, KisUsClient};
-use trader_exchange::KisKrProvider;
-use uuid::Uuid;
+use trader_exchange::connector::kis::{
+    KisConfig, KisKrClient, KisOAuth, KisUsClient,
+};
 use trader_exchange::stream::UnifiedMarketStream;
 use trader_exchange::traits::MarketStream;
+use trader_exchange::KisKrProvider;
 use trader_execution::{ConversionConfig, OrderExecutor};
 use trader_risk::{RiskConfig, RiskManager};
 use trader_strategy::{EngineConfig, StrategyEngine};
@@ -360,17 +361,22 @@ async fn create_app_state(config: &ServerConfig) -> AppState {
     // 우선순위: 1) DB active credential, 2) 환경변수
     let kis_kr_to_use = if let (Some(pool), Some(encryptor)) = (&state.db_pool, &state.encryptor) {
         // DB에서 active credential 조회 및 클라이언트 생성 (Single Source of Truth)
-        use trader_api::repository::{create_kis_kr_client_from_credential, get_active_credential_id};
+        use trader_api::repository::{
+            create_kis_kr_client_from_credential, get_active_credential_id,
+        };
 
         match get_active_credential_id(pool).await {
             Ok(credential_id) => {
                 match create_kis_kr_client_from_credential(pool, encryptor, credential_id).await {
                     Ok(kr_client) => {
-                        info!("Using KIS client from active credential (DB): {}", credential_id);
+                        info!(
+                            "Using KIS client from active credential (DB): {}",
+                            credential_id
+                        );
                         // Repository는 Arc<KisKrClient>를 반환하므로 Arc::try_unwrap 사용
                         match Arc::try_unwrap(kr_client) {
                             Ok(client) => Some(client),
-                            Err(arc) => {
+                            Err(_arc) => {
                                 // Arc가 공유되고 있으면 clone 불가, 새로 생성해야 함
                                 warn!("KisKrClient Arc is shared, cannot unwrap");
                                 None
@@ -385,7 +391,10 @@ async fn create_app_state(config: &ServerConfig) -> AppState {
                 }
             }
             Err(e) => {
-                info!("No active credential found in DB ({}), falling back to environment variables", e);
+                info!(
+                    "No active credential found in DB ({}), falling back to environment variables",
+                    e
+                );
                 kis_kr
             }
         }

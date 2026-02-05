@@ -337,10 +337,15 @@ function findFieldByName(
 }
 
 /**
- * 카테고리 라벨
+ * 카테고리 라벨 (백엔드 StrategyCategory enum 기준)
  */
 function getCategoryLabel(category: string): string {
   const labels: Record<string, string> = {
+    Realtime: '실시간',
+    Intraday: '당일',
+    Daily: '스윙',
+    Monthly: '장기',
+    // 레거시 카테고리 (하위 호환성)
     trend: '추세추종',
     mean_reversion: '평균회귀',
     momentum: '모멘텀',

@@ -34,27 +34,44 @@ impl SchemaComposer {
     ///
     /// # Returns
     /// 프론트엔드에서 렌더링할 수 있는 완전한 SDUI JSON
+    /// (ts-rs 자동 생성 타입과 일치하는 구조)
     pub fn compose(&self, strategy_schema: &StrategyUISchema) -> Value {
-        let mut sections = Vec::new();
+        // Fragment 참조 목록
+        let fragments: Vec<Value> = strategy_schema
+            .fragments
+            .iter()
+            .map(|frag_ref| {
+                json!({
+                    "id": frag_ref.id,
+                    "required": frag_ref.required
+                })
+            })
+            .collect();
 
-        // Fragment 섹션 추가
-        for frag_ref in &strategy_schema.fragments {
-            if let Some(fragment) = self.registry.get(&frag_ref.id) {
-                sections.push(self.fragment_to_section(fragment, frag_ref.required));
+        // 커스텀 필드 목록
+        let custom_fields: Vec<Value> = strategy_schema
+            .custom_fields
+            .iter()
+            .map(|f| self.field_to_json(f))
+            .collect();
+
+        // 기본값 맵 (custom_fields에서 추출)
+        let mut defaults = serde_json::Map::new();
+        for field in &strategy_schema.custom_fields {
+            if let Some(ref default_val) = field.default {
+                defaults.insert(field.name.clone(), default_val.clone());
             }
         }
 
-        // 커스텀 필드 섹션 (있는 경우)
-        if !strategy_schema.custom_fields.is_empty() {
-            sections.push(self.custom_fields_section(&strategy_schema.custom_fields));
-        }
-
+        // ts-rs 자동 생성 타입(StrategyUISchema)과 일치하는 구조로 반환
         json!({
-            "strategy_id": strategy_schema.id,
+            "id": strategy_schema.id,
             "name": strategy_schema.name,
             "description": strategy_schema.description,
             "category": strategy_schema.category,
-            "sections": sections
+            "fragments": fragments,
+            "custom_fields": custom_fields,
+            "defaults": defaults
         })
     }
 
@@ -84,40 +101,21 @@ impl SchemaComposer {
     }
 
     /// FieldSchema를 JSON으로 변환합니다.
+    ///
+    /// serde를 통해 직렬화하여 모든 serde 속성(rename_all, rename 등)이
+    /// 올바르게 적용되도록 합니다.
     fn field_to_json(&self, field: &FieldSchema) -> Value {
-        let mut field_json = json!({
-            "name": field.name,
-            "type": format!("{:?}", field.field_type).to_lowercase(),
-            "label": field.label,
-            "required": field.required,
-        });
-
-        // 선택적 필드 추가
-        if let Some(description) = &field.description {
-            field_json["description"] = json!(description);
-        }
-
-        if let Some(default) = &field.default {
-            field_json["default"] = default.clone();
-        }
-
-        if let Some(min) = field.min {
-            field_json["min"] = json!(min);
-        }
-
-        if let Some(max) = field.max {
-            field_json["max"] = json!(max);
-        }
-
-        if !field.options.is_empty() {
-            field_json["options"] = json!(field.options);
-        }
-
-        if let Some(condition) = &field.condition {
-            field_json["condition"] = json!(condition);
-        }
-
-        field_json
+        // serde 직렬화를 통해 모든 속성이 올바르게 적용됨
+        // (예: MultiSelect → "multi_select", MultiTimeframe → "multi_timeframe")
+        serde_json::to_value(field).unwrap_or_else(|_| {
+            // fallback: 직접 JSON 생성
+            json!({
+                "name": field.name,
+                "field_type": "string",
+                "label": field.label,
+                "required": field.required,
+            })
+        })
     }
 
     /// Fragment 카탈로그를 JSON으로 반환합니다.
@@ -184,14 +182,15 @@ mod tests {
 
         let json = composer.compose(&schema);
 
-        assert_eq!(json["strategy_id"], "test_strategy");
+        // compose()는 id 필드 반환 (strategy_id 아님)
+        assert_eq!(json["id"], "test_strategy");
         assert_eq!(json["name"], "테스트 전략");
-        assert!(json["sections"].is_array());
+        assert!(json["fragments"].is_array());
 
-        let sections = json["sections"].as_array().unwrap();
-        assert_eq!(sections.len(), 1); // RSI fragment만
-        assert_eq!(sections[0]["id"], "indicator.rsi");
-        assert_eq!(sections[0]["required"], true);
+        let fragments = json["fragments"].as_array().unwrap();
+        assert_eq!(fragments.len(), 1); // RSI fragment만
+        assert_eq!(fragments[0]["id"], "indicator.rsi");
+        assert_eq!(fragments[0]["required"], true);
     }
 
     #[test]
@@ -213,17 +212,17 @@ mod tests {
 
         let json = composer.compose(&schema);
 
-        let sections = json["sections"].as_array().unwrap();
-        assert_eq!(sections.len(), 2); // RSI fragment + custom fields
+        // fragments와 custom_fields가 별도 배열로 반환됨
+        let fragments = json["fragments"].as_array().unwrap();
+        assert_eq!(fragments.len(), 1); // RSI fragment만
 
-        // 커스텀 필드 섹션 확인
-        let custom_section = &sections[1];
-        assert_eq!(custom_section["id"], "custom");
-        assert_eq!(custom_section["name"], "커스텀 설정");
+        let custom_fields = json["custom_fields"].as_array().unwrap();
+        assert_eq!(custom_fields.len(), 1);
+        assert_eq!(custom_fields[0]["name"], "cooldown_candles");
+        assert_eq!(custom_fields[0]["label"], "쿨다운 캔들 수");
 
-        let fields = custom_section["fields"].as_array().unwrap();
-        assert_eq!(fields[0]["name"], "cooldown_candles");
-        assert_eq!(fields[0]["label"], "쿨다운 캔들 수");
+        // defaults에 기본값이 포함됨
+        assert_eq!(json["defaults"]["cooldown_candles"], 5);
     }
 
     #[test]
@@ -266,15 +265,15 @@ mod tests {
 
         let json = composer.compose(&schema);
 
-        let sections = json["sections"].as_array().unwrap();
-        assert_eq!(sections.len(), 2);
+        let fragments = json["fragments"].as_array().unwrap();
+        assert_eq!(fragments.len(), 2);
 
         // 첫 번째는 필수
-        assert_eq!(sections[0]["required"], true);
-        assert_eq!(sections[0]["collapsible"], false);
+        assert_eq!(fragments[0]["id"], "indicator.rsi");
+        assert_eq!(fragments[0]["required"], true);
 
         // 두 번째는 선택적
-        assert_eq!(sections[1]["required"], false);
-        assert_eq!(sections[1]["collapsible"], true);
+        assert_eq!(fragments[1]["id"], "filter.route_state");
+        assert_eq!(fragments[1]["required"], false);
     }
 }

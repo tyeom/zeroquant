@@ -246,6 +246,7 @@ async fn fetch_crypto_symbols(pool: Option<&PgPool>, config: &FetchSymbolsConfig
 
     #[derive(serde::Deserialize)]
     struct BinanceSymbol {
+        #[allow(dead_code)]
         symbol: String,
         #[serde(rename = "baseAsset")]
         base_asset: String,
@@ -273,7 +274,7 @@ async fn fetch_crypto_symbols(pool: Option<&PgPool>, config: &FetchSymbolsConfig
         let csv_path = Path::new(&config.csv_dir).join("crypto_symbols.csv");
         let mut wtr = csv::Writer::from_path(&csv_path).context("Failed to create CSV writer")?;
 
-        wtr.write_record(&["ticker", "name", "market", "exchange"])
+        wtr.write_record(["ticker", "name", "market", "exchange"])
             .context("Failed to write CSV header")?;
 
         for pair in &usdt_pairs {
@@ -305,7 +306,7 @@ async fn fetch_crypto_symbols(pool: Option<&PgPool>, config: &FetchSymbolsConfig
             })
             .collect();
 
-        let count = new_symbols.len();
+        let _count = new_symbols.len();
         let upserted =
             trader_api::repository::SymbolInfoRepository::upsert_batch(pool, &new_symbols)
                 .await
@@ -326,7 +327,7 @@ fn save_to_csv(
     let mut wtr = csv::Writer::from_path(path.as_ref()).context("Failed to create CSV writer")?;
 
     // 헤더 작성
-    wtr.write_record(&[
+    wtr.write_record([
         "ticker",
         "name",
         "name_en",
@@ -339,7 +340,7 @@ fn save_to_csv(
 
     // 데이터 작성
     for symbol in symbols {
-        wtr.write_record(&[
+        wtr.write_record([
             &symbol.ticker,
             &symbol.name,
             symbol.name_en.as_deref().unwrap_or(""),

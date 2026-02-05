@@ -232,7 +232,8 @@ impl DataFeed {
         };
 
         if let Some((timestamp, entry)) = next_entry {
-            self.playback_position.insert(ticker.to_string(), *timestamp);
+            self.playback_position
+                .insert(ticker.to_string(), *timestamp);
             self.current_time = Some(entry.kline.close_time);
             Some(entry.kline.clone())
         } else if self.config.loop_data {
@@ -389,7 +390,7 @@ pub fn generate_sample_klines(
         });
 
         current_price = close;
-        current_time = current_time + tf_duration;
+        current_time += tf_duration;
     }
 
     klines

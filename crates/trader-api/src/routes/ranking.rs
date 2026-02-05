@@ -22,7 +22,10 @@ use tracing::{debug, info};
 use ts_rs::TS;
 use utoipa::{IntoParams, ToSchema};
 
-use crate::repository::{GlobalScoreRepository, RankedSymbol, RankingFilter, SevenFactorResponse};
+use crate::repository::{
+    GlobalScoreRepository, RankedSymbol, RankingFilter, ScoreHistoryRepository,
+    ScoreHistorySummary, SevenFactorResponse,
+};
 use crate::state::AppState;
 
 // ================================================================================================
@@ -145,10 +148,12 @@ pub async fn calculate_global(
     info!("GlobalScore 계산 요청 수신");
 
     // DB 연결 확인
-    let db_pool = state
-        .db_pool
-        .as_ref()
-        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, "Database not available".to_string()))?;
+    let db_pool = state.db_pool.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Database not available".to_string(),
+        )
+    })?;
 
     let processed = GlobalScoreRepository::calculate_all(db_pool)
         .await
@@ -188,10 +193,12 @@ pub async fn get_top_ranked(
     debug!("랭킹 조회 요청: {:?}", query);
 
     // DB 연결 확인
-    let db_pool = state
-        .db_pool
-        .as_ref()
-        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, "Database not available".to_string()))?;
+    let db_pool = state.db_pool.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Database not available".to_string(),
+        )
+    })?;
 
     // min_score 파싱
     let min_score = query
@@ -253,10 +260,12 @@ pub async fn get_seven_factor(
 ) -> Result<Json<SevenFactorResponse>, (StatusCode, String)> {
     debug!("7Factor 조회: {} ({})", ticker, query.market);
 
-    let db_pool = state
-        .db_pool
-        .as_ref()
-        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, "Database not available".to_string()))?;
+    let db_pool = state.db_pool.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Database not available".to_string(),
+        )
+    })?;
 
     let result = GlobalScoreRepository::get_seven_factor(db_pool, &ticker, &query.market)
         .await
@@ -267,7 +276,13 @@ pub async fn get_seven_factor(
             )
         })?;
 
-    result.ok_or_else(|| (StatusCode::NOT_FOUND, format!("종목을 찾을 수 없습니다: {}", ticker)))
+    result
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                format!("종목을 찾을 수 없습니다: {}", ticker),
+            )
+        })
         .map(Json)
 }
 
@@ -286,25 +301,115 @@ pub async fn get_seven_factor_batch(
     State(state): State<Arc<AppState>>,
     Json(request): Json<SevenFactorBatchRequest>,
 ) -> Result<Json<SevenFactorBatchResponse>, (StatusCode, String)> {
-    debug!("7Factor 일괄 조회: {:?} ({})", request.tickers, request.market);
+    debug!(
+        "7Factor 일괄 조회: {:?} ({})",
+        request.tickers, request.market
+    );
 
-    let db_pool = state
-        .db_pool
-        .as_ref()
-        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, "Database not available".to_string()))?;
+    let db_pool = state.db_pool.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Database not available".to_string(),
+        )
+    })?;
 
-    let factors = GlobalScoreRepository::get_seven_factor_batch(db_pool, &request.tickers, &request.market)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("7Factor 일괄 조회 실패: {}", e),
-            )
-        })?;
+    let factors =
+        GlobalScoreRepository::get_seven_factor_batch(db_pool, &request.tickers, &request.market)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("7Factor 일괄 조회 실패: {}", e),
+                )
+            })?;
 
     let total = factors.len();
 
     Ok(Json(SevenFactorBatchResponse { factors, total }))
+}
+
+// ================================================================================================
+// Score History Types
+// ================================================================================================
+
+/// Score History 조회 쿼리
+#[derive(Debug, Deserialize, ToSchema, IntoParams, TS)]
+#[ts(export, export_to = "ranking/")]
+pub struct ScoreHistoryQuery {
+    /// 조회 일수 (기본 90, 최대 365)
+    #[serde(default = "default_history_days")]
+    pub days: i32,
+}
+
+fn default_history_days() -> i32 {
+    90
+}
+
+/// Score History 응답
+#[derive(Debug, Serialize, ToSchema, TS)]
+#[ts(export, export_to = "ranking/")]
+pub struct ScoreHistoryResponse {
+    /// 종목 코드
+    pub symbol: String,
+    /// 히스토리 데이터
+    pub history: Vec<ScoreHistorySummary>,
+    /// 총 레코드 수
+    pub total: usize,
+}
+
+// ================================================================================================
+// Score History Handlers
+// ================================================================================================
+
+/// 종목별 Score History 조회
+///
+/// # 경로
+///
+/// `GET /api/v1/ranking/history/{ticker}?days=90`
+#[utoipa::path(
+    get,
+    path = "/api/v1/ranking/history/{ticker}",
+    params(
+        ("ticker" = String, Path, description = "종목 코드"),
+        ScoreHistoryQuery
+    ),
+    responses(
+        (status = 200, description = "Score History 조회 성공", body = ScoreHistoryResponse)
+    ),
+    tag = "ranking"
+)]
+pub async fn get_score_history(
+    State(state): State<Arc<AppState>>,
+    Path(ticker): Path<String>,
+    Query(query): Query<ScoreHistoryQuery>,
+) -> Result<Json<ScoreHistoryResponse>, (StatusCode, String)> {
+    debug!("Score History 조회: {} ({}일)", ticker, query.days);
+
+    let db_pool = state.db_pool.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Database not available".to_string(),
+        )
+    })?;
+
+    let days = query.days.clamp(1, 365);
+
+    let history = ScoreHistoryRepository::get_with_change(db_pool, &ticker, days)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Score History 조회 실패: {}", e),
+            )
+        })?;
+
+    let total = history.len();
+
+    Ok(Json(ScoreHistoryResponse {
+        symbol: ticker,
+        history,
+        total,
+    }))
 }
 
 // ================================================================================================
@@ -318,4 +423,5 @@ pub fn ranking_router() -> Router<Arc<AppState>> {
         .route("/top", get(get_top_ranked))
         .route("/7factor/{ticker}", get(get_seven_factor))
         .route("/7factor/batch", post(get_seven_factor_batch))
+        .route("/history/{ticker}", get(get_score_history))
 }

@@ -51,6 +51,7 @@ impl AnalyticsManager {
         let now = Utc::now();
 
         // 캐시가 유효하면 반환
+        #[allow(clippy::unnecessary_unwrap)]
         if let Some(valid_until) = self.cache_valid_until {
             if now < valid_until && self.curve_cache.is_some() {
                 return self.curve_cache.as_ref().unwrap();
@@ -107,7 +108,7 @@ impl AnalyticsManager {
                 dec!(0.003) // 일반 상승
             };
 
-            equity = equity * (dec!(1.0) + daily_return);
+            equity *= dec!(1.0) + daily_return;
             self.add_trade_result(base_time + Duration::days(i), equity);
         }
     }

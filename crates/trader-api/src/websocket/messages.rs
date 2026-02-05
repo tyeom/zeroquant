@@ -150,7 +150,6 @@ pub struct TickerData {
     pub timestamp: i64,
 }
 
-
 /// 캔들스틱(Kline) 데이터.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KlineData {

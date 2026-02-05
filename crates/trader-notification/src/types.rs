@@ -8,10 +8,12 @@ use serde::{Deserialize, Serialize};
 /// 알림 우선순위 레벨.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum NotificationPriority {
     /// 낮은 우선순위 (정보성)
     Low,
     /// 일반 우선순위 (일반 업데이트)
+    #[default]
     Normal,
     /// 높은 우선순위 (중요 이벤트)
     High,
@@ -19,11 +21,6 @@ pub enum NotificationPriority {
     Critical,
 }
 
-impl Default for NotificationPriority {
-    fn default() -> Self {
-        Self::Normal
-    }
-}
 
 /// 알림 이벤트 타입.
 #[derive(Debug, Clone, Serialize, Deserialize)]

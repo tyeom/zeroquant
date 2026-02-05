@@ -82,7 +82,7 @@ pub struct LoadedPlugin {
 impl LoadedPlugin {
     /// 파일 경로에서 플러그인 로드.
     ///
-    /// # 안전성
+    /// # Safety
     ///
     /// 호출자는 다음을 보장해야 합니다:
     /// - 경로가 동일한 Rust 버전으로 빌드된 유효한 동적 라이브러리를 가리킴
@@ -97,23 +97,24 @@ impl LoadedPlugin {
             .map_err(|e| PluginError::LoadError(format!("{}: {}", path.display(), e)))?;
 
         // Try to get metadata (optional)
-        let metadata =
-            if let Ok(get_metadata) = library.get::<libloading::Symbol<GetMetadataFn>>(b"get_metadata") {
-                get_metadata()
-            } else {
-                // Default metadata if not provided
-                PluginMetadata {
-                    name: path
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("unknown")
-                        .to_string(),
-                    version: "1.0.0".to_string(),
-                    description: "Strategy plugin".to_string(),
-                    required_config: Vec::new(),
-                    supported_tickers: Vec::new(),
-                }
-            };
+        let metadata = if let Ok(get_metadata) =
+            library.get::<libloading::Symbol<GetMetadataFn>>(b"get_metadata")
+        {
+            get_metadata()
+        } else {
+            // Default metadata if not provided
+            PluginMetadata {
+                name: path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unknown")
+                    .to_string(),
+                version: "1.0.0".to_string(),
+                description: "Strategy plugin".to_string(),
+                required_config: Vec::new(),
+                supported_tickers: Vec::new(),
+            }
+        };
 
         // Verify required tickers exist
         let _: libloading::Symbol<CreateStrategyFn> = library
@@ -135,7 +136,7 @@ impl LoadedPlugin {
 
     /// 이 플러그인에서 새 전략 인스턴스 생성.
     ///
-    /// # 안전성
+    /// # Safety
     ///
     /// 호출자는 다음을 보장해야 합니다:
     /// - 플러그인이 `LoadedPlugin::load`를 통해 올바르게 로드됨
@@ -414,10 +415,10 @@ impl BuiltinStrategyFactory {
     pub fn create(name: &str) -> Option<Box<dyn Strategy>> {
         match name.to_lowercase().as_str() {
             "grid" | "grid_trading" | "grid trading" => {
-                Some(Box::new(crate::strategies::GridStrategy::new()))
+                Some(Box::new(crate::strategies::MeanReversionStrategy::grid()))
             }
             "rsi" | "rsi_mean_reversion" | "rsi mean reversion" => {
-                Some(Box::new(crate::strategies::RsiStrategy::new()))
+                Some(Box::new(crate::strategies::MeanReversionStrategy::rsi()))
             }
             _ => None,
         }
@@ -460,11 +461,12 @@ mod tests {
     fn test_builtin_factory() {
         let grid = BuiltinStrategyFactory::create("grid");
         assert!(grid.is_some());
-        assert_eq!(grid.unwrap().name(), "Grid Trading");
+        // MeanReversionStrategy 통합 전략은 variant별 이름 반환
+        assert_eq!(grid.unwrap().name(), "MeanReversion-Grid");
 
         let rsi = BuiltinStrategyFactory::create("rsi");
         assert!(rsi.is_some());
-        assert_eq!(rsi.unwrap().name(), "RSI Mean Reversion");
+        assert_eq!(rsi.unwrap().name(), "MeanReversion-RSI");
 
         let unknown = BuiltinStrategyFactory::create("unknown");
         assert!(unknown.is_none());

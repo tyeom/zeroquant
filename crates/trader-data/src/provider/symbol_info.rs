@@ -3,6 +3,8 @@
 //! 국내(KRX), 해외(Yahoo Finance), 코인(Binance 등)의
 //! 심볼 정보(티커, 회사명)를 제공합니다.
 
+#![allow(clippy::type_complexity)]
+
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
@@ -163,7 +165,11 @@ impl KrxSymbolProvider {
 
         let data: KrxResponse = response.json().await?;
 
-        let exchange = if market_code == "STK" { "KRX" } else { "KOSDAQ" };
+        let exchange = if market_code == "STK" {
+            "KRX"
+        } else {
+            "KOSDAQ"
+        };
         let suffix = if market_code == "STK" { ".KS" } else { ".KQ" };
 
         let symbols: Vec<SymbolMetadata> = data
@@ -417,6 +423,7 @@ impl YahooSymbolProvider {
 
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
+        #[allow(dead_code)]
         struct Quote {
             symbol: String,
             #[serde(default)]
@@ -468,6 +475,7 @@ impl YahooSymbolProvider {
     }
 
     /// 주요 지수 구성 종목 조회 (Yahoo Finance).
+    #[allow(dead_code)]
     async fn fetch_index_components(
         &self,
         client: &reqwest::Client,
@@ -844,11 +852,9 @@ impl SymbolResolver {
             "binance" => {
                 // BTCUSDT → BTC/USDT (간단한 휴리스틱)
                 // 실제로는 symbol_info 테이블 조회 필요
-                if source_symbol.ends_with("USDT") {
-                    let base = &source_symbol[..source_symbol.len() - 4];
+                if let Some(base) = source_symbol.strip_suffix("USDT") {
                     Ok(Some(format!("{}/USDT", base)))
-                } else if source_symbol.ends_with("BTC") {
-                    let base = &source_symbol[..source_symbol.len() - 3];
+                } else if let Some(base) = source_symbol.strip_suffix("BTC") {
                     Ok(Some(format!("{}/BTC", base)))
                 } else {
                     Ok(Some(source_symbol.to_string()))
@@ -1218,7 +1224,7 @@ impl SymbolResolver {
             for (orig_symbol, normalized) in &missing_entries {
                 if !found_normalized.contains(&normalized.to_uppercase()) {
                     // 자동 생성
-                    let meta = Self::build_symbol_metadata(&normalized);
+                    let meta = Self::build_symbol_metadata(normalized);
                     let _ = self.save_symbol_info(&meta).await; // 저장 실패해도 계속 진행
 
                     let display_name = meta.to_display_string(use_english);

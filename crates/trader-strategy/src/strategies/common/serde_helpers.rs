@@ -34,10 +34,8 @@ where
     match value {
         Value::String(s) => Ok(s),
         Value::Array(arr) => {
-            if let Some(first) = arr.first() {
-                if let Value::String(s) = first {
-                    return Ok(s.clone());
-                }
+            if let Some(Value::String(s)) = arr.first() {
+                return Ok(s.clone());
             }
             Err(D::Error::custom(
                 "ticker array is empty or contains non-string",
@@ -110,10 +108,8 @@ where
         Some(Value::String(s)) => Ok(Some(s)),
         Some(Value::Array(arr)) if arr.is_empty() => Ok(None),
         Some(Value::Array(arr)) => {
-            if let Some(first) = arr.first() {
-                if let Value::String(s) = first {
-                    return Ok(Some(s.clone()));
-                }
+            if let Some(Value::String(s)) = arr.first() {
+                return Ok(Some(s.clone()));
             }
             Err(D::Error::custom("ticker array contains non-string"))
         }
@@ -131,7 +127,7 @@ mod tests {
     #[derive(Deserialize)]
     struct TestConfig {
         #[serde(deserialize_with = "deserialize_ticker")]
-        ticker:  String,
+        ticker: String,
     }
 
     #[test]

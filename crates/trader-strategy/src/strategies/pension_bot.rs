@@ -4,8 +4,6 @@
 //! 13612W 가중 모멘텀 스코어와 평균 모멘텀을 활용하여
 //! 자산 유형별 비중을 동적으로 조절합니다.
 //!
-//! Python 3번 전략 변환.
-//!
 //! ## 핵심 개념
 //!
 //! - **13612W 모멘텀 스코어**: 12×1M + 4×3M + 2×6M + 1×12M
@@ -31,18 +29,22 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info};
 use trader_core::domain::{RouteState, StrategyContext};
+use trader_strategy_macro::StrategyConfig;
 
 use crate::strategies::common::rebalance::{
     PortfolioPosition, RebalanceCalculator, RebalanceConfig, RebalanceOrderSide, TargetAllocation,
 };
+use crate::strategies::common::ExitConfig;
 use crate::traits::Strategy;
 use trader_core::{MarketData, MarketDataType, Order, Position, Side, Signal};
 
 /// 자산 유형
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
+#[derive(Default)]
 pub enum PensionAssetType {
     /// 주식 (공격적)
+    #[default]
     Stock,
     /// 안전자산 (채권 등)
     Safe,
@@ -52,17 +54,12 @@ pub enum PensionAssetType {
     Cash,
 }
 
-impl Default for PensionAssetType {
-    fn default() -> Self {
-        Self::Stock
-    }
-}
 
 /// 포트폴리오 자산 정의
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PensionAsset {
     /// 종목 코드
-    pub ticker:  String,
+    pub ticker: String,
     /// 자산 유형
     pub asset_type: PensionAssetType,
     /// 목표 비중 (%)
@@ -102,7 +99,7 @@ impl PensionAsset {
 /// 자산별 모멘텀 결과
 #[derive(Debug, Clone)]
 struct AssetMomentum {
-    ticker:  String,
+    ticker: String,
     asset_type: PensionAssetType,
     base_target_rate: Decimal,
     momentum_score: Decimal,
@@ -113,7 +110,7 @@ struct AssetMomentum {
 }
 
 impl AssetMomentum {
-    fn new(ticker:  String, asset_type: PensionAssetType, base_rate: Decimal) -> Self {
+    fn new(ticker: String, asset_type: PensionAssetType, base_rate: Decimal) -> Self {
         Self {
             ticker,
             asset_type,
@@ -208,43 +205,63 @@ impl AssetMomentum {
 }
 
 /// Pension Bot 설정
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, StrategyConfig)]
+#[strategy(
+    id = "pension_bot",
+    name = "연금 자동화",
+    description = "13612W 모멘텀 + 평균 모멘텀 기반 연금 계좌 운용 전략",
+    category = "Monthly"
+)]
 pub struct PensionBotConfig {
     /// 포트폴리오 자산 목록
     #[serde(default = "default_pension_portfolio")]
+    #[schema(label = "포트폴리오 자산", skip)]
     pub portfolio: Vec<PensionAsset>,
 
     /// 총 투자 금액
     #[serde(default = "default_total_amount")]
+    #[schema(label = "총 투자 금액", min = 1000000, max = 1000000000)]
     pub total_amount: Decimal,
 
     /// 평균 모멘텀 계산 기간 (개월)
     #[serde(default = "default_avg_momentum_period")]
+    #[schema(label = "평균 모멘텀 기간 (개월)", min = 3, max = 24)]
     pub avg_momentum_period: usize,
 
     /// 모멘텀 보너스 상위 종목 수
     #[serde(default = "default_top_bonus_count")]
+    #[schema(label = "모멘텀 보너스 상위 종목 수", min = 1, max = 30)]
     pub top_bonus_count: usize,
 
     /// 남은 현금 중 단기자금 비율 (0.0~1.0)
     #[serde(default = "default_cash_to_short_term")]
+    #[schema(label = "단기자금 비율", min = 0, max = 1)]
     pub cash_to_short_term_rate: Decimal,
 
     /// 남은 현금 중 모멘텀 보너스 비율 (0.0~1.0)
     #[serde(default = "default_cash_to_bonus")]
+    #[schema(label = "모멘텀 보너스 비율", min = 0, max = 1)]
     pub cash_to_bonus_rate: Decimal,
 
     /// 리밸런싱 임계값 (%)
     #[serde(default = "default_rebalance_threshold")]
+    #[schema(label = "리밸런싱 임계값 (%)", min = 1, max = 20)]
     pub rebalance_threshold: Decimal,
 
     /// 최소 거래 금액
     #[serde(default = "default_min_trade_amount")]
+    #[schema(label = "최소 거래 금액", min = 10000, max = 1000000)]
     pub min_trade_amount: Decimal,
 
     /// 최소 GlobalScore (기본값: 60)
     #[serde(default = "default_min_global_score")]
+    #[schema(label = "최소 GlobalScore", min = 0, max = 100)]
     pub min_global_score: Decimal,
+
+    /// 청산 설정 (손절/익절/트레일링 스탑).
+    #[serde(default)]
+    #[fragment("risk.exit_config")]
+    pub exit_config: ExitConfig,
 }
 
 fn default_pension_portfolio() -> Vec<PensionAsset> {
@@ -313,6 +330,7 @@ impl Default for PensionBotConfig {
             rebalance_threshold: default_rebalance_threshold(),
             min_trade_amount: default_min_trade_amount(),
             min_global_score: default_min_global_score(),
+            exit_config: ExitConfig::default(),
         }
     }
 }
@@ -477,10 +495,16 @@ impl PensionBotStrategy {
                     return false;
                 }
                 RouteState::Armed => {
-                    debug!("[PensionBot] RouteState::Armed - conditional entry for {}", ticker);
+                    debug!(
+                        "[PensionBot] RouteState::Armed - conditional entry for {}",
+                        ticker
+                    );
                 }
                 RouteState::Attack => {
-                    debug!("[PensionBot] RouteState::Attack - aggressive entry for {}", ticker);
+                    debug!(
+                        "[PensionBot] RouteState::Attack - aggressive entry for {}",
+                        ticker
+                    );
                 }
             }
         }
@@ -536,15 +560,14 @@ impl PensionBotStrategy {
 
         for order in result.orders {
             // BUY 시그널의 경우 can_enter() 체크
-            if order.side == RebalanceOrderSide::Buy {
-                if !self.can_enter(&order.ticker) {
+            if order.side == RebalanceOrderSide::Buy
+                && !self.can_enter(&order.ticker) {
                     debug!(
                         "[PensionBot] Skipping BUY signal for {} - entry not allowed",
                         order.ticker
                     );
                     continue;
                 }
-            }
 
             let ticker = format!("{}/KRW", order.ticker);
 
@@ -813,5 +836,6 @@ register_strategy! {
     tickers: ["SPY", "IWM", "VEA", "VWO", "TLT", "IEF", "TIP", "BIL"],
     category: Monthly,
     markets: [Stock],
-    type: PensionBotStrategy
+    type: PensionBotStrategy,
+    config: PensionBotConfig
 }

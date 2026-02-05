@@ -120,7 +120,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             for stat in stats {
                 println!(
                     "    {}: {:.2}% win rate, {:.4}% avg return (Total: {})",
-                    stat.check_date.map(|d| d.to_string()).unwrap_or_else(|| "N/A".to_string()),
+                    stat.check_date
+                        .map(|d| d.to_string())
+                        .unwrap_or_else(|| "N/A".to_string()),
                     stat.win_rate.unwrap_or_default(),
                     stat.avg_return.unwrap_or_default(),
                     stat.total_count.unwrap_or(0)
@@ -172,10 +174,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             for result in results.iter().take(5) {
                 println!(
                     "    {} -> {}: {} ({}% return)",
-                    result.recommend_date,
-                    result.check_date,
-                    result.symbol,
-                    result.actual_return
+                    result.recommend_date, result.check_date, result.symbol, result.actual_return
                 );
             }
         }
@@ -191,15 +190,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("    Total Trades: {}", summary.total_count.unwrap_or(0));
             println!("    Win Trades: {}", summary.win_count.unwrap_or(0));
             println!("    Win Rate: {:.2}%", summary.win_rate.unwrap_or_default());
-            println!("    Avg Return: {:.4}%", summary.avg_return.unwrap_or_default());
+            println!(
+                "    Avg Return: {:.4}%",
+                summary.avg_return.unwrap_or_default()
+            );
             if let Some(avg_win) = summary.avg_win_return {
                 println!("    Avg Win: {:.4}%", avg_win);
             }
             if let Some(avg_loss) = summary.avg_loss_return {
                 println!("    Avg Loss: {:.4}%", avg_loss);
             }
-            println!("    Max Return: {:.4}%", summary.max_return.unwrap_or_default());
-            println!("    Min Return: {:.4}%", summary.min_return.unwrap_or_default());
+            println!(
+                "    Max Return: {:.4}%",
+                summary.max_return.unwrap_or_default()
+            );
+            println!(
+                "    Min Return: {:.4}%",
+                summary.min_return.unwrap_or_default()
+            );
             if let Some(stddev) = summary.return_stddev {
                 println!("    Std Dev: {:.4}%", stddev);
             }

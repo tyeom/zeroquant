@@ -269,10 +269,7 @@ impl<H: BotCommandHandler> TelegramBotHandler<H> {
 
         // 허용된 채팅 ID 확인
         if !self.allowed_chat_ids.contains(&chat_id) {
-            warn!(
-                chat_id = chat_id,
-                "허용되지 않은 채팅 ID에서 메시지 수신"
-            );
+            warn!(chat_id = chat_id, "허용되지 않은 채팅 ID에서 메시지 수신");
             return Ok(());
         }
 
@@ -330,7 +327,11 @@ impl<H: BotCommandHandler> TelegramBotHandler<H> {
     }
 
     /// 응답 메시지 전송.
-    async fn send_response(&self, chat_id: i64, response: &CommandResponse) -> NotificationResult<()> {
+    async fn send_response(
+        &self,
+        chat_id: i64,
+        response: &CommandResponse,
+    ) -> NotificationResult<()> {
         let url = format!(
             "https://api.telegram.org/bot{}/sendMessage",
             self.config.bot_token

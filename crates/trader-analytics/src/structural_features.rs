@@ -8,8 +8,8 @@
 //! - Symbol 정보가 필요한 경우 SymbolResolver를 통해 조회합니다
 
 use chrono::Utc;
-use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use trader_core::{domain::StructuralFeatures, Kline};
 
@@ -60,16 +60,10 @@ impl StructuralFeaturesCalculator {
         let recent = &candles[candles.len() - len..];
 
         // 최근 10개와 이전 10개의 평균 저가 비교
-        let first_half: Decimal = recent[..len / 2]
-            .iter()
-            .map(|k| k.low)
-            .sum();
+        let first_half: Decimal = recent[..len / 2].iter().map(|k| k.low).sum();
         let first_count = Decimal::from(len / 2);
 
-        let second_half: Decimal = recent[len / 2..]
-            .iter()
-            .map(|k| k.low)
-            .sum();
+        let second_half: Decimal = recent[len / 2..].iter().map(|k| k.low).sum();
         let second_count = Decimal::from(len - len / 2);
 
         if first_count.is_zero() || second_count.is_zero() || first_half.is_zero() {
@@ -139,16 +133,8 @@ impl StructuralFeaturesCalculator {
             None => return dec!(0.5),
         };
 
-        let high_60d = recent
-            .iter()
-            .map(|k| k.high)
-            .max()
-            .unwrap_or(Decimal::ZERO);
-        let low_60d = recent
-            .iter()
-            .map(|k| k.low)
-            .min()
-            .unwrap_or(Decimal::ZERO);
+        let high_60d = recent.iter().map(|k| k.high).max().unwrap_or(Decimal::ZERO);
+        let low_60d = recent.iter().map(|k| k.low).min().unwrap_or(Decimal::ZERO);
 
         if high_60d == low_60d {
             return dec!(0.5);
@@ -216,12 +202,13 @@ impl StructuralFeaturesCalculator {
                 let c_f64 = c.to_f64().unwrap_or(0.0);
                 (c_f64 - sma_f64).powi(2)
             })
-            .sum::<f64>() / 20.0;
+            .sum::<f64>()
+            / 20.0;
         let std_dev = variance.sqrt();
 
         // 밴드 폭 (%)
         let width = (std_dev * 2.0 * 2.0) / sma_f64 * 100.0;
-        Decimal::from_f64_retain(width.max(0.0).min(50.0)).unwrap_or(Decimal::ZERO)
+        Decimal::from_f64_retain(width.clamp(0.0, 50.0)).unwrap_or(Decimal::ZERO)
     }
 
     /// RSI 14일 계산.

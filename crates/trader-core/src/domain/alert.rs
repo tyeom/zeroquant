@@ -52,7 +52,13 @@ impl ComparisonOperator {
     /// 두 값을 비교하여 조건 충족 여부 반환.
     ///
     /// `between` 연산자의 경우 `upper_bound`가 필요합니다.
-    pub fn evaluate(&self, current: f64, threshold: f64, previous: Option<f64>, upper_bound: Option<f64>) -> bool {
+    pub fn evaluate(
+        &self,
+        current: f64,
+        threshold: f64,
+        previous: Option<f64>,
+        upper_bound: Option<f64>,
+    ) -> bool {
         match self {
             Self::Eq => (current - threshold).abs() < f64::EPSILON,
             Self::Ne => (current - threshold).abs() >= f64::EPSILON,
@@ -129,7 +135,8 @@ impl IndicatorFilter {
     /// * `current` - 현재 지표 값
     /// * `previous` - 이전 지표 값 (크로스 연산자용)
     pub fn evaluate(&self, current: f64, previous: Option<f64>) -> bool {
-        self.operator.evaluate(current, self.value, previous, self.upper_value)
+        self.operator
+            .evaluate(current, self.value, previous, self.upper_value)
     }
 }
 
@@ -341,7 +348,9 @@ impl AlertRule {
             return false;
         }
 
-        if let (Some(last_triggered), Some(cooldown)) = (self.last_triggered_at, self.cooldown_seconds) {
+        if let (Some(last_triggered), Some(cooldown)) =
+            (self.last_triggered_at, self.cooldown_seconds)
+        {
             let elapsed = Utc::now().signed_duration_since(last_triggered);
             return elapsed.num_seconds() < cooldown;
         }
@@ -478,8 +487,7 @@ mod tests {
 
     #[test]
     fn test_alert_rule_cooldown() {
-        let mut rule = AlertRule::new("test", "user_123")
-            .with_repeatable(true, Some(60));
+        let mut rule = AlertRule::new("test", "user_123").with_repeatable(true, Some(60));
 
         assert!(!rule.is_in_cooldown());
 

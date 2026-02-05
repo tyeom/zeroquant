@@ -7,14 +7,17 @@ use chrono::{Duration, Utc};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use trader_analytics::{
-    AtrParams, BollingerBandsParams, EmaParams, IndicatorEngine, MacdParams, RsiParams, SmaParams,
-    StochasticParams,
+    AtrParams, BollingerBandsParams, EmaParams, IndicatorEngine, KeltnerChannelParams, MacdParams,
+    ObvParams, RsiParams, SmaParams, StochasticParams, SuperTrendParams, VwapParams,
 };
 
 use super::types::{
     AtrQuery, AvailableIndicatorsResponse, BollingerQuery, CalculateIndicatorsRequest,
     CalculateIndicatorsResponse, EmaQuery, IndicatorDataResponse, IndicatorInfo, IndicatorPoint,
-    IndicatorSeries, MacdQuery, RsiQuery, SmaQuery, StochasticQuery,
+    IndicatorSeries, KeltnerParamsResponse, KeltnerPointResponse, KeltnerQuery, KeltnerResponse,
+    MacdQuery, ObvPointResponse, ObvQuery, ObvResponse, RsiQuery, SmaQuery, StochasticQuery,
+    SuperTrendParamsResponse, SuperTrendPointResponse, SuperTrendQuery, SuperTrendResponse,
+    VwapParamsResponse, VwapPointResponse, VwapQuery, VwapResponse,
 };
 
 /// 사용 가능한 지표 목록 조회.
@@ -85,16 +88,55 @@ pub async fn get_available_indicators() -> impl IntoResponse {
             default_params: serde_json::json!({ "period": 14 }),
             overlay: false,
         },
+        IndicatorInfo {
+            id: "vwap".to_string(),
+            name: "거래량 가중 평균가 (VWAP)".to_string(),
+            description: "거래량을 가중치로 사용한 평균 가격입니다. 기관 매매 기준가로 활용됩니다."
+                .to_string(),
+            category: "거래량".to_string(),
+            default_params: serde_json::json!({ "band_multiplier": 2.0, "reset_daily": false }),
+            overlay: true,
+        },
+        IndicatorInfo {
+            id: "keltner".to_string(),
+            name: "켈트너 채널".to_string(),
+            description: "EMA를 중심으로 ATR 기반 밴드를 그립니다. TTM Squeeze와 함께 사용됩니다."
+                .to_string(),
+            category: "변동성".to_string(),
+            default_params: serde_json::json!({ "ema_period": 20, "atr_multiplier": 2.0 }),
+            overlay: true,
+        },
+        IndicatorInfo {
+            id: "obv".to_string(),
+            name: "OBV (On-Balance Volume)".to_string(),
+            description:
+                "거래량 기반 스마트 머니 추적 지표입니다. 가격과 OBV의 다이버전스를 활용합니다."
+                    .to_string(),
+            category: "거래량".to_string(),
+            default_params: serde_json::json!({}),
+            overlay: false,
+        },
+        IndicatorInfo {
+            id: "supertrend".to_string(),
+            name: "SuperTrend".to_string(),
+            description: "ATR 기반 추세 추종 지표입니다. 명확한 매수/매도 시그널을 제공합니다."
+                .to_string(),
+            category: "추세".to_string(),
+            default_params: serde_json::json!({ "atr_period": 10, "multiplier": 3.0 }),
+            overlay: true,
+        },
     ];
 
     Json(AvailableIndicatorsResponse { indicators })
 }
 
 /// 샘플 OHLCV 데이터 생성 (테스트용).
+#[allow(clippy::type_complexity)]
 fn generate_sample_ohlcv(
     days: i64,
 ) -> (
     Vec<i64>,
+    Vec<Decimal>,
     Vec<Decimal>,
     Vec<Decimal>,
     Vec<Decimal>,
@@ -106,6 +148,7 @@ fn generate_sample_ohlcv(
     let mut highs = Vec::with_capacity(days as usize);
     let mut lows = Vec::with_capacity(days as usize);
     let mut closes = Vec::with_capacity(days as usize);
+    let mut volumes = Vec::with_capacity(days as usize);
 
     let mut price = dec!(50000); // 시작 가격
 
@@ -135,15 +178,25 @@ fn generate_sample_ohlcv(
             open * dec!(0.995)
         };
 
+        // 거래량 생성 (가격 변동 크기에 따라 변동)
+        let base_volume = dec!(1000000);
+        let volume_multiplier = if change_pct.abs() > dec!(0.01) {
+            dec!(1.5)
+        } else {
+            dec!(1.0)
+        };
+        let volume = base_volume * volume_multiplier;
+
         opens.push(open);
         highs.push(high);
         lows.push(low);
         closes.push(close);
+        volumes.push(volume);
 
         price = close;
     }
 
-    (timestamps, opens, highs, lows, closes)
+    (timestamps, opens, highs, lows, closes, volumes)
 }
 
 /// 기간 문자열을 일수로 변환.
@@ -165,7 +218,7 @@ fn parse_period_to_days(period: &str) -> i64 {
 /// GET /api/v1/analytics/indicators/sma
 pub async fn get_sma_indicator(Query(query): Query<SmaQuery>) -> impl IntoResponse {
     let days = parse_period_to_days(&query.period);
-    let (timestamps, _, _, _, closes) = generate_sample_ohlcv(days);
+    let (timestamps, _, _, _, closes, _) = generate_sample_ohlcv(days);
 
     let engine = IndicatorEngine::new();
     let params = SmaParams {
@@ -211,7 +264,7 @@ pub async fn get_sma_indicator(Query(query): Query<SmaQuery>) -> impl IntoRespon
 /// GET /api/v1/analytics/indicators/ema
 pub async fn get_ema_indicator(Query(query): Query<EmaQuery>) -> impl IntoResponse {
     let days = parse_period_to_days(&query.period);
-    let (timestamps, _, _, _, closes) = generate_sample_ohlcv(days);
+    let (timestamps, _, _, _, closes, _) = generate_sample_ohlcv(days);
 
     let engine = IndicatorEngine::new();
     let params = EmaParams {
@@ -257,7 +310,7 @@ pub async fn get_ema_indicator(Query(query): Query<EmaQuery>) -> impl IntoRespon
 /// GET /api/v1/analytics/indicators/rsi
 pub async fn get_rsi_indicator(Query(query): Query<RsiQuery>) -> impl IntoResponse {
     let days = parse_period_to_days(&query.period);
-    let (timestamps, _, _, _, closes) = generate_sample_ohlcv(days);
+    let (timestamps, _, _, _, closes, _) = generate_sample_ohlcv(days);
 
     let engine = IndicatorEngine::new();
     let params = RsiParams {
@@ -303,7 +356,7 @@ pub async fn get_rsi_indicator(Query(query): Query<RsiQuery>) -> impl IntoRespon
 /// GET /api/v1/analytics/indicators/macd
 pub async fn get_macd_indicator(Query(query): Query<MacdQuery>) -> impl IntoResponse {
     let days = parse_period_to_days(&query.period);
-    let (timestamps, _, _, _, closes) = generate_sample_ohlcv(days);
+    let (timestamps, _, _, _, closes, _) = generate_sample_ohlcv(days);
 
     let engine = IndicatorEngine::new();
     let params = MacdParams {
@@ -390,7 +443,7 @@ pub async fn get_macd_indicator(Query(query): Query<MacdQuery>) -> impl IntoResp
 /// GET /api/v1/analytics/indicators/bollinger
 pub async fn get_bollinger_indicator(Query(query): Query<BollingerQuery>) -> impl IntoResponse {
     let days = parse_period_to_days(&query.period);
-    let (timestamps, _, _, _, closes) = generate_sample_ohlcv(days);
+    let (timestamps, _, _, _, closes, _) = generate_sample_ohlcv(days);
 
     let engine = IndicatorEngine::new();
     let params = BollingerBandsParams {
@@ -472,7 +525,7 @@ pub async fn get_bollinger_indicator(Query(query): Query<BollingerQuery>) -> imp
 /// GET /api/v1/analytics/indicators/stochastic
 pub async fn get_stochastic_indicator(Query(query): Query<StochasticQuery>) -> impl IntoResponse {
     let days = parse_period_to_days(&query.period);
-    let (timestamps, _, highs, lows, closes) = generate_sample_ohlcv(days);
+    let (timestamps, _, highs, lows, closes, _) = generate_sample_ohlcv(days);
 
     let engine = IndicatorEngine::new();
     let params = StochasticParams {
@@ -539,7 +592,7 @@ pub async fn get_stochastic_indicator(Query(query): Query<StochasticQuery>) -> i
 /// GET /api/v1/analytics/indicators/atr
 pub async fn get_atr_indicator(Query(query): Query<AtrQuery>) -> impl IntoResponse {
     let days = parse_period_to_days(&query.period);
-    let (timestamps, _, highs, lows, closes) = generate_sample_ohlcv(days);
+    let (timestamps, _, highs, lows, closes, _) = generate_sample_ohlcv(days);
 
     let engine = IndicatorEngine::new();
     let params = AtrParams {
@@ -587,7 +640,7 @@ pub async fn calculate_indicators(
     Json(request): Json<CalculateIndicatorsRequest>,
 ) -> impl IntoResponse {
     let days = parse_period_to_days(&request.period);
-    let (timestamps, _, highs, lows, closes) = generate_sample_ohlcv(days);
+    let (timestamps, _, highs, lows, closes, _) = generate_sample_ohlcv(days);
 
     let engine = IndicatorEngine::new();
     let mut results = Vec::new();
@@ -973,4 +1026,467 @@ pub async fn calculate_indicators(
         period: request.period,
         results,
     })
+}
+
+/// Volume Profile 계산.
+///
+/// GET /api/v1/analytics/indicators/volume-profile?symbol=005930&period=60&num_levels=20
+pub async fn get_volume_profile(
+    Query(query): Query<super::types::VolumeProfileQuery>,
+) -> impl IntoResponse {
+    use super::types::{PriceLevelResponse, VolumeProfileResponse};
+    use rust_decimal::prelude::ToPrimitive;
+    use trader_analytics::VolumeProfileCalculator;
+    use trader_core::Kline;
+
+    // OHLCV 데이터 생성 (실제로는 DB에서 조회)
+    let days = query.period as i64;
+    let (timestamps, opens, highs, lows, closes, volumes) = generate_sample_ohlcv(days);
+
+    // Kline으로 변환
+    let klines: Vec<Kline> = timestamps
+        .iter()
+        .zip(opens.iter())
+        .zip(highs.iter())
+        .zip(lows.iter())
+        .zip(closes.iter())
+        .zip(volumes.iter())
+        .map(|(((((ts, open), high), low), close), vol)| {
+            use chrono::TimeZone;
+            Kline {
+                ticker: query.symbol.clone(),
+                timeframe: trader_core::Timeframe::D1,
+                open_time: Utc.timestamp_millis_opt(*ts).unwrap(),
+                open: *open,
+                high: *high,
+                low: *low,
+                close: *close,
+                volume: *vol,
+                close_time: Utc.timestamp_millis_opt(*ts + 86400000).unwrap(),
+                quote_volume: None,
+                num_trades: None,
+            }
+        })
+        .collect();
+
+    // Volume Profile 계산
+    let mut calculator = VolumeProfileCalculator::new(query.num_levels);
+    if let Some(ratio) = query.value_area_ratio {
+        calculator =
+            calculator.with_value_area_ratio(Decimal::from_f64_retain(ratio).unwrap_or(dec!(0.7)));
+    }
+
+    match calculator.calculate(&klines) {
+        Some(profile) => {
+            let price_levels: Vec<PriceLevelResponse> = profile
+                .price_levels
+                .iter()
+                .map(|level| PriceLevelResponse {
+                    price: level.price.to_f64().unwrap_or(0.0),
+                    volume: level.volume.to_f64().unwrap_or(0.0),
+                    volume_pct: level.volume_pct.to_f64().unwrap_or(0.0),
+                })
+                .collect();
+
+            Json(VolumeProfileResponse {
+                symbol: query.symbol,
+                period: profile.period,
+                price_levels,
+                poc: profile.poc.to_f64().unwrap_or(0.0),
+                poc_index: profile.poc_index,
+                value_area_high: profile.value_area_high.to_f64().unwrap_or(0.0),
+                value_area_low: profile.value_area_low.to_f64().unwrap_or(0.0),
+                total_volume: profile.total_volume.to_f64().unwrap_or(0.0),
+                price_low: profile.price_low.to_f64().unwrap_or(0.0),
+                price_high: profile.price_high.to_f64().unwrap_or(0.0),
+            })
+        }
+        None => {
+            // 에러 응답 (간단히 빈 결과 반환)
+            Json(VolumeProfileResponse {
+                symbol: query.symbol,
+                period: 0,
+                price_levels: vec![],
+                poc: 0.0,
+                poc_index: 0,
+                value_area_high: 0.0,
+                value_area_low: 0.0,
+                total_volume: 0.0,
+                price_low: 0.0,
+                price_high: 0.0,
+            })
+        }
+    }
+}
+
+/// 상관행렬 계산 핸들러.
+///
+/// # 요청
+///
+/// `GET /api/v1/analytics/correlation?symbols=005930,000660,035720&period=60`
+///
+/// # 응답
+///
+/// 종목 간 상관계수 행렬
+pub async fn get_correlation(
+    Query(query): Query<super::types::CorrelationQuery>,
+) -> impl IntoResponse {
+    use super::types::CorrelationResponse;
+    use std::collections::HashMap;
+    use trader_analytics::correlation::calculate_correlation_matrix;
+
+    // 종목 코드 파싱 (쉼표 구분)
+    let symbols: Vec<String> = query
+        .symbols
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    if symbols.len() < 2 {
+        return Json(CorrelationResponse {
+            symbols: vec![],
+            matrix: vec![],
+            period: 0,
+        });
+    }
+
+    // 각 종목별 샘플 가격 데이터 생성 (실제로는 DB에서 조회)
+    let days = query.period as i64;
+    let mut prices: HashMap<String, Vec<f64>> = HashMap::new();
+
+    // 시드 기반으로 종목별 다른 가격 움직임 생성
+    for (idx, symbol) in symbols.iter().enumerate() {
+        let mut price_series = Vec::with_capacity(days as usize);
+        let mut price = 50000.0 + (idx as f64 * 10000.0); // 종목별 시작 가격 다르게
+
+        for i in 0..days {
+            // 종목별 다른 패턴의 가격 변동
+            let change = match idx % 3 {
+                0 => {
+                    // 상승 추세
+                    if i % 5 == 0 {
+                        -0.015
+                    } else {
+                        0.01
+                    }
+                }
+                1 => {
+                    // 하락 추세
+                    if i % 5 == 0 {
+                        0.01
+                    } else {
+                        -0.008
+                    }
+                }
+                _ => {
+                    // 횡보
+                    if i % 2 == 0 {
+                        0.005
+                    } else {
+                        -0.005
+                    }
+                }
+            };
+
+            price_series.push(price);
+            price *= 1.0 + change;
+        }
+
+        prices.insert(symbol.clone(), price_series);
+    }
+
+    // 상관행렬 계산
+    match calculate_correlation_matrix(&prices, Some(symbols.clone())) {
+        Some(matrix) => Json(CorrelationResponse {
+            symbols: matrix.symbols,
+            matrix: matrix.matrix,
+            period: matrix.period,
+        }),
+        None => Json(CorrelationResponse {
+            symbols: vec![],
+            matrix: vec![],
+            period: 0,
+        }),
+    }
+}
+
+/// VWAP 지표 데이터 조회.
+///
+/// GET /api/v1/analytics/indicators/vwap?symbol=005930&period=3m&band_multiplier=2.0
+pub async fn get_vwap_indicator(Query(query): Query<VwapQuery>) -> impl IntoResponse {
+    let days = parse_period_to_days(&query.period);
+    let (timestamps, _, highs, lows, closes, volumes) = generate_sample_ohlcv(days);
+
+    let engine = IndicatorEngine::new();
+    let params = VwapParams {
+        band_multiplier: Decimal::from_f64_retain(query.band_multiplier).unwrap_or(dec!(2.0)),
+        reset_daily: query.reset_daily,
+    };
+
+    match engine.vwap(&highs, &lows, &closes, &volumes, params) {
+        Ok(vwap_results) => {
+            let data: Vec<VwapPointResponse> = timestamps
+                .iter()
+                .zip(vwap_results.iter())
+                .map(|(&ts, result)| VwapPointResponse {
+                    x: ts,
+                    vwap: result.vwap.to_string(),
+                    upper_band: result.upper_band.map(|v| v.to_string()),
+                    lower_band: result.lower_band.map(|v| v.to_string()),
+                    deviation_pct: result.deviation_pct.map(|v| v.to_string()),
+                })
+                .collect();
+
+            // 최신 값 추출
+            let current_vwap = vwap_results
+                .last()
+                .map(|r| r.vwap.to_string())
+                .unwrap_or_else(|| "0".to_string());
+            let current_deviation = vwap_results
+                .last()
+                .and_then(|r| r.deviation_pct.map(|v| v.to_string()));
+
+            Json(VwapResponse {
+                symbol: query.symbol,
+                period: query.period,
+                params: VwapParamsResponse {
+                    band_multiplier: query.band_multiplier,
+                    reset_daily: query.reset_daily,
+                },
+                data,
+                count: vwap_results.len(),
+                current_vwap,
+                current_deviation,
+            })
+        }
+        Err(e) => {
+            // 에러 시 빈 응답 반환
+            Json(VwapResponse {
+                symbol: query.symbol.clone(),
+                period: query.period.clone(),
+                params: VwapParamsResponse {
+                    band_multiplier: query.band_multiplier,
+                    reset_daily: query.reset_daily,
+                },
+                data: vec![],
+                count: 0,
+                current_vwap: "0".to_string(),
+                current_deviation: Some(format!("Error: {}", e)),
+            })
+        }
+    }
+}
+
+/// Keltner Channel 지표 데이터 조회.
+///
+/// GET /api/v1/analytics/indicators/keltner?symbol=005930&period=3m&ema_period=20&atr_multiplier=2.0
+/// 참고: EMA와 ATR 계산 모두 ema_period를 사용합니다.
+pub async fn get_keltner_indicator(Query(query): Query<KeltnerQuery>) -> impl IntoResponse {
+    let days = parse_period_to_days(&query.period);
+    let (timestamps, _, highs, lows, closes, _) = generate_sample_ohlcv(days);
+
+    let engine = IndicatorEngine::new();
+    // 참고: KeltnerChannelParams는 EMA와 ATR 모두 동일한 period를 사용
+    let params = KeltnerChannelParams {
+        period: query.ema_period,
+        atr_multiplier: Decimal::from_f64_retain(query.atr_multiplier).unwrap_or(dec!(2.0)),
+    };
+
+    match engine.keltner_channel(&highs, &lows, &closes, params) {
+        Ok(keltner_results) => {
+            let data: Vec<KeltnerPointResponse> = timestamps
+                .iter()
+                .zip(keltner_results.iter())
+                .map(|(&ts, result)| {
+                    // 채널 폭 계산 (%)
+                    let width_pct = match (result.upper, result.lower, result.middle) {
+                        (Some(upper), Some(lower), Some(middle)) if middle > Decimal::ZERO => {
+                            let width = (upper - lower) / middle * dec!(100);
+                            Some(width.to_string())
+                        }
+                        _ => None,
+                    };
+
+                    KeltnerPointResponse {
+                        x: ts,
+                        middle: result.middle.map(|v| v.to_string()).unwrap_or_default(),
+                        upper: result.upper.map(|v| v.to_string()).unwrap_or_default(),
+                        lower: result.lower.map(|v| v.to_string()).unwrap_or_default(),
+                        width_pct,
+                    }
+                })
+                .collect();
+
+            // 최신 값 추출
+            let (current_middle, current_upper, current_lower) = keltner_results
+                .last()
+                .map(|r| {
+                    (
+                        r.middle.map(|v| v.to_string()).unwrap_or_default(),
+                        r.upper.map(|v| v.to_string()).unwrap_or_default(),
+                        r.lower.map(|v| v.to_string()).unwrap_or_default(),
+                    )
+                })
+                .unwrap_or_else(|| ("0".to_string(), "0".to_string(), "0".to_string()));
+
+            Json(KeltnerResponse {
+                symbol: query.symbol,
+                period: query.period,
+                params: KeltnerParamsResponse {
+                    ema_period: query.ema_period,
+                    atr_multiplier: query.atr_multiplier,
+                },
+                data,
+                count: keltner_results.len(),
+                current_middle,
+                current_upper,
+                current_lower,
+            })
+        }
+        Err(e) => {
+            // 에러 시 빈 응답 반환
+            Json(KeltnerResponse {
+                symbol: query.symbol.clone(),
+                period: query.period.clone(),
+                params: KeltnerParamsResponse {
+                    ema_period: query.ema_period,
+                    atr_multiplier: query.atr_multiplier,
+                },
+                data: vec![],
+                count: 0,
+                current_middle: format!("Error: {}", e),
+                current_upper: "0".to_string(),
+                current_lower: "0".to_string(),
+            })
+        }
+    }
+}
+
+/// OBV (On-Balance Volume) 지표 데이터 조회.
+///
+/// GET /api/v1/analytics/indicators/obv?symbol=005930&period=3m
+pub async fn get_obv_indicator(Query(query): Query<ObvQuery>) -> impl IntoResponse {
+    let days = parse_period_to_days(&query.period);
+    let (timestamps, _, _, _, closes, volumes) = generate_sample_ohlcv(days);
+
+    let engine = IndicatorEngine::new();
+    let params = ObvParams::default();
+
+    match engine.obv(&closes, &volumes, params) {
+        Ok(obv_results) => {
+            let data: Vec<ObvPointResponse> = timestamps
+                .iter()
+                .zip(obv_results.iter())
+                .map(|(&ts, result)| ObvPointResponse {
+                    x: ts,
+                    obv: result.obv,
+                    change: result.change,
+                })
+                .collect();
+
+            // 최신 값 추출
+            let (current_obv, current_change) = obv_results
+                .last()
+                .map(|r| (r.obv, r.change))
+                .unwrap_or((0, 0));
+
+            Json(ObvResponse {
+                symbol: query.symbol,
+                period: query.period,
+                data,
+                count: obv_results.len(),
+                current_obv,
+                current_change,
+            })
+        }
+        Err(_) => {
+            // 에러 시 빈 응답 반환
+            Json(ObvResponse {
+                symbol: query.symbol.clone(),
+                period: query.period.clone(),
+                data: vec![],
+                count: 0,
+                current_obv: 0,
+                current_change: 0,
+            })
+        }
+    }
+}
+
+/// SuperTrend 지표 데이터 조회.
+///
+/// GET /api/v1/analytics/indicators/supertrend?symbol=005930&period=3m&atr_period=10&multiplier=3.0
+pub async fn get_supertrend_indicator(Query(query): Query<SuperTrendQuery>) -> impl IntoResponse {
+    let days = parse_period_to_days(&query.period);
+    let (timestamps, _, highs, lows, closes, _) = generate_sample_ohlcv(days);
+
+    let engine = IndicatorEngine::new();
+    let params = SuperTrendParams {
+        atr_period: query.atr_period,
+        multiplier: Decimal::from_f64_retain(query.multiplier).unwrap_or(dec!(3.0)),
+    };
+
+    match engine.supertrend(&highs, &lows, &closes, params) {
+        Ok(st_results) => {
+            let data: Vec<SuperTrendPointResponse> = timestamps
+                .iter()
+                .zip(st_results.iter())
+                .map(|(&ts, result)| SuperTrendPointResponse {
+                    x: ts,
+                    value: result.value.map(|v| v.to_string()),
+                    is_uptrend: result.is_uptrend,
+                    buy_signal: result.buy_signal,
+                    sell_signal: result.sell_signal,
+                })
+                .collect();
+
+            // 최신 값 추출
+            let (current_value, current_trend) = st_results
+                .last()
+                .map(|r| {
+                    (
+                        r.value.map(|v| v.to_string()),
+                        if r.is_uptrend { "UP" } else { "DOWN" }.to_string(),
+                    )
+                })
+                .unwrap_or((None, "UNKNOWN".to_string()));
+
+            // 시그널 카운트
+            let total_buy_signals = st_results.iter().filter(|r| r.buy_signal).count();
+            let total_sell_signals = st_results.iter().filter(|r| r.sell_signal).count();
+
+            Json(SuperTrendResponse {
+                symbol: query.symbol,
+                period: query.period,
+                params: SuperTrendParamsResponse {
+                    atr_period: query.atr_period,
+                    multiplier: query.multiplier,
+                },
+                data,
+                count: st_results.len(),
+                current_value,
+                current_trend,
+                total_buy_signals,
+                total_sell_signals,
+            })
+        }
+        Err(e) => {
+            // 에러 시 빈 응답 반환
+            Json(SuperTrendResponse {
+                symbol: query.symbol.clone(),
+                period: query.period.clone(),
+                params: SuperTrendParamsResponse {
+                    atr_period: query.atr_period,
+                    multiplier: query.multiplier,
+                },
+                data: vec![],
+                count: 0,
+                current_value: Some(format!("Error: {}", e)),
+                current_trend: "ERROR".to_string(),
+                total_buy_signals: 0,
+                total_sell_signals: 0,
+            })
+        }
+    }
 }

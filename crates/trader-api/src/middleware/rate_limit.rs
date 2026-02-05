@@ -284,6 +284,7 @@ fn extract_client_ip(request: &Request) -> IpAddr {
 }
 
 /// Rate Limit 레이어 생성 헬퍼.
+#[allow(clippy::type_complexity)]
 pub fn create_rate_limit_layer(
     requests_per_minute: u32,
 ) -> (

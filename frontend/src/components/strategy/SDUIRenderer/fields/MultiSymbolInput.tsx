@@ -23,8 +23,8 @@ import {
   createMemo,
   onCleanup,
 } from 'solid-js';
-import { SymbolAutocomplete, type SymbolSearchResult } from './SymbolAutocomplete';
-import { getSymbolsBatch } from '../../../../api/client';
+import { SymbolSearch } from '../../../../components/SymbolSearch';
+import { getSymbolsBatch, type SymbolSearchResult } from '../../../../api/client';
 
 // ==================== Props ====================
 
@@ -366,16 +366,14 @@ export const MultiSymbolInput: Component<MultiSymbolInputProps> = (props) => {
         >
           <div class="flex gap-2">
             <div class="flex-1">
-              <SymbolAutocomplete
-                id={props.id ? `${props.id}-input` : undefined}
-                value=""
-                onChange={(symbol) => {
+              <SymbolSearch
+                onSelect={(symbol) => {
                   if (symbol) {
                     handleAddSymbol(symbol);
                   }
                 }}
-                market={props.market}
                 placeholder={props.placeholder || '종목 코드 또는 이름으로 검색하여 추가'}
+                size="md"
               />
             </div>
           </div>

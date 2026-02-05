@@ -10,8 +10,8 @@ use serde_json::Value as JsonValue;
 use sqlx::{FromRow, PgPool, Postgres, QueryBuilder};
 use tracing::{debug, info, warn};
 use ts_rs::TS;
-use uuid::Uuid;
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 use trader_analytics::{
     GlobalScorer, GlobalScorerParams, IndicatorEngine, RouteStateCalculator, SevenFactorCalculator,
@@ -208,7 +208,11 @@ impl GlobalScoreRepository {
             }
         }
 
-        info!("GlobalScore 계산 완료: {}/{} 종목", processed, symbols.len());
+        info!(
+            "GlobalScore 계산 완료: {}/{} 종목",
+            processed,
+            symbols.len()
+        );
 
         Ok(processed)
     }
@@ -259,7 +263,9 @@ impl GlobalScoreRepository {
         // 4. DB 저장 (UPSERT)
         // component_scores를 복사하여 penalties 추출
         let mut component_scores_map = result.component_scores.clone();
-        let penalties_value = component_scores_map.remove("penalties").unwrap_or(Decimal::ZERO);
+        let penalties_value = component_scores_map
+            .remove("penalties")
+            .unwrap_or(Decimal::ZERO);
 
         let component_scores = serde_json::to_value(&component_scores_map)
             .map_err(|e| sqlx::Error::Protocol(format!("JSON 변환 실패: {}", e)))?;
@@ -282,7 +288,7 @@ impl GlobalScoreRepository {
         sqlx::query(
             r#"
             SELECT upsert_global_score($1, $2, $3, $4, $5, $6, $7, $8)
-            "#
+            "#,
         )
         .bind(symbol_info_id)
         .bind(result.overall_score)
@@ -345,10 +351,18 @@ impl GlobalScoreRepository {
             "#,
         );
 
-        // 필터 적용
+        // 필터 적용 (KR-KOSPI 형식 지원)
         if let Some(ref market) = filter.market {
-            query_builder.push(" AND sgs.market = ");
-            query_builder.push_bind(market);
+            // "KR-KOSPI", "KR-KOSDAQ" 등 하이픈 구분 형식 파싱
+            if let Some((market_code, exchange_code)) = market.split_once('-') {
+                query_builder.push(" AND sgs.market = ");
+                query_builder.push_bind(market_code.to_string());
+                query_builder.push(" AND si.exchange = ");
+                query_builder.push_bind(exchange_code.to_string());
+            } else {
+                query_builder.push(" AND sgs.market = ");
+                query_builder.push_bind(market.clone());
+            }
         }
 
         if let Some(ref grade) = filter.grade {
@@ -473,6 +487,7 @@ impl GlobalScoreRepository {
     /// # 반환
     ///
     /// 7Factor 응답 (데이터 부족 시 None)
+    #[allow(clippy::field_reassign_with_default)]
     pub async fn get_seven_factor(
         pool: &PgPool,
         ticker: &str,
@@ -556,7 +571,7 @@ impl GlobalScoreRepository {
             let lows: Vec<Decimal> = candles.iter().map(|c| c.low).collect();
 
             // RSI - 가장 최근 값 사용
-            use trader_analytics::{RsiParams, AtrParams};
+            use trader_analytics::{AtrParams, RsiParams};
             if let Ok(rsi_values) = indicator.rsi(&closes, RsiParams::default()) {
                 if let Some(Some(last_rsi)) = rsi_values.last() {
                     input.rsi = Some(*last_rsi);
@@ -581,13 +596,15 @@ impl GlobalScoreRepository {
                 if candles.len() >= 5 {
                     let price_5d_ago = candles[candles.len() - 5].close;
                     if price_5d_ago > Decimal::ZERO {
-                        input.return_5d = Some((last.close - price_5d_ago) / price_5d_ago * dec!(100));
+                        input.return_5d =
+                            Some((last.close - price_5d_ago) / price_5d_ago * dec!(100));
                     }
                 }
                 if candles.len() >= 20 {
                     let price_20d_ago = candles[candles.len() - 20].close;
                     if price_20d_ago > Decimal::ZERO {
-                        input.return_20d = Some((last.close - price_20d_ago) / price_20d_ago * dec!(100));
+                        input.return_20d =
+                            Some((last.close - price_20d_ago) / price_20d_ago * dec!(100));
                     }
                 }
             }

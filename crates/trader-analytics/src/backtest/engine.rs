@@ -39,7 +39,9 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use thiserror::Error;
-use trader_core::{unrealized_pnl, Kline, MarketData, Side, Signal, SignalMarker, SignalType, Trade};
+use trader_core::{
+    unrealized_pnl, Kline, MarketData, Side, Signal, SignalMarker, SignalType, Trade,
+};
 use uuid::Uuid;
 
 use crate::backtest::slippage::SlippageModel;
@@ -447,7 +449,7 @@ impl BacktestEngine {
         klines: &[Kline],
     ) -> BacktestResult<BacktestReport>
     where
-        S: trader_strategy::Strategy,
+        S: trader_strategy::Strategy + ?Sized,
     {
         // 설정 검증
         self.config.validate()?;
@@ -601,6 +603,11 @@ impl BacktestEngine {
         let max_amount = self.balance * self.config.max_position_size_pct;
         let position_amount =
             max_amount * Decimal::from_f64(signal.strength).unwrap_or(Decimal::ONE);
+
+        // Division by zero 방지
+        if execution_price <= Decimal::ZERO {
+            return Ok(()); // 유효하지 않은 가격
+        }
         let quantity = position_amount / execution_price;
 
         // 자금 확인
@@ -813,7 +820,6 @@ impl BacktestEngine {
     pub fn open_positions_count(&self) -> usize {
         self.positions.len()
     }
-
 
     /// 다중 타임프레임 백테스트를 실행합니다.
     ///
@@ -1151,7 +1157,7 @@ mod tests {
     use chrono::Duration;
     use rust_decimal_macros::dec;
     use trader_core::Timeframe;
-    
+
     fn create_test_klines(count: usize, start_price: Decimal, trend: Decimal) -> Vec<Kline> {
         let ticker = "BTC/USDT".to_string();
         let base_time = Utc::now() - Duration::days(count as i64);
